@@ -35,11 +35,7 @@ export function CommitFooter({
           This commit will be created on detached HEAD.
         </p>
       )}
-      <Button
-        disabled={disabled}
-        className="bg-accent text-white"
-        onClick={commit}
-      >
+      <Button disabled={disabled} variant="primary" onClick={commit}>
         <GitCommitHorizontal className="size-3.5" />
         <span className="truncate">
           Commit {staged} {staged === 1 ? 'file' : 'files'} to {status.branch}
