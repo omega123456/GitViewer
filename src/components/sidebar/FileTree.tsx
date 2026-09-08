@@ -33,11 +33,13 @@ export function ChangesTree({
   status,
   source,
   disabled,
+  fill,
 }: {
   repo: string;
   status: Status;
   source: 'staged' | 'unstaged';
   disabled: boolean;
+  fill: boolean;
 }) {
   const filter = useFilter(repo);
   const compact = useCompact();
@@ -75,7 +77,7 @@ export function ChangesTree({
   const virtual = useVirtualizer({
     count: items.length,
     getScrollElement: () => parent.current,
-    estimateSize: () => (compact ? 22 : 26),
+    estimateSize: () => (compact ? 24 : 28),
     overscan: 8,
   });
   return (
@@ -83,7 +85,7 @@ export function ChangesTree({
       {...tree.getContainerProps()}
       ref={parent}
       aria-label={source === 'staged' ? 'Staged changes' : 'Changes'}
-      className="min-h-0 flex-1 overflow-auto"
+      className={`min-h-0 overflow-auto ${fill ? 'flex-1' : 'max-h-staged-cap'}`}
     >
       <div
         className="relative h-virtual"
@@ -96,7 +98,7 @@ export function ChangesTree({
           return (
             <div
               key={item.getId()}
-              className="absolute top-0 left-0 flex w-full translate-y-row items-center gap-1 pl-indent"
+              className="group absolute top-0 left-0 flex w-full translate-y-row items-center gap-1 pl-indent"
               style={dynamic({
                 '--row-offset': `${row.start}px`,
                 '--tree-indent': `${item.getItemMeta().level * 14 + 8}px`,
@@ -152,6 +154,7 @@ export function ChangesTree({
                 <StatusBadge status={node.status} />
               </button>
               <Button
+                className="size-6 p-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
                 disabled={disabled}
                 aria-label={
                   node.directory
@@ -264,7 +267,7 @@ export function FilesTree({ repo, status }: { repo: string; status: Status }) {
   const virtual = useVirtualizer({
     count: items.length,
     getScrollElement: () => parent.current,
-    estimateSize: () => (compact ? 22 : 26),
+    estimateSize: () => (compact ? 24 : 28),
     overscan: 8,
   });
   return (

@@ -107,12 +107,16 @@ describe('repository workflows', () => {
       args: { repo: repository.id, paths: ['src/app.ts'], action: 'revert' },
     });
     dialog.approved = false;
-    await user.click(screen.getByRole('button', { name: 'Revert all' }));
+    await user.click(
+      screen.getByRole('button', { name: 'Revert all changes' }),
+    );
     expect(
       calls.filter((call) => call.command === 'files_action'),
     ).toHaveLength(2);
     dialog.approved = true;
-    await user.click(screen.getByRole('button', { name: 'Revert all' }));
+    await user.click(
+      screen.getByRole('button', { name: 'Revert all changes' }),
+    );
     expect(calls).toContainEqual({
       command: 'files_action',
       args: {
@@ -142,6 +146,39 @@ describe('repository workflows', () => {
     });
     window.dispatchEvent(copy);
     expect(copy.defaultPrevented).toBe(false);
+  });
+  it('scopes bulk verbs to their own group and drops an empty group', async () => {
+    setup();
+    const user = userEvent.setup();
+    mount();
+    await user.click(
+      await screen.findByRole('button', { name: 'Unstage all' }),
+    );
+    expect(calls).toContainEqual({
+      command: 'files_action',
+      args: { repo: repository.id, paths: ['src/app.ts'], action: 'unstage' },
+    });
+    await user.click(
+      screen.getByRole('button', { name: 'Revert all staged changes' }),
+    );
+    expect(calls).toContainEqual({
+      command: 'files_action',
+      args: { repo: repository.id, paths: ['src/app.ts'], action: 'revert' },
+    });
+    await user.type(screen.getByLabelText('Filter files'), 'new');
+    expect(
+      screen.queryByRole('button', { name: 'Unstage all' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Revert all staged changes' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Stage all' })).toBeVisible();
+    await user.clear(screen.getByLabelText('Filter files'));
+    await user.type(screen.getByLabelText('Filter files'), 'zzz');
+    expect(await screen.findByText('No files match the filter')).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'Stage all' }),
+    ).not.toBeInTheDocument();
   });
   it('creates from another reference, filters groups, switches and confirms deletion', async () => {
     setup();
@@ -309,11 +346,12 @@ describe('repository workflows', () => {
     fireEvent.keyDown(screen.getByLabelText('Resize sidebar'), {
       key: 'ArrowLeft',
     });
-    fireEvent.keyDown(screen.getByLabelText('Resize tree sections'), {
+    await user.click(screen.getByRole('button', { name: /^Files/ }));
+    fireEvent.keyDown(screen.getByLabelText('Resize files section'), {
       key: 'ArrowUp',
     });
     expect(useLayout.getState().tabs[repository.id].width).toBe(290);
-    expect(useLayout.getState().tabs[repository.id].changesHeight).toBe(36);
+    expect(useLayout.getState().tabs[repository.id].filesHeight).toBe(38);
     await action('blame');
     expect(await screen.findByText('first')).toBeVisible();
     expect(
@@ -610,7 +648,15 @@ describe('keyboard and pointer access', () => {
     fireEvent.pointerDown(sidebar);
     fireEvent.pointerMove(sidebar, { clientX: 500 });
     expect(sidebar).toHaveAttribute('aria-valuenow', '500');
-    const sections = screen.getByLabelText('Resize tree sections');
+    expect(screen.getByRole('button', { name: /^Files/ })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    expect(
+      screen.queryByLabelText('Resize files section'),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^Files/ }));
+    const sections = screen.getByLabelText('Resize files section');
     fireEvent.pointerDown(sections);
     fireEvent.pointerMove(sections, { clientY: 300 });
     expect(sections).toHaveAttribute('aria-valuenow', '50');

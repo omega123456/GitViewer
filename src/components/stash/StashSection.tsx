@@ -6,7 +6,6 @@ import {
   Archive,
   ArrowDownFromLine,
   ArrowDownToLine,
-  Plus,
   Trash2,
 } from 'lucide-react';
 import { useActions } from '../../lib/actions';
@@ -112,6 +111,37 @@ export function StashSection({
       defaultOpen={false}
       grow={false}
       icon={<Archive className="size-3" />}
+      actions={
+        <>
+          <Button
+            className="size-6 p-0"
+            aria-label="Apply stash"
+            title="Apply stash"
+            disabled={disabled || !selected}
+            onClick={() => void apply(false)}
+          >
+            <ArrowDownToLine className="size-3.5" />
+          </Button>
+          <Button
+            className="size-6 p-0"
+            aria-label="Pop stash"
+            title="Pop stash"
+            disabled={disabled || !selected}
+            onClick={() => void apply(true)}
+          >
+            <ArrowDownFromLine className="size-3.5" />
+          </Button>
+          <Button
+            className="size-6 p-0 text-deleted dark:text-deleted-dark"
+            aria-label="Drop stash"
+            title="Drop stash"
+            disabled={disabled || !selected}
+            onClick={() => void drop()}
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+        </>
+      }
     >
       <div className="flex h-28 flex-col">
         <VirtualList
@@ -153,46 +183,6 @@ export function StashSection({
           )}
         </div>
       )}
-      <div className="flex shrink-0 flex-wrap gap-1.5 border-t border-line bg-sub p-2 dark:border-line-dark dark:bg-sub-dark">
-        <Button
-          className="border border-line bg-surface dark:border-line-dark dark:bg-surface-dark"
-          disabled={disabled}
-          onClick={() =>
-            void perform('stash_save', {
-              repo,
-              message: 'Saved from GitViewer',
-            })
-          }
-        >
-          <Plus className="size-3" />
-          Stash changes
-        </Button>
-        <Button
-          className="border border-line bg-surface dark:border-line-dark dark:bg-surface-dark"
-          disabled={disabled || !selected}
-          onClick={() => void apply(false)}
-        >
-          <ArrowDownToLine className="size-3" />
-          Apply
-        </Button>
-        <Button
-          className="border border-line bg-surface dark:border-line-dark dark:bg-surface-dark"
-          disabled={disabled || !selected}
-          onClick={() => void apply(true)}
-        >
-          <ArrowDownFromLine className="size-3" />
-          Pop
-        </Button>
-        <Button
-          title="Drop stash"
-          className="border border-line bg-surface text-deleted dark:border-line-dark dark:bg-surface-dark dark:text-deleted-dark"
-          disabled={disabled || !selected}
-          onClick={() => void drop()}
-        >
-          <Trash2 className="size-3" />
-          Drop
-        </Button>
-      </div>
     </Section>
   );
 }

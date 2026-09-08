@@ -290,27 +290,12 @@ export function RepositoryView({
           <SidebarModeToggle repo={repo} />
           <div
             className={
-              layout.history ? 'hidden' : 'flex min-h-0 flex-1 flex-col'
+              layout.history
+                ? 'hidden'
+                : 'flex min-h-0 flex-1 flex-col overflow-y-auto'
             }
           >
             <ChangesSection repo={repo} status={status} disabled={disabled} />
-            <ResizeHandle
-              label="Resize tree sections"
-              orientation="vertical"
-              min={20}
-              max={70}
-              step={2}
-              value={layout.changesHeight}
-              className="h-1.5 shrink-0 cursor-row-resize border-y border-line hover:bg-accent focus-visible:bg-accent dark:border-line-dark"
-              measure={(event) => {
-                const bounds =
-                  event.currentTarget.parentElement!.getBoundingClientRect();
-                return ((event.clientY - bounds.top) / bounds.height) * 100;
-              }}
-              onChange={(changesHeight) =>
-                useLayout.getState().update(repo, { changesHeight })
-              }
-            />
             <FilesSection repo={repo} status={status} />
             <StashSection repo={repo} disabled={disabled} />
           </div>
@@ -334,7 +319,7 @@ export function RepositoryView({
         <ResizeHandle
           label="Resize sidebar"
           orientation="horizontal"
-          min={220}
+          min={240}
           max={650}
           step={10}
           value={sidebarWidth}

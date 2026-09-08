@@ -1,13 +1,19 @@
 import { perform } from '../../lib/query';
 import { revertFiles } from '../../lib/revert';
 import { Button } from '../shared/Button';
-import { CheckCircle2, ListChecks, RotateCcw } from 'lucide-react';
-import type { Status } from '../../lib/types';
-import { useTabLayout } from '../../stores/layout';
-import { GroupHeader, Section } from '../shared/Section';
-import { dynamic } from '../shared/styles';
+import {
+  CheckCircle2,
+  RotateCcw,
+  SearchX,
+  SquareMinus,
+  SquarePlus,
+} from 'lucide-react';
+import type { Entry, Status } from '../../lib/types';
+import { useFilter } from '../../stores/filter';
+import { GroupHeader } from '../shared/Section';
 import { State } from '../states/State';
 import { ChangesTree } from './FileTree';
+const iconButton = 'size-6 p-0';
 export function ChangesSection({
   repo,
   status,
@@ -17,70 +23,119 @@ export function ChangesSection({
   status: Status;
   disabled: boolean;
 }) {
-  const { changesHeight } = useTabLayout(repo);
-  const staged = status.entries.filter(
+  const filter = useFilter(repo);
+  const visible = status.entries.filter((entry) =>
+    entry.path.toLowerCase().includes(filter.toLowerCase()),
+  );
+  const staged = visible.filter(
     (entry) => entry.index !== '.' && entry.index !== '?',
-  ).length;
-  const unstaged = status.entries.filter(
-    (entry) => entry.worktree !== '.',
-  ).length;
+  );
+  const unstaged = visible.filter((entry) => entry.worktree !== '.');
+  const paths = (entries: Entry[]) => entries.map((entry) => entry.path);
   return (
-    <div
-      className="flex h-changes min-h-24 flex-col"
-      style={dynamic({ '--changes-height': `${changesHeight}%` })}
-    >
-      <div className="flex shrink-0 items-center gap-1 border-b border-line px-2 py-1 dark:border-line-dark">
-        <Button
-          disabled={disabled || !unstaged}
-          onClick={() =>
-            void perform('files_action', {
-              repo,
-              paths: status.entries
-                .filter((entry) => entry.worktree !== '.')
-                .map((entry) => entry.path),
-              action: 'stage',
-            })
-          }
-        >
-          <ListChecks className="size-3.5" /> Stage all
-        </Button>
-        <Button
-          disabled={disabled || !status.entries.length}
-          onClick={() =>
-            void revertFiles(
-              repo,
-              status.entries.map((entry) => entry.path),
-              true,
-            )
-          }
-        >
-          <RotateCcw className="size-3.5" /> Revert all
-        </Button>
-      </div>
-      <Section title="Changes" count={status.entries.length}>
-        {status.entries.length === 0 ? (
-          <State icon={CheckCircle2} title="Working tree is clean">
-            Nothing to commit.
-          </State>
-        ) : (
-          <>
-            <GroupHeader title="Staged changes" count={staged} />
-            <ChangesTree
-              repo={repo}
-              status={status}
-              source="staged"
-              disabled={disabled}
-            />
-            <GroupHeader title="Changes" count={unstaged} />
-            <ChangesTree
-              repo={repo}
-              status={status}
-              source="unstaged"
-              disabled={disabled}
-            />
-          </>
-        )}
-      </Section>
+    <div className="flex min-h-changes-floor flex-1 flex-col">
+      {status.entries.length === 0 ? (
+        <State icon={CheckCircle2} title="Working tree is clean">
+          Nothing to commit.
+        </State>
+      ) : visible.length === 0 ? (
+        <State icon={SearchX} title="No files match the filter">
+          Clear the filter to see every change.
+        </State>
+      ) : (
+        <>
+          {staged.length > 0 && (
+            <>
+              <GroupHeader
+                title="Staged changes"
+                count={staged.length}
+                actions={
+                  <>
+                    <Button
+                      className={iconButton}
+                      disabled={disabled}
+                      aria-label="Unstage all"
+                      title="Unstage all"
+                      onClick={() =>
+                        void perform('files_action', {
+                          repo,
+                          paths: paths(staged),
+                          action: 'unstage',
+                        })
+                      }
+                    >
+                      <SquareMinus className="size-3.5" />
+                    </Button>
+                    <Button
+                      className={iconButton}
+                      disabled={disabled}
+                      aria-label="Revert all staged changes"
+                      title="Revert all staged changes"
+                      onClick={() =>
+                        void revertFiles(repo, paths(staged), true)
+                      }
+                    >
+                      <RotateCcw className="size-3.5" />
+                    </Button>
+                  </>
+                }
+              />
+              <ChangesTree
+                repo={repo}
+                status={status}
+                source="staged"
+                disabled={disabled}
+                fill={unstaged.length === 0}
+              />
+            </>
+          )}
+          {unstaged.length > 0 && (
+            <>
+              <GroupHeader
+                title="Changes"
+                count={unstaged.length}
+                actions={
+                  <>
+                    <Button
+                      className={iconButton}
+                      disabled={disabled}
+                      aria-label="Stage all"
+                      title="Stage all"
+                      onClick={() =>
+                        void perform('files_action', {
+                          repo,
+                          paths: paths(unstaged),
+                          action: 'stage',
+                        })
+                      }
+                    >
+                      <SquarePlus className="size-3.5" />
+                    </Button>
+                    <Button
+                      className={iconButton}
+                      disabled={disabled}
+                      aria-label="Revert all changes"
+                      title="Revert all changes"
+                      onClick={() =>
+                        void revertFiles(repo, paths(unstaged), true)
+                      }
+                    >
+                      <RotateCcw className="size-3.5" />
+                    </Button>
+                  </>
+                }
+              />
+              <ChangesTree
+                repo={repo}
+                status={status}
+                source="unstaged"
+                disabled={disabled}
+                fill
+              />
+            </>
+          )}
+        </>
+      )}
     </div>
   );
 }

@@ -73,10 +73,12 @@
   --spacing-tab: 34px;
   --spacing-toolbar: 42px;
   --spacing-section: 28px;
-  --spacing-group: 22px;
+  --spacing-group: 24px;
   --spacing-lanes: 78px;
-  --spacing-tree-compact: 22px;
-  --spacing-tree-comfortable: 26px;
+  --spacing-tree-compact: 24px;
+  --spacing-tree-comfortable: 28px;
+  --spacing-changes-floor: 192px;
+  --spacing-staged-cap: 50%;
   --spacing-commit: 30px;
   --spacing-dialog: 460px;
   --spacing-sidebar: var(--sidebar-width, 300px);
@@ -85,7 +87,7 @@
   --spacing-indent: var(--tree-indent);
   --spacing-swipe: var(--swipe-position);
   --spacing-image: var(--image-width, auto);
-  --spacing-changes: var(--changes-height, 38%);
+  --spacing-files: var(--files-height, 40%);
   --translate-row: var(--row-offset);
   --opacity-blend: var(--blend-opacity);
   --background-image-checker: url('/checker.svg');

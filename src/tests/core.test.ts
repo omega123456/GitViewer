@@ -92,9 +92,9 @@ describe('presentation state', () => {
     expect(useTabs.getState().active).toBe('');
   });
   it('keeps every presentation slice separately addressable per repository', () => {
-    useLayout.getState().update('one', { width: 320, changesHeight: 55 });
+    useLayout.getState().update('one', { width: 320, filesHeight: 55 });
     useLayout.getState().update('two', { historyWidth: 500 });
-    expect(useLayout.getState().tabs.one.changesHeight).toBe(55);
+    expect(useLayout.getState().tabs.one.filesHeight).toBe(55);
     expect(useLayout.getState().tabs.two.width).toBe(300);
     useLayout.getState().forget('one');
     expect(useLayout.getState().tabs.one).toBeUndefined();

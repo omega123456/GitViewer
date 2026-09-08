@@ -3,13 +3,15 @@ export interface TabLayout {
   history: boolean;
   width: number;
   historyWidth: number;
-  changesHeight: number;
+  filesHeight: number;
+  filesOpen: boolean;
 }
 export const layoutDefaults: TabLayout = {
   history: false,
   width: 300,
   historyWidth: 440,
-  changesHeight: 38,
+  filesHeight: 40,
+  filesOpen: false,
 };
 interface Layout {
   tabs: Record<string, TabLayout>;
