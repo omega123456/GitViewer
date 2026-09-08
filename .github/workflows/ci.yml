@@ -1,0 +1,36 @@
+name: Verify
+on: [push, pull_request]
+jobs:
+  check:
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt, llvm-tools-preview
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest,cargo-llvm-cov
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm format
+      - run: pnpm typecheck
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - run: pnpm clippy
+      - run: cargo build --manifest-path src-tauri/Cargo.toml --no-default-features
+      - run: pnpm test:coverage
+      - run: pnpm test:rust:coverage
+      - run: pnpm exec playwright install chromium
+      - if: runner.os == 'macOS'
+        run: pnpm test:e2e
+      - run: pnpm build

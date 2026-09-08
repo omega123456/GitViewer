@@ -1,0 +1,129 @@
+import { test, expect } from './fixtures';
+for (const theme of ['light', 'dark'] as const) {
+  test(`working tree and text diff ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto('/');
+    await expect(page.getByText('No repository open')).toBeVisible();
+    await page
+      .getByRole('button', { name: 'Open repository', exact: true })
+      .last()
+      .click();
+    await expect(
+      page.getByLabel('Stage src/app.ts', { exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole('tree', { name: 'Changes', exact: true })
+      .getByText('app.ts')
+      .click();
+    await expect(page.getByText('index → working tree')).toBeVisible();
+    await expect(page).toHaveScreenshot(`working-tree-${theme}.png`);
+  });
+}
+
+test('large diffs keep a bounded DOM while scrolling', async ({ page }) => {
+  await page.goto('/?scenario=scale');
+  await page
+    .getByRole('button', { name: 'Open repository', exact: true })
+    .last()
+    .click();
+  await page
+    .getByRole('tree', { name: 'Changes', exact: true })
+    .getByText('app.ts')
+    .click();
+  await expect(
+    page.getByText('const row0 = 0;', { exact: true }).first(),
+  ).toBeVisible();
+  const viewer = page.getByLabel('Diff viewer');
+  expect(await viewer.locator('code').count()).toBeLessThan(200);
+  const after = page.getByLabel('Current version');
+  await after.evaluate((element) => {
+    element.scrollTop = element.scrollHeight / 2;
+  });
+  await expect(page.getByText('const row0 = 0;', { exact: true })).toHaveCount(
+    0,
+  );
+  expect(await viewer.locator('code').count()).toBeLessThan(200);
+  await expect
+    .poll(() =>
+      page.getByLabel('Previous version').evaluate((e) => e.scrollTop),
+    )
+    .toBe(await after.evaluate((element) => element.scrollTop));
+});
+
+test('split panes fit the width and scroll horizontally alone', async ({
+  page,
+}) => {
+  await page.goto('/?scenario=long');
+  await page
+    .getByRole('button', { name: 'Open repository', exact: true })
+    .last()
+    .click();
+  await page
+    .getByRole('tree', { name: 'Changes', exact: true })
+    .getByText('app.ts')
+    .click();
+  const before = page.getByLabel('Previous version');
+  const after = page.getByLabel('Current version');
+  const overflows = (element: HTMLElement) =>
+    element.scrollWidth > element.clientWidth;
+  await expect(page.getByLabel('Diff viewer')).toBeVisible();
+  expect(await page.getByLabel('Diff viewer').evaluate(overflows)).toBe(false);
+  expect(await before.evaluate(overflows)).toBe(true);
+  expect(await after.evaluate(overflows)).toBe(false);
+  await before.evaluate((element) => {
+    element.scrollLeft = 200;
+  });
+  expect(await after.evaluate((element) => element.scrollLeft)).toBe(0);
+});
+
+for (const mode of ['side by side', 'swipe', 'onion skin']) {
+  test(`image comparison ${mode}`, async ({ page }) => {
+    await page.route('http://gitblob.localhost/**', async (route) => {
+      const old =
+        new URL(route.request().url()).searchParams.get('side') === 'old';
+      await route.fulfill({
+        contentType: 'image/svg+xml',
+        body: `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect x="30" y="30" width="260" height="120" rx="20" fill="${old ? '#0f7c86' : '#0072b2'}"/><circle cx="${old ? 120 : 200}" cy="90" r="40" fill="#e69f00"/></svg>`,
+      });
+    });
+    await page.goto('/?scenario=image');
+    await page
+      .getByRole('button', { name: 'Open repository', exact: true })
+      .last()
+      .click();
+    await page
+      .getByRole('tree', { name: 'Changes', exact: true })
+      .getByText('picture.png')
+      .click();
+    await page.getByRole('radio', { name: mode, exact: true }).click();
+    await expect(page.getByText(/320×180 → 320×180/)).toBeVisible();
+    if (mode === 'swipe') {
+      const divider = page.getByRole('slider', { name: 'Swipe divider' });
+      await divider.focus();
+      await page.keyboard.press('ArrowRight');
+      await expect(divider).toHaveAttribute('aria-valuenow', '51');
+    }
+    if (mode === 'onion skin')
+      await page.getByLabel('Onion skin blend').fill('70');
+    await expect(page).toHaveScreenshot(
+      `image-${mode.replaceAll(' ', '-')}.png`,
+    );
+  });
+}
+
+test('history uses the same diff pane', async ({ page }) => {
+  await page.goto('/?scenario=history');
+  await page
+    .getByRole('button', { name: 'Open repository', exact: true })
+    .last()
+    .click();
+  await page.getByRole('radio', { name: 'history', exact: true }).click();
+  await page.getByText('Merge feature', { exact: true }).click();
+  await page.getByRole('button', { name: 'src/app.ts', exact: true }).click();
+  await expect(page.getByText(/parent → commit/)).toBeVisible();
+  await expect(page.getByTitle('Stage hunk')).toHaveCount(0);
+  await expect(page.getByLabel('Commit history').getByRole('img')).toHaveCount(
+    3,
+  );
+  await expect(page).toHaveScreenshot('history.png');
+});
