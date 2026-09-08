@@ -1,3 +1,49 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Commands
+
+Use `pnpm` only. Run Rust commands with `--manifest-path src-tauri/Cargo.toml`.
+
+- Run the app: `pnpm dev`. This starts the Tauri desktop runtime.
+- Run the frontend alone: `pnpm dev:web`. Repository operations do not work in this mode.
+- Typecheck: `pnpm typecheck`. Lint: `pnpm lint`. Format check: `pnpm run format`.
+- Clippy: `pnpm clippy`. It checks the production feature set and the test feature set.
+- Frontend tests: `pnpm test`. Coverage: `pnpm test:coverage`.
+- Run one frontend test file: `pnpm exec vitest run src/tests/features.test.tsx`.
+- Filter frontend tests by name: `pnpm exec vitest run -t "pattern"`.
+- The verbose reporter shows console output. Use it to find React `act(...)` warnings.
+- Rust tests: `pnpm test:rust`. This uses `cargo nextest` with the `test-utils` feature.
+- Run one Rust test: `cargo nextest run --manifest-path src-tauri/Cargo.toml --features test-utils -E 'test(name)'`.
+- Rust coverage: `pnpm test:rust:coverage`. It needs `cargo-llvm-cov` and `llvm-tools-preview`.
+- End-to-end tests: `pnpm test:e2e`. First run `pnpm exec playwright install chromium`.
+- Production desktop build check: `cargo build --manifest-path src-tauri/Cargo.toml --no-default-features`.
+
+The full verification list is in `README.md`.
+
+## Architecture
+
+GitViewer2 is a Tauri 2 desktop Git client. Rust owns data and Git. React owns the interface.
+
+**One IPC command.** The frontend calls `invoke(command, args)` in `src/lib/ipc.ts`. This calls the single Tauri command `execute`, which routes by string match in `dispatch` in `src-tauri/src/ipc.rs`. To add a command, add one entry to the `Commands` map in `src/lib/types.ts` and one match arm in `ipc.rs`. Do not write a per-command wrapper.
+
+**Data and state split.** `src/lib/query.ts` holds the TanStack Query client. `useBackend` reads backend data. `perform` runs a mutation and tracks busy and error state. Zustand stores in `src/stores/` hold interface state that Rust does not know about, for example selection, tabs, and the command palette.
+
+**Events.** Rust emits events named `domain://event`: `repo://status-changed`, `repo://head-changed`, `repo://closed`, `settings://changed`, and `sync://progress`. `connectEvents` and `handleEvent` in `src/lib/query.ts` form the one bridge that invalidates Query. Nothing else invalidates by hand.
+
+**Permissions.** The capability file is `src-tauri/capabilities/default.json`. A permission error almost always means a missing entry there or a name mismatch with a registered Rust command.
+
+**Rust backend.** `src-tauri/src/lib.rs` registers the handler and the `gitblob://` protocol. `repo::Registry` holds one `Arc<Mutex<Repo>>` per open repository, keyed by id. `Repo` runs Git as a subprocess through `git::run` and `git::text`, keeps a status snapshot, holds filesystem watchers from `watch/`, and holds streaming history sessions from `history.rs`. `git::detect` checks the Git binary and requires version 2.38 or newer. Binary blobs are served over the `gitblob://` URI scheme in `blob/`, with a 20 MB ceiling.
+
+**The `test-utils` feature.** Any code path that can touch machine-global state compiles to a fake or an unsupported result under this feature. This covers OS-open actions and global settings. The production build must be checked without this feature, because that feature alone cannot verify the shipping application.
+
+**Frontend modules.** Components live under `src/components/` by area: `sidebar`, `diff`, `history`, `stash`, `image`, `settings`, `shell`, `shared`, and `states`. `src/providers/` wires the Query client, theme, layout, and commands.
+
+**Tests.** All Rust tests live in `src-tauri/tests/integration/` and compile into one binary through the module list in `main.rs`. All frontend IPC mocking is centralized in `src/tests/harness.ts`. End-to-end tests live in `e2e/`. Screenshot baselines are macOS captures only.
+
+**Architectural decisions.** `.agent/adr/` is an append-only decision ledger. Read the relevant ADR before you change an area it governs. Never edit or delete an ADR. To reverse a decision, add a new ADR per `.agent/ADR_POLICY.md`. The current plan is `.agent/plans/2026-09-07_gitviewer_plan.md`.
+
 # GitViewer2 conventions
 
 
@@ -39,4 +85,3 @@
 - Every change works on both macOS and Windows.
 - Lint is genuinely clean, with no suppressions.
 
-Manual credential smoke check: pending; automated tests use isolated local repositories and a bare remote.

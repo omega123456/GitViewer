@@ -890,3 +890,50 @@ async fn crlf_hunks_preserve_exact_bytes_without_git_normalization() {
         original
     );
 }
+
+#[tokio::test]
+async fn revert_all_restores_staged_unstaged_renamed_and_new_files() {
+    let (dir, handle) = fixture().await;
+    base(&dir, &handle).await;
+    command(dir.path(), &["mv", "file.txt", "renamed.txt"]).await;
+    std::fs::write(dir.path().join("renamed.txt"), "changed").unwrap();
+    std::fs::write(dir.path().join("added.txt"), "added").unwrap();
+    command(dir.path(), &["add", "added.txt"]).await;
+    std::fs::write(dir.path().join("untracked.txt"), "new").unwrap();
+    let mut repo = handle.lock().await;
+    repo.refresh().await.unwrap();
+    let paths = repo
+        .status
+        .entries
+        .iter()
+        .map(|entry| entry.path().to_owned())
+        .collect::<Vec<_>>();
+    actions::files(&mut repo, &paths, "revert").await.unwrap();
+    repo.refresh().await.unwrap();
+    assert!(repo.status.entries.is_empty());
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("file.txt")).unwrap(),
+        "one\ntwo\nthree\n"
+    );
+    for path in ["renamed.txt", "added.txt", "untracked.txt"] {
+        assert!(!dir.path().join(path).exists());
+    }
+}
+
+#[tokio::test]
+async fn revert_one_file_preserves_other_changes_and_handles_unborn_repo() {
+    let (dir, handle) = fixture().await;
+    std::fs::write(dir.path().join("added.txt"), "added").unwrap();
+    std::fs::write(dir.path().join("keep.txt"), "keep").unwrap();
+    command(dir.path(), &["add", "added.txt"]).await;
+    let mut repo = handle.lock().await;
+    repo.refresh().await.unwrap();
+    actions::files(&mut repo, &["added.txt".into()], "revert")
+        .await
+        .unwrap();
+    assert!(!dir.path().join("added.txt").exists());
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("keep.txt")).unwrap(),
+        "keep"
+    );
+}

@@ -91,3 +91,18 @@
   --background-image-checker: url('/checker.svg');
   --background-image-checker-dark: url('/checker-dark.svg');
 }
+
+@layer base {
+  body {
+    -webkit-user-select: none;
+    user-select: none;
+    overscroll-behavior: none;
+  }
+  input,
+  textarea,
+  [contenteditable='true'],
+  .file-content {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}

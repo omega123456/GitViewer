@@ -1,3 +1,4 @@
+import { RevisionTree } from '../sidebar/RevisionTree';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { formatDistanceToNowStrict, fromUnixTime } from 'date-fns';
 import { History } from 'lucide-react';
@@ -139,24 +140,23 @@ export function CommitList({ repo }: { repo: string }) {
             count={files.data?.length ?? 0}
           />
           {files.error && <p role="alert">{files.error.message}</p>}
-          <VirtualList
-            label="Commit files"
-            items={files.data ?? []}
-            render={(file) => (
-              <Button
-                className="h-tree-comfortable w-full justify-start truncate"
-                onClick={() =>
-                  useSelection.getState().select(repo, {
-                    path: file,
+          {files.data && (
+            <RevisionTree
+              key={selection.revision}
+              label="Commit files"
+              paths={files.data}
+              selectedPath={selection.path}
+              onSelect={(path) =>
+                useSelection
+                  .getState()
+                  .select(repo, {
+                    path,
                     source: selection.source,
                     revision: selection.revision,
                   })
-                }
-              >
-                {file}
-              </Button>
-            )}
-          />
+              }
+            />
+          )}
         </div>
       )}
     </div>

@@ -1,3 +1,5 @@
+import { revertFiles } from '../../lib/revert';
+import { Button } from '../shared/Button';
 import { useEffect, useMemo, useRef } from 'react';
 import { useTree } from '@headless-tree/react';
 import {
@@ -6,7 +8,13 @@ import {
   selectionFeature,
   hotkeysCoreFeature,
 } from '@headless-tree/core';
-import { ChevronRight, ChevronDown, File, Folder } from 'lucide-react';
+import {
+  ChevronRight,
+  ChevronDown,
+  File,
+  Folder,
+  RotateCcw,
+} from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { client, perform, queryKey } from '../../lib/query';
 import { invoke, normalizeError } from '../../lib/ipc';
@@ -143,6 +151,35 @@ export function ChangesTree({
                 <span className="truncate">{node.name}</span>
                 <StatusBadge status={node.status} />
               </button>
+              <Button
+                disabled={disabled}
+                aria-label={
+                  node.directory
+                    ? `Revert all in ${node.path}`
+                    : `Revert ${node.path}`
+                }
+                title={
+                  node.directory
+                    ? `Revert all in ${node.path}`
+                    : `Revert ${node.path}`
+                }
+                onClick={() =>
+                  void revertFiles(
+                    repo,
+                    node.directory
+                      ? status.entries
+                          .filter((entry) =>
+                            entry.path.startsWith(`${node.path}/`),
+                          )
+                          .map((entry) => entry.path)
+                      : [node.path],
+                    false,
+                    node.directory ? node.path : undefined,
+                  )
+                }
+              >
+                <RotateCcw className="size-3" />
+              </Button>
             </div>
           );
         })}

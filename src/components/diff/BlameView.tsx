@@ -55,7 +55,9 @@ export function BlameView({
             <span className="w-11 shrink-0 bg-gutter px-2 text-right text-label text-faint dark:bg-gutter-dark dark:text-faint-dark">
               {line.line}
             </span>
-            <code className="px-2 whitespace-pre">{line.content}</code>
+            <code className="file-content px-2 whitespace-pre">
+              {line.content}
+            </code>
           </div>
         )}
       />

@@ -1,3 +1,4 @@
+import { RevisionTree } from '../sidebar/RevisionTree';
 import { useState } from 'react';
 import { formatDistanceToNowStrict, fromUnixTime } from 'date-fns';
 import { confirm } from '@tauri-apps/plugin-dialog';
@@ -13,7 +14,7 @@ import { perform, useBackend } from '../../lib/query';
 import type { Action } from '../../lib/keyboard';
 import { useTabs } from '../../stores/tabs';
 import { useLayout } from '../../stores/layout';
-import { useSelection } from '../../stores/selection';
+import { useSelection, useWorkingSelection } from '../../stores/selection';
 import { Button } from '../shared/Button';
 import { GroupHeader, Section } from '../shared/Section';
 import { VirtualList } from '../shared/VirtualList';
@@ -25,6 +26,7 @@ export function StashSection({
   disabled: boolean;
 }) {
   const query = useBackend('stashes', { repo });
+  const selection = useWorkingSelection(repo);
   const [selected, setSelected] = useState('');
   const files = useBackend(
     'commit_files',
@@ -136,18 +138,19 @@ export function StashSection({
         <div className="flex h-28 flex-col border-t border-line dark:border-line-dark">
           <GroupHeader title="Stash files" count={files.data?.length ?? 0} />
           {files.error && <p role="alert">{files.error.message}</p>}
-          <VirtualList
-            label="Stash files"
-            items={files.data ?? []}
-            render={(path) => (
-              <Button
-                className="h-tree-comfortable w-full justify-start truncate"
-                onClick={() => show(path, selected)}
-              >
-                {path}
-              </Button>
-            )}
-          />
+          {files.data && (
+            <RevisionTree
+              key={selected}
+              label="Stash files"
+              paths={files.data}
+              selectedPath={
+                selection?.source === 'stash' && selection.revision === selected
+                  ? selection.path
+                  : undefined
+              }
+              onSelect={(path) => show(path, selected)}
+            />
+          )}
         </div>
       )}
       <div className="flex shrink-0 flex-wrap gap-1.5 border-t border-line bg-sub p-2 dark:border-line-dark dark:bg-sub-dark">

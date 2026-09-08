@@ -86,6 +86,63 @@ async function action(id: string) {
 }
 
 describe('repository workflows', () => {
+  it('stages and reverts from visible sidebar controls, respecting cancellation', async () => {
+    setup();
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole('button', { name: 'Stage all' }));
+    expect(calls).toContainEqual({
+      command: 'files_action',
+      args: {
+        repo: repository.id,
+        paths: ['src/app.ts', 'new.txt'],
+        action: 'stage',
+      },
+    });
+    await user.click(
+      screen.getAllByRole('button', { name: 'Revert all in src' })[0],
+    );
+    expect(calls).toContainEqual({
+      command: 'files_action',
+      args: { repo: repository.id, paths: ['src/app.ts'], action: 'revert' },
+    });
+    dialog.approved = false;
+    await user.click(screen.getByRole('button', { name: 'Revert all' }));
+    expect(
+      calls.filter((call) => call.command === 'files_action'),
+    ).toHaveLength(2);
+    dialog.approved = true;
+    await user.click(screen.getByRole('button', { name: 'Revert all' }));
+    expect(calls).toContainEqual({
+      command: 'files_action',
+      args: {
+        repo: repository.id,
+        paths: ['src/app.ts', 'new.txt'],
+        action: 'revert',
+      },
+    });
+    await user.click(screen.getByRole('button', { name: 'Revert new.txt' }));
+    expect(calls).toContainEqual({
+      command: 'files_action',
+      args: { repo: repository.id, paths: ['new.txt'], action: 'revert' },
+    });
+    const print = new KeyboardEvent('keydown', {
+      key: 'p',
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(print);
+    expect(print.defaultPrevented).toBe(true);
+    const copy = new KeyboardEvent('keydown', {
+      key: 'c',
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(copy);
+    expect(copy.defaultPrevented).toBe(false);
+  });
   it('creates from another reference, filters groups, switches and confirms deletion', async () => {
     setup();
     mockCommand('branch_create', () => null);
@@ -226,7 +283,17 @@ describe('repository workflows', () => {
     await screen.findByTitle('Stage hunk');
     await action('file-history');
     await user.click(await screen.findByText('Review commit'));
-    await user.click(await screen.findByRole('button', { name: 'src/app.ts' }));
+    const fileTree = await screen.findByRole('tree', { name: 'Commit files' });
+    await within(fileTree).findByRole('treeitem', { name: 'app.ts' });
+    const folder = within(fileTree).getByRole('treeitem', { name: 'src' });
+    await user.click(folder);
+    expect(
+      within(fileTree).queryByRole('treeitem', { name: 'app.ts' }),
+    ).not.toBeInTheDocument();
+    await user.click(folder);
+    await user.click(
+      within(fileTree).getByRole('treeitem', { name: 'app.ts' }),
+    );
     expect(useSelection.getState().history[repository.id]?.revision).toBe(
       commit.hash,
     );
@@ -317,7 +384,17 @@ describe('repository workflows', () => {
     await user.click(
       await screen.findByRole('button', { name: /Saved experiment/ }),
     );
-    await user.click(await screen.findByRole('button', { name: 'src/app.ts' }));
+    const fileTree = await screen.findByRole('tree', { name: 'Stash files' });
+    await within(fileTree).findByRole('treeitem', { name: 'app.ts' });
+    const folder = within(fileTree).getByRole('treeitem', { name: 'src' });
+    await user.click(folder);
+    expect(
+      within(fileTree).queryByRole('treeitem', { name: 'app.ts' }),
+    ).not.toBeInTheDocument();
+    await user.click(folder);
+    await user.click(
+      within(fileTree).getByRole('treeitem', { name: 'app.ts' }),
+    );
     expect(useSelection.getState().working[repository.id]?.source).toBe(
       'stash',
     );

@@ -150,7 +150,10 @@ export interface Commands {
     Diff
   >;
   files_action: Command<
-    RepoArgs & { paths: string[]; action: 'stage' | 'unstage' | 'discard' },
+    RepoArgs & {
+      paths: string[];
+      action: 'stage' | 'unstage' | 'discard' | 'revert';
+    },
     null
   >;
   hunk_action: Command<

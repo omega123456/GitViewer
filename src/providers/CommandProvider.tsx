@@ -1,3 +1,4 @@
+import { preventBrowserShortcut } from '../lib/browser';
 import { useEffect, type ReactNode } from 'react';
 import { Command, FolderOpen, Settings, X } from 'lucide-react';
 import { registeredActions, useActions } from '../lib/actions';
@@ -51,6 +52,7 @@ export function CommandProvider({ children }: { children: ReactNode }) {
     const keydown = (event: KeyboardEvent) => {
       if (!document.querySelector('[role="dialog"]'))
         runShortcut(event, registeredActions(useTabs.getState().active));
+      preventBrowserShortcut(event);
     };
     window.addEventListener('keydown', keydown);
     return () => window.removeEventListener('keydown', keydown);

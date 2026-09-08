@@ -1,3 +1,4 @@
+import { useBrowserRestrictions } from './lib/browser';
 import { useBackend } from './lib/query';
 import type { Settings } from './lib/types';
 import { AppShell } from './components/shell/AppShell';
@@ -9,6 +10,7 @@ const defaults: Settings = {
   diffMode: 'split',
 };
 export default function App() {
+  useBrowserRestrictions();
   const environment = useBackend('env', {});
   const preferences = useBackend('settings_get', {});
   if (environment.isPending)

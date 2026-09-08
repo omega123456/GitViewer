@@ -13,7 +13,7 @@ pub async fn files(repo: &mut Repo, paths: &[String], action: &str) -> Result<()
         repo.path(path)?;
     }
     let mut selected = paths.to_vec();
-    if action == "unstage" {
+    if action == "unstage" || action == "revert" {
         for entry in &repo.status.entries {
             if paths.iter().any(|path| path == entry.path()) {
                 if let Some(original) = entry.original_path() {
@@ -57,6 +57,69 @@ pub async fn files(repo: &mut Repo, paths: &[String], action: &str) -> Result<()
             git::run(&repo.root, &args, Some(&input))
                 .await?
                 .accept(&[0])?;
+        }
+        "revert" => {
+            let mut tracked = Vec::new();
+            let mut added = Vec::new();
+            for path in &selected {
+                let entry = repo
+                    .status
+                    .entries
+                    .iter()
+                    .find(|entry| entry.path() == path);
+                if entry.is_some_and(|entry| entry.index() == "?" || entry.index() == "A") {
+                    added.push(path.clone());
+                } else {
+                    tracked.push(path.clone());
+                }
+            }
+            // Restore both sides of renames and all tracked changes to HEAD.
+            if !tracked.is_empty() {
+                let input: Vec<u8> = tracked.iter().flat_map(|p| p.bytes().chain([0])).collect();
+                git::run(
+                    &repo.root,
+                    &[
+                        "restore",
+                        "--source=HEAD",
+                        "--staged",
+                        "--worktree",
+                        "--pathspec-from-file=-",
+                        "--pathspec-file-nul",
+                    ],
+                    Some(&input),
+                )
+                .await?
+                .accept(&[0])?;
+            }
+            for path in added {
+                if repo
+                    .status
+                    .entries
+                    .iter()
+                    .any(|entry| entry.path() == path && entry.index() == "A")
+                {
+                    let input: Vec<u8> = path.bytes().chain([0]).collect();
+                    git::run(
+                        &repo.root,
+                        &[
+                            "rm",
+                            "--cached",
+                            "--force",
+                            "--pathspec-from-file=-",
+                            "--pathspec-file-nul",
+                        ],
+                        Some(&input),
+                    )
+                    .await?
+                    .accept(&[0])?;
+                }
+                let absolute = repo.path(&path)?;
+                match std::fs::remove_file(absolute) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
         }
         "discard" => {
             if paths.iter().any(|path| {

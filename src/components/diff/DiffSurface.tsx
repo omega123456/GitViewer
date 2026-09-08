@@ -82,7 +82,7 @@ export function DiffSurface({
         {old ? line?.old : (line?.new ?? line?.old)}
       </span>
       <code
-        className={`min-w-0 flex-1 pr-4 pl-2 ${wrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'}`}
+        className={`file-content min-w-0 flex-1 pr-4 pl-2 ${wrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'}`}
       >
         <span className="select-none">
           {line?.kind === 'add' ? '+ ' : line?.kind === 'remove' ? '− ' : '  '}
