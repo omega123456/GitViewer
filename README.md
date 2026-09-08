@@ -15,6 +15,8 @@ pnpm dev
 
 ## Verification
 
+Run `pnpm test:all` to run frontend coverage, Rust coverage, and end-to-end tests in sequence, stopping at the first failure. The screenshot suite currently requires macOS.
+
 ```sh
 pnpm lint
 pnpm typecheck
@@ -28,7 +30,7 @@ pnpm build
 cargo build --manifest-path src-tauri/Cargo.toml --no-default-features
 ```
 
-Rust coverage requires `cargo-llvm-cov` and `llvm-tools-preview`. Browser tests require `pnpm exec playwright install chromium`. Native filesystem events and Chromium startup need normal macOS process permissions; a restrictive process sandbox can prevent those tests from running.
+Rust coverage requires stable Rust, `cargo-nextest`, `cargo-llvm-cov`, and `llvm-tools-preview`. It runs `cargo llvm-cov nextest --no-clean`, resetting raw profiles and pruning stale coverage executables while preserving compiled dependencies. Browser tests require `pnpm exec playwright install chromium`. Native filesystem events and Chromium startup need normal macOS process permissions; a restrictive process sandbox can prevent those tests from running.
 
 Clippy checks both production and test features. CI also builds the production desktop binary: the `test-utils` feature deliberately replaces OS-opening and global-settings operations, so testing that feature alone cannot verify the shipping application.
 

@@ -16,7 +16,8 @@ Use `pnpm` only. Run Rust commands with `--manifest-path src-tauri/Cargo.toml`.
 - The verbose reporter shows console output. Use it to find React `act(...)` warnings.
 - Rust tests: `pnpm test:rust`. This uses `cargo nextest` with the `test-utils` feature.
 - Run one Rust test: `cargo nextest run --manifest-path src-tauri/Cargo.toml --features test-utils -E 'test(name)'`.
-- Rust coverage: `pnpm test:rust:coverage`. It needs `cargo-llvm-cov` and `llvm-tools-preview`.
+- Rust coverage: `pnpm test:rust:coverage`. It uses `cargo llvm-cov nextest` on stable Rust and needs `cargo-nextest`, `cargo-llvm-cov`, and `llvm-tools-preview`. The runner clears raw profiles and prunes stale coverage executables, then runs with `--no-clean` to preserve compiled dependencies. Do not clean the Rust target directory for routine test runs.
+- All test layers: `pnpm test:all` runs frontend coverage, Rust coverage, and Playwright in sequence, stopping at the first failure.
 - End-to-end tests: `pnpm test:e2e`. First run `pnpm exec playwright install chromium`.
 - Production desktop build check: `cargo build --manifest-path src-tauri/Cargo.toml --no-default-features`.
 
@@ -85,3 +86,9 @@ GitViewer2 is a Tauri 2 desktop Git client. Rust owns data and Git. React owns t
 - Every change works on both macOS and Windows.
 - Lint is genuinely clean, with no suppressions.
 
+
+## Playwright visual regression
+
+- Treat visual regression as a component inventory, not a state matrix: keep exactly one screenshot scenario per visually distinct component, run it in light and dark themes, and extend it instead of adding cases for densities, interactions, loading/error variants, or other states already covered by Vitest.
+- Keep only the canonical shell's light and dark baselines as full-page screenshots. Do not add per-layout or per-state full-page baselines.
+- Whenever a screenshot test is added or updated, or a baseline is regenerated, inspect the resulting image and verify it matches expectations before considering the change complete. Never accept an unreviewed baseline change. Screenshot baselines remain macOS only per `.agent/adr/004-visual-baselines-macos-only.md`.

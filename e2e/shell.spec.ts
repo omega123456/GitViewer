@@ -119,7 +119,10 @@ test('history uses the same diff pane', async ({ page }) => {
     .click();
   await page.getByRole('radio', { name: 'history', exact: true }).click();
   await page.getByText('Merge feature', { exact: true }).click();
-  await page.getByRole('button', { name: 'src/app.ts', exact: true }).click();
+  await page
+    .getByRole('tree', { name: 'Commit files', exact: true })
+    .getByRole('treeitem', { name: 'app.ts', exact: true })
+    .click();
   await expect(page.getByText(/parent → commit/)).toBeVisible();
   await expect(page.getByTitle('Stage hunk')).toHaveCount(0);
   await expect(page.getByLabel('Commit history').getByRole('img')).toHaveCount(

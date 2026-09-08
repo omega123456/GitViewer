@@ -15,9 +15,10 @@
     "format:write": "prettier --write .",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage --reporter=verbose",
-    "test:rust": "cargo nextest run --manifest-path src-tauri/Cargo.toml --features test-utils",
-    "test:rust:coverage": "cargo llvm-cov --manifest-path src-tauri/Cargo.toml --features test-utils --fail-under-lines 90 --fail-under-functions 90 --fail-under-regions 80",
+    "test:rust": "cargo nextest run --manifest-path src-tauri/Cargo.toml --features test-utils --no-default-features",
+    "test:rust:coverage": "node scripts/run-rust-coverage.mjs",
     "test:e2e": "playwright test",
+    "test:all": "pnpm test:coverage && pnpm test:rust:coverage && pnpm test:e2e",
     "clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml --no-default-features -- -D warnings && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings"
   },
   "dependencies": {
