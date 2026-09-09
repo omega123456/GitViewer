@@ -74,11 +74,30 @@ pub async fn dispatch<R: tauri::Runtime>(
             }
             return Ok(Value::Null);
         }
+        "update_get" | "update_check" | "update_install" | "update_quit" => {
+            let service = app.state::<std::sync::Arc<crate::updater::Service>>();
+            match command.as_str() {
+                "update_check" => service.check().await?,
+                "update_install" => {
+                    service.prepare_install().await?;
+                    crate::lifecycle::request_close(&app);
+                }
+                "update_quit" => {
+                    service.skip_install()?;
+                    crate::lifecycle::request_close(&app);
+                }
+                _ => {}
+            }
+            return Ok(serde_json::to_value(service.get())?);
+        }
         "env" => return Ok(serde_json::to_value(git::detect::environment().await)?),
         "settings_get" => return Ok(serde_json::to_value(settings::read(&settings_path(&app)?))?),
         "settings_set" => {
             let settings =
                 settings::write(&settings_path(&app)?, serde_json::from_value(args.clone())?)?;
+            if let Some(service) = app.try_state::<std::sync::Arc<crate::updater::Service>>() {
+                service.preferences(settings.clone());
+            }
             app.emit("settings://changed", ()).map_err(Error::from)?;
             return Ok(serde_json::to_value(settings)?);
         }

@@ -79,9 +79,15 @@ impl Store {
             .is_ok()
     }
 
+    pub fn claim_close(&self) -> bool {
+        self.closing
+            .compare_exchange(1, 3, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    }
+
     pub fn allow_close(&self) -> bool {
         self.closing
-            .compare_exchange(1, 2, Ordering::SeqCst, Ordering::SeqCst)
+            .compare_exchange(3, 2, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
     }
 

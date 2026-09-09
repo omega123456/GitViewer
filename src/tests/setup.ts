@@ -12,6 +12,7 @@ import { useImageViews } from '../stores/image-view';
 import { usePalette } from '../stores/palette';
 import { useTheme } from '../stores/theme';
 import { useDensity } from '../stores/density';
+import { useUpdate } from '../stores/update';
 import { resetHarness } from './harness';
 const rect = {
   width: 800,
@@ -67,6 +68,7 @@ vi.stubGlobal('matchMedia', () => ({
 }));
 beforeEach(() => {
   resetHarness();
+  useUpdate.setState({ dismissedVersion: null });
   client.clear();
   useTabs.setState({ tabs: [], active: '', error: null, busy: 0 });
   useLayout.setState({ tabs: {} });

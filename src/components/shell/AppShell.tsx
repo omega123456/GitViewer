@@ -1,3 +1,4 @@
+import { UpdateBanner } from '../states/UpdateBanner';
 import type { Settings } from '../../lib/types';
 import { useCompact } from '../../stores/density';
 import { useTabs } from '../../stores/tabs';
@@ -27,6 +28,7 @@ export function AppShell({
     >
       <RepoTabStrip />
       <ErrorBanner />
+      <UpdateBanner />
       {tabs.length === 0 ? (
         <FirstRun />
       ) : (

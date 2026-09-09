@@ -1,10 +1,16 @@
 import { parseISO } from 'date-fns';
 import { test as base, expect } from '@playwright/test';
-import { diff, repository, settings, status } from '../src/tests/fixtures';
+import {
+  diff,
+  repository,
+  settings,
+  status,
+  update,
+} from '../src/tests/fixtures';
 export const test = base.extend({
   page: async ({ page }, use) => {
     await page.addInitScript(
-      ({ diff, repository, settings, status }) => {
+      ({ diff, repository, settings, status, update }) => {
         Object.defineProperty(window, '__TAURI_EVENT_PLUGIN_INTERNALS__', {
           value: { unregisterListener: () => {} },
         });
@@ -67,6 +73,20 @@ export const test = base.extend({
                   case 'session_set':
                   case 'session_close':
                     return null;
+                  case 'update_get':
+                    return scenario === 'update'
+                      ? {
+                          ...update,
+                          availability: 'enabled',
+                          phase: 'ready',
+                          available: {
+                            version: '0.2.0',
+                            notes:
+                              'Automatic updates and improved repository browsing.',
+                            date: '2026-09-06T00:00:00Z',
+                          },
+                        }
+                      : update;
                   case 'env':
                     return { found: true, supported: true, version: '2.50.1' };
                   case 'settings_get':
@@ -164,7 +184,13 @@ export const test = base.extend({
           },
         });
       },
-      { diff, repository, settings: { ...settings, theme: 'system' }, status },
+      {
+        diff,
+        repository,
+        settings: { ...settings, theme: 'system' },
+        status,
+        update,
+      },
     );
     await page.clock.setFixedTime(parseISO('2026-09-07T00:00:00Z'));
     await use(page);

@@ -221,3 +221,35 @@ it('restores the active repository using its canonical path', async () => {
   await screen.findByText('Ready');
   expect(useTabs.getState().active).toBe('/canonical');
 });
+
+it('resumes snapshots after native shutdown cancellation', async () => {
+  render(
+    <SessionProvider>
+      <div>Ready</div>
+    </SessionProvider>,
+  );
+  await screen.findByText('Ready');
+  act(() => emit('session://save-requested', null));
+  await waitFor(() =>
+    expect(
+      calls.filter(({ command }) => command === 'session_close'),
+    ).toHaveLength(1),
+  );
+  act(() => emit('session://close-cancelled', null));
+  act(() => useTabs.getState().open('/after-cancel', 'after-cancel'));
+  await waitFor(() =>
+    expect(calls).toContainEqual({
+      command: 'session_set',
+      args: {
+        tabs: [{ path: '/after-cancel', message: '' }],
+        active: '/after-cancel',
+      },
+    }),
+  );
+  act(() => emit('session://save-requested', null));
+  await waitFor(() =>
+    expect(
+      calls.filter(({ command }) => command === 'session_close'),
+    ).toHaveLength(2),
+  );
+});

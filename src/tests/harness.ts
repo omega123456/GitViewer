@@ -1,3 +1,4 @@
+import { update } from './fixtures';
 import { vi } from 'vitest';
 import type { Commands, Events } from '../lib/types';
 type Handler = (args: never) => unknown;
@@ -16,6 +17,7 @@ export function mockCommand<K extends keyof Commands>(
 }
 export function resetHarness() {
   handlers.clear();
+  mockCommand('update_get', () => ({ ...update }));
   mockCommand('session_get', () => ({ tabs: [], active: '' }));
   mockCommand('session_set', () => null);
   mockCommand('session_close', () => null);

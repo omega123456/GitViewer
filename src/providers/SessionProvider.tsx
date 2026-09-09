@@ -10,6 +10,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     let unsubscribe = () => {};
     let unlisten = () => {};
+    let stopCancelled = () => {};
     const restore = async () => {
       try {
         const session = await invoke('session_get', {});
@@ -46,6 +47,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           active: state.active,
         };
       };
+      stopCancelled = await listen('session://close-cancelled', () => {
+        closing = false;
+      }).catch((error) => {
+        if (!cancelled) useTabs.getState().setError(normalizeError(error));
+        return () => {};
+      });
       unlisten = await listen('session://save-requested', () => {
         if (closing || cancelled) return;
         closing = true;
@@ -64,6 +71,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       });
       if (cancelled) {
         unlisten();
+        stopCancelled();
         return;
       }
       unsubscribe = useTabs.subscribe((state, previous) => {
@@ -86,6 +94,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       unsubscribe();
       unlisten();
+      stopCancelled();
     };
   }, []);
   return ready ? children : null;

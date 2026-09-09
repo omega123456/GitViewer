@@ -47,6 +47,7 @@ fn persistence_handles_missing_corrupt_and_unwritable_files() {
         theme: "dark".into(),
         density: "compact".into(),
         diff_mode: "unified".into(),
+        ..Default::default()
     };
     settings::write(&settings_path, preferences.clone()).unwrap();
     assert_eq!(settings::read(&settings_path), preferences);

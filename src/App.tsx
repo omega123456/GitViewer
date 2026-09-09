@@ -8,6 +8,8 @@ const defaults: Settings = {
   theme: 'system',
   density: 'comfortable',
   diffMode: 'split',
+  updateCheckInterval: '1d',
+  installUpdateOnQuit: true,
 };
 export default function App() {
   useBrowserRestrictions();

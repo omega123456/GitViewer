@@ -73,14 +73,50 @@ pub async fn autosave<R: Runtime>(app: tauri::AppHandle<R>) {
 
 pub fn complete_close<R: Runtime>(app: &tauri::AppHandle<R>) -> crate::error::Result<()> {
     let store = app.state::<Store>();
+    if !store.claim_close() {
+        return Ok(());
+    }
     if let Err(error) = store.save() {
-        store.cancel_close();
+        cancel_close(app);
         return Err(error);
     }
+    if let Some(guard) = app.try_state::<crate::logging::Guard>() {
+        guard.flush();
+    }
+    let restart = match app
+        .try_state::<std::sync::Arc<crate::updater::Service>>()
+        .map(|service| service.finish_close())
+        .transpose()
+    {
+        Ok(restart) => restart.unwrap_or(false),
+        Err(error) => {
+            cancel_close(app);
+            return Err(error);
+        }
+    };
     if store.allow_close() {
-        exit(app);
+        if restart {
+            restart_app(app);
+        } else {
+            exit(app);
+        }
     }
     Ok(())
+}
+
+fn cancel_close<R: Runtime>(app: &tauri::AppHandle<R>) {
+    app.state::<Store>().cancel_close();
+    if let Some(service) = app.try_state::<std::sync::Arc<crate::updater::Service>>() {
+        service.cancel_close();
+    }
+    let _ = app.emit("session://close-cancelled", ());
+}
+
+fn restart_app<R: Runtime>(app: &tauri::AppHandle<R>) {
+    #[cfg(not(feature = "test-utils"))]
+    app.restart();
+    #[cfg(feature = "test-utils")]
+    let _ = app;
 }
 
 fn exit<R: Runtime>(app: &tauri::AppHandle<R>) {
@@ -132,6 +168,7 @@ pub fn setup<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), Box<dyn std::err
             version = app.package_info().version.to_string(),
             "GitViewer started"
         );
+        crate::updater::setup(app.handle())?;
         let handle = app.handle().clone();
         tauri::async_runtime::spawn(autosave(handle));
         Ok(())

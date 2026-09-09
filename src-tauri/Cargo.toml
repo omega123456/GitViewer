@@ -38,6 +38,7 @@ chrono = { version = "0.4", features = ["serde"] }
 similar = "2"
 notify = "8"
 notify-debouncer-full = "0.6"
+tauri-plugin-updater = "2.11"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util"] }

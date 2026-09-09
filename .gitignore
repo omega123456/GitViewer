@@ -11,3 +11,9 @@ playwright-report/
 test-results
 dist
 src-tauri/gen/
+release.config.json
+release-assets/
+downloaded/
+verified-assets/
+release-notes.json
+existing-release.json

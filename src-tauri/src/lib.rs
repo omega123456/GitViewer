@@ -17,6 +17,7 @@ pub mod settings;
 pub mod stash;
 pub mod status;
 pub mod tree;
+pub mod updater;
 pub mod watch;
 
 pub fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {

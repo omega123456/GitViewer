@@ -1,0 +1,127 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            platform: darwin-aarch64
+            bundles: app,dmg
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            platform: windows-x86_64
+            bundles: nsis
+    runs-on: ${{ matrix.os }}
+    env:
+      TAURI_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:release
+      - name: Validate signing and generate release configuration
+        shell: bash
+        run: |
+          test -n "$TAURI_SIGNING_PRIVATE_KEY"
+          pnpm exec node scripts/release.mjs configure
+      - name: Import macOS signing certificate
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        shell: bash
+        run: |
+          test -n "$APPLE_CERTIFICATE"
+          keychain_password="$(openssl rand -hex 32)"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security create-keychain -p "$keychain_password" "$RUNNER_TEMP/release.keychain-db"
+          security set-keychain-settings -lut 21600 "$RUNNER_TEMP/release.keychain-db"
+          security unlock-keychain -p "$keychain_password" "$RUNNER_TEMP/release.keychain-db"
+          security import "$RUNNER_TEMP/signing.p12" -k "$RUNNER_TEMP/release.keychain-db" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$RUNNER_TEMP/release.keychain-db"
+          security list-keychains -d user -s "$RUNNER_TEMP/release.keychain-db" login.keychain-db
+      - name: Build signed application and updater artifacts
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            test -n "$APPLE_SIGNING_IDENTITY"
+            test -n "$APPLE_ID"
+            test -n "$APPLE_PASSWORD"
+            test -n "$APPLE_TEAM_ID"
+          fi
+          pnpm exec tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config release.config.json -- --locked
+          pnpm exec node scripts/release.mjs collect src-tauri/target/${{ matrix.target }}/release/bundle release-assets ${{ matrix.platform }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: update-${{ matrix.platform }}
+          path: release-assets/
+          if-no-files-found: error
+      - name: Remove temporary signing material
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          security delete-keychain "$RUNNER_TEMP/release.keychain-db" || true
+          rm -f "$RUNNER_TEMP/signing.p12"
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: update-*
+          path: downloaded
+      - name: Validate complete platform inventory
+        run: pnpm exec node scripts/release.mjs assemble downloaded release-assets
+      - name: Assemble draft release and verify uploaded files
+        shell: bash
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --json isDraft > existing-release.json; then
+            test "$(jq -r .isDraft existing-release.json)" = true
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --draft --title "GitViewer $GITHUB_REF_NAME" --generate-notes
+          fi
+          gh release view "$GITHUB_REF_NAME" --json body > release-notes.json
+          pnpm exec node scripts/release.mjs notes release-assets/latest.json release-notes.json
+          gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber
+          gh release download "$GITHUB_REF_NAME" --dir verified-assets
+          diff -rq release-assets verified-assets
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest

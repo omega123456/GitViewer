@@ -8,6 +8,8 @@ pub struct Settings {
     pub theme: String,
     pub density: String,
     pub diff_mode: String,
+    pub update_check_interval: String,
+    pub install_update_on_quit: bool,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -15,6 +17,8 @@ impl Default for Settings {
             theme: "system".into(),
             density: "comfortable".into(),
             diff_mode: "split".into(),
+            update_check_interval: "1d".into(),
+            install_update_on_quit: true,
         }
     }
 }
@@ -25,7 +29,8 @@ pub fn read(path: &Path) -> Settings {
         .unwrap_or_default()
 }
 pub fn write(path: &Path, settings: Settings) -> Result<Settings> {
-    if !["system", "light", "dark"].contains(&settings.theme.as_str())
+    if !["1h", "5h", "1d", "7d", "off"].contains(&settings.update_check_interval.as_str())
+        || !["system", "light", "dark"].contains(&settings.theme.as_str())
         || !["compact", "comfortable"].contains(&settings.density.as_str())
         || !["split", "unified"].contains(&settings.diff_mode.as_str())
     {

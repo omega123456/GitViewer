@@ -1,3 +1,4 @@
+import { UpdatesSection } from './UpdatesSection';
 import type { ReactNode } from 'react';
 import { perform } from '../../lib/query';
 import type { Settings } from '../../lib/types';
@@ -12,7 +13,7 @@ export function SettingsSurface({ settings }: { settings: Settings }) {
       open={open}
       onOpenChange={usePalette.getState().setSettings}
     >
-      <div className="flex flex-col">
+      <div className="flex max-h-settings overflow-y-auto flex-col">
         <SettingRow title="Theme" description="Follows the system by default">
           <Segment
             label="Theme"
@@ -46,6 +47,7 @@ export function SettingsSurface({ settings }: { settings: Settings }) {
             }
           />
         </SettingRow>
+        <UpdatesSection settings={settings} />
       </div>
     </Modal>
   );

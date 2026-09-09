@@ -45,7 +45,9 @@ export function handleEvent<K extends keyof Events>(
   name: K,
   payload: Events[K],
 ) {
-  if (name === 'settings://changed') {
+  if (name === 'update://changed') {
+    void client.invalidateQueries({ queryKey: ['app', 'update_get'] });
+  } else if (name === 'settings://changed') {
     void client.invalidateQueries({ queryKey: ['app', 'settings_get'] });
   } else if (name === 'repo://closed' && payload && 'repo' in payload) {
     client.removeQueries({ queryKey: [payload.repo] });
@@ -60,6 +62,7 @@ export function handleEvent<K extends keyof Events>(
 }
 export async function connectEvents() {
   const names: (keyof Events)[] = [
+    'update://changed',
     'repo://closed',
     'repo://status-changed',
     'repo://head-changed',

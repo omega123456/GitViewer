@@ -388,6 +388,7 @@ describe('repository workflows', () => {
     await user.click(screen.getByRole('radio', { name: 'unified' }));
     await waitFor(() =>
       expect(preferences).toEqual({
+        ...settings,
         theme: 'dark',
         density: 'compact',
         diffMode: 'unified',

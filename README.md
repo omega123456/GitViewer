@@ -57,3 +57,23 @@ Changes-tree directory checkboxes are indeterminate when a descendant is partly 
 The automated suites and native build have been verified locally on macOS. The CI matrix includes Windows, but a Windows run has not been verified from this workspace. Windows-specific Playwright screenshot baselines still need to be captured and visually reviewed on Windows; the checked-in baselines are macOS captures. No screenshot tolerance was increased.
 
 The live-credential smoke check remains pending in `CLAUDE.md`. Automated Git tests use isolated repositories and local bare remotes, without the user's credential helpers or global Git configuration.
+
+## Application updates
+
+Settings includes the installed version, available release notes, manual checks, download progress, and installation controls. Automatic checks run on startup and then daily by default; hourly, five-hourly, weekly, and off are also available. Turning checks off still permits manual checks. Install on quit is enabled by default: available updates download and verify in the background, and a completed download installs after the final session save when you quit. An incomplete download never delays ordinary quit. Downloads are held only for the current application session.
+
+“Install and restart” downloads if necessary, saves the final session, and installs with relaunch. Failed saves or installation keep the application open. An installation error also offers “Quit without updating.” Dismissing the banner hides that version for the session, while Settings remains available. Debug builds never contact the release feed or run an installer. Release builds without feed configuration show “Updates not configured.”
+
+### Activating GitHub releases
+
+The release workflow is prepared for a future public GitHub repository. No repository name or LatentMail signing material is embedded in GitViewer. The workflow derives its endpoint from `GITHUB_REPOSITORY` and generates an untracked build configuration. Keep the repository and signing identity stable after the first release so installed applications continue to trust the feed.
+
+1. Create the public repository, configure the remote, and push this project.
+2. Generate a dedicated updater signing key with `pnpm exec tauri signer generate -w /secure/path/gitviewer.key`. Back up the private key and password outside the repository. Store the private key contents in the GitHub secret `TAURI_SIGNING_PRIVATE_KEY`, its password in `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, and the public key contents in the repository variable `TAURI_UPDATER_PUBLIC_KEY`.
+3. For macOS, supply a Developer ID Application certificate exported as base64 PKCS#12 in `APPLE_CERTIFICATE`, its password in `APPLE_CERTIFICATE_PASSWORD`, and its identity in `APPLE_SIGNING_IDENTITY`. Set `APPLE_ID`, an app-specific `APPLE_PASSWORD`, and `APPLE_TEAM_ID` for notarization. These are GitHub secrets. The workflow imports the certificate into a temporary keychain and removes it after building.
+4. Windows updater packages use NSIS on x64. Updater signatures are mandatory on both platforms; they are distinct from Windows Authenticode signing. Configure Windows code signing in the Tauri bundle settings before distribution if an organization certificate is available.
+5. Set the same stable version in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`; refresh `src-tauri/Cargo.lock` with `cargo check --manifest-path src-tauri/Cargo.toml`. Commit and push a matching `vX.Y.Z` tag.
+
+The workflow builds notarized macOS Apple Silicon app archives and disk images, plus the signed Windows x64 updater installer. It validates both platform manifests, assembles `latest.json`, uploads to a draft release, downloads and compares the uploaded files, and only then publishes. A failed build or validation leaves the live feed unchanged. A rerun may complete a draft, but refuses to overwrite a published release. Stable releases only are supported; release assets must be publicly downloadable without embedding credentials.
+
+Run `pnpm test:release` to validate configuration and platform-feed assembly locally. After activation, install an older signed release on macOS and Windows, publish a newer version, and verify manual installation, installation on quit without relaunch, and restored tabs/drafts. A real upgrade cannot be verified until the repository, signing secrets, and two signed versions exist.

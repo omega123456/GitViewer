@@ -19,7 +19,8 @@
     "test:rust:coverage": "node scripts/run-rust-coverage.mjs",
     "test:e2e": "playwright test",
     "test:all": "pnpm test:coverage && pnpm test:rust:coverage && pnpm test:e2e",
-    "clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml --no-default-features -- -D warnings && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings"
+    "clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml --no-default-features -- -D warnings && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings",
+    "test:release": "node --test tests/release.test.mjs"
   },
   "dependencies": {
     "@headless-tree/core": "^1.7.0",

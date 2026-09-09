@@ -3,6 +3,8 @@ export const settings: Settings = {
   theme: 'light',
   density: 'comfortable',
   diffMode: 'split',
+  updateCheckInterval: '1d',
+  installUpdateOnQuit: true,
 };
 export const status: Status = {
   branch: 'main',
@@ -77,4 +79,16 @@ export const diff: Diff = {
       ],
     },
   ],
+};
+
+export const update: import('../lib/types').UpdateSnapshot = {
+  currentVersion: '0.1.0',
+  availability: 'development',
+  available: null,
+  lastChecked: null,
+  phase: 'idle',
+  downloaded: 0,
+  total: null,
+  error: null,
+  canQuitWithoutUpdating: false,
 };

@@ -51,10 +51,35 @@ export interface Selection {
   revision?: string;
   blame?: boolean;
 }
+export interface UpdateSnapshot {
+  currentVersion: string;
+  availability: 'enabled' | 'development' | 'unconfigured';
+  available: {
+    version: string;
+    notes: string | null;
+    date: string | null;
+  } | null;
+  lastChecked: string | null;
+  phase:
+    | 'idle'
+    | 'checking'
+    | 'available'
+    | 'downloading'
+    | 'ready'
+    | 'saving'
+    | 'installing'
+    | 'error';
+  downloaded: number;
+  total: number | null;
+  error: string | null;
+  canQuitWithoutUpdating: boolean;
+}
 export interface Settings {
   theme: 'system' | 'light' | 'dark';
   density: 'compact' | 'comfortable';
   diffMode: 'split' | 'unified';
+  updateCheckInterval: '1h' | '5h' | '1d' | '7d' | 'off';
+  installUpdateOnQuit: boolean;
 }
 export interface Mark {
   text: string;
@@ -138,6 +163,10 @@ export interface Session {
   active: string;
 }
 export interface Commands {
+  update_get: Command<Record<string, never>, UpdateSnapshot>;
+  update_check: Command<Record<string, never>, UpdateSnapshot>;
+  update_install: Command<Record<string, never>, UpdateSnapshot>;
+  update_quit: Command<Record<string, never>, UpdateSnapshot>;
   frontend_log: Command<{ message: string }, null>;
   session_get: Command<Record<string, never>, Session>;
   session_set: Command<Session, null>;
@@ -202,6 +231,8 @@ export interface Commands {
   system_open: Command<FileArgs, null>;
 }
 export interface Events {
+  'update://changed': null;
+  'session://close-cancelled': null;
   'session://save-requested': null;
   'repo://closed': RepoArgs;
   'repo://status-changed': RepoArgs;
