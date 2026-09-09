@@ -61,6 +61,12 @@ export const test = base.extend({
               if (name === 'plugin:event|unlisten') return null;
               if (name === 'execute') {
                 switch (payload.command) {
+                  case 'session_get':
+                    return { tabs: [], active: '' };
+                  case 'frontend_log':
+                  case 'session_set':
+                  case 'session_close':
+                    return null;
                   case 'env':
                     return { found: true, supported: true, version: '2.50.1' };
                   case 'settings_get':

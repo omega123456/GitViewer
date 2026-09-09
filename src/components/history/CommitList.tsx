@@ -147,13 +147,11 @@ export function CommitList({ repo }: { repo: string }) {
               paths={files.data}
               selectedPath={selection.path}
               onSelect={(path) =>
-                useSelection
-                  .getState()
-                  .select(repo, {
-                    path,
-                    source: selection.source,
-                    revision: selection.revision,
-                  })
+                useSelection.getState().select(repo, {
+                  path,
+                  source: selection.source,
+                  revision: selection.revision,
+                })
               }
             />
           )}

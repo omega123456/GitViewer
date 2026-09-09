@@ -47,7 +47,6 @@ GitViewer2 is a Tauri 2 desktop Git client. Rust owns data and Git. React owns t
 
 # GitViewer2 conventions
 
-
 **Architecture**
 
 - Rust owns data, process control, persistence and business logic. React owns presentation and interaction state.
@@ -85,7 +84,6 @@ GitViewer2 is a Tauri 2 desktop Git client. Rust owns data and Git. React owns t
 - `pnpm` only.
 - Every change works on both macOS and Windows.
 - Lint is genuinely clean, with no suppressions.
-
 
 ## Playwright visual regression
 

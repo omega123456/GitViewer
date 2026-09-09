@@ -326,7 +326,9 @@ async fn local_remote_fetch_pull_push_and_divergence_refusal() {
         actions::commit(&mut other_repo, "Divergence")
             .await
             .unwrap();
-        branch::sync(&mut other_repo, "push", silent()).await.unwrap();
+        branch::sync(&mut other_repo, "push", silent())
+            .await
+            .unwrap();
     }
     assert!(branch::sync(&mut repo, "pull", silent())
         .await

@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { invoke, normalizeError } from './ipc';
 
 export function preventBrowserShortcut(event: KeyboardEvent) {
   const editable =
@@ -19,6 +20,14 @@ export function preventBrowserShortcut(event: KeyboardEvent) {
 
 export function useBrowserRestrictions() {
   useEffect(() => {
+    const report = (message: string) => {
+      void invoke('frontend_log', { message }).catch(() => {});
+    };
+    const error = (event: ErrorEvent) => report(event.message);
+    const rejection = (event: PromiseRejectionEvent) =>
+      report(normalizeError(event.reason).message);
+    window.addEventListener('error', error);
+    window.addEventListener('unhandledrejection', rejection);
     const prevent = (event: Event) => event.preventDefault();
     const context = (event: Event) => {
       if (
@@ -38,6 +47,8 @@ export function useBrowserRestrictions() {
     document.addEventListener('drop', prevent);
     document.addEventListener('wheel', wheel, { passive: false });
     return () => {
+      window.removeEventListener('error', error);
+      window.removeEventListener('unhandledrejection', rejection);
       document.removeEventListener('contextmenu', context);
       document.removeEventListener('dragstart', prevent);
       document.removeEventListener('drop', prevent);

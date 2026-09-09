@@ -1,3 +1,4 @@
+import { TextInput } from '../shared/TextInput';
 import { useState } from 'react';
 import { Popover } from 'radix-ui';
 import {
@@ -116,7 +117,7 @@ export function BranchPopover({
           >
             <div className="flex items-center gap-2 border-b border-line pb-2 dark:border-line-dark">
               <Search className="size-3.5 shrink-0 text-faint dark:text-faint-dark" />
-              <input
+              <TextInput
                 aria-label="Filter branches"
                 className={field}
                 placeholder="Filter branches"
@@ -194,7 +195,7 @@ export function BranchPopover({
         <div className="flex flex-col gap-4">
           <label className="text-xs">
             Name
-            <input
+            <TextInput
               className={field}
               value={name}
               onChange={(event) => setName(event.target.value)}
@@ -202,7 +203,7 @@ export function BranchPopover({
           </label>
           <label className="text-xs">
             Based on
-            <input
+            <TextInput
               list="base-references"
               className={field}
               value={base}

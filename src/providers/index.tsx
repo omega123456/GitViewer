@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { SessionProvider } from './SessionProvider';
 import { CommandProvider } from './CommandProvider';
 import { LayoutProvider } from './LayoutProvider';
 import { QueryProvider } from './QueryProvider';
@@ -8,7 +9,9 @@ export function Providers({ children }: { children: ReactNode }) {
     <QueryProvider>
       <ThemeProvider>
         <LayoutProvider>
-          <CommandProvider>{children}</CommandProvider>
+          <SessionProvider>
+            <CommandProvider>{children}</CommandProvider>
+          </SessionProvider>
         </LayoutProvider>
       </ThemeProvider>
     </QueryProvider>

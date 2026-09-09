@@ -1,3 +1,5 @@
+use tauri::Manager;
+
 pub mod actions;
 pub mod blob;
 pub mod branch;
@@ -7,7 +9,10 @@ pub mod git;
 pub mod graph;
 pub mod history;
 pub mod ipc;
+pub mod lifecycle;
+pub mod logging;
 pub mod repo;
+pub mod session;
 pub mod settings;
 pub mod stash;
 pub mod status;
@@ -15,6 +20,8 @@ pub mod tree;
 pub mod watch;
 
 pub fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
+    #[cfg(feature = "test-utils")]
+    let builder = builder.manage(session::Store::default());
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -44,6 +51,34 @@ pub fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
 
 pub fn run() {
     configure(tauri::Builder::default())
-        .run(tauri::generate_context!())
-        .expect("GitViewer failed to start");
+        .setup(lifecycle::setup)
+        .on_window_event(|window, event| {
+            if matches!(
+                event,
+                tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_)
+            ) {
+                lifecycle::capture(window);
+            }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if !lifecycle::request_close(window.app_handle()) {
+                    api.prevent_close();
+                }
+            }
+        })
+        .build(tauri::generate_context!())
+        .expect("GitViewer failed to start")
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+                if !lifecycle::request_close(app) {
+                    api.prevent_exit();
+                }
+            }
+            if matches!(event, tauri::RunEvent::Exit) {
+                lifecycle::flush(app);
+                tracing::info!("GitViewer closing");
+                if let Some(guard) = app.try_state::<logging::Guard>() {
+                    guard.flush();
+                }
+            }
+        });
 }

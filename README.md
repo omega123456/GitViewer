@@ -13,6 +13,14 @@ pnpm dev
 
 `pnpm dev:web` starts the presentation layer only. Repository operations require the desktop runtime.
 
+## Saved state and logs
+
+Settings are saved as soon as they change. Open repository tabs, their order, the active tab, commit drafts, and window position, size, and maximized state are restored on startup. Sessions autosave every five minutes. Closing the window or quitting requests the final frontend snapshot before saving and exiting; if the frontend does not respond within two seconds, the last native snapshot is saved. A failed final save keeps the application open.
+
+Debug builds use `com.gitviewer.desktop.dev`; release builds use `com.gitviewer.desktop`. Tauri uses these separate identifiers for settings, session, webview data, and log directories, matching LatentMail's development isolation. `settings.json` and `session.json` live in the application's configuration directory: `~/Library/Application Support/<identifier>` on macOS and `%APPDATA%/<identifier>` on Windows.
+
+Logs go to `~/Library/Logs/<identifier>` on macOS and `%LOCALAPPDATA%/<identifier>/logs` on Windows. They rotate daily as `gitviewer.YYYY-MM-DD.log`; startup removes dated application logs older than seven days. Startup, shutdown, persistence failures, failed IPC commands, and uncaught frontend errors are logged. Log buffers are flushed on exit. Text fields disable browser autocomplete, autocorrect, capitalization, and spellcheck.
+
 ## Verification
 
 Run `pnpm test:all` to run frontend coverage, Rust coverage, and end-to-end tests in sequence, stopping at the first failure. The screenshot suite currently requires macOS.

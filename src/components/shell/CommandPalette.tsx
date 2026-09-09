@@ -1,3 +1,4 @@
+import { TextInput } from '../shared/TextInput';
 import { useState } from 'react';
 import { Search } from 'lucide-react';
 import { useActionRegistry } from '../../lib/actions';
@@ -42,7 +43,7 @@ export function CommandPalette({ repo }: { repo: string }) {
     >
       <div className="flex items-center gap-2 border-b border-line px-3 dark:border-line-dark">
         <Search className="size-3.5 shrink-0 text-faint dark:text-faint-dark" />
-        <input
+        <TextInput
           aria-label="Find command"
           placeholder="Type a command…"
           className={`w-full bg-transparent py-2.5 text-xs outline-none`}

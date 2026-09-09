@@ -1,3 +1,4 @@
+import { TextInput } from '../shared/TextInput';
 import {
   Archive,
   Command,
@@ -71,7 +72,7 @@ export function Toolbar({
       </Button>
       <div className="ml-auto flex items-center gap-2 rounded border border-line bg-surface px-2 dark:border-line-dark dark:bg-surface-dark">
         <Search className="size-3.5 text-faint dark:text-faint-dark" />
-        <input
+        <TextInput
           aria-label="Filter files"
           placeholder="Filter files…"
           className="w-40 bg-transparent py-1 text-xs focus-visible:outline-2 focus-visible:outline-accent"

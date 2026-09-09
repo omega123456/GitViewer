@@ -42,7 +42,11 @@ pub async fn execute<R: tauri::Runtime>(
     command: String,
     args: Value,
 ) -> Result<Value> {
-    dispatch(app, command, args).await
+    let result = dispatch(app, command.clone(), args).await;
+    if let Err(error) = &result {
+        tracing::warn!(command, category = error.category, "IPC command failed");
+    }
+    result
 }
 pub async fn dispatch<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
@@ -51,6 +55,25 @@ pub async fn dispatch<R: tauri::Runtime>(
 ) -> Result<Value> {
     let registry = app.state::<Registry>();
     match command.as_str() {
+        "frontend_log" => {
+            let message = string(&args, "message")?;
+            tracing::error!(target: "frontend", message = %message.chars().take(4096).collect::<String>(), "Frontend error");
+            return Ok(Value::Null);
+        }
+        "session_get" => {
+            return Ok(serde_json::to_value(
+                app.state::<crate::session::Store>().get(),
+            )?)
+        }
+        "session_set" | "session_close" => {
+            let session: crate::session::Session = serde_json::from_value(args)?;
+            let store = app.state::<crate::session::Store>();
+            store.update(session.tabs, session.active);
+            if command == "session_close" {
+                crate::lifecycle::complete_close(&app)?;
+            }
+            return Ok(Value::Null);
+        }
         "env" => return Ok(serde_json::to_value(git::detect::environment().await)?),
         "settings_get" => return Ok(serde_json::to_value(settings::read(&settings_path(&app)?))?),
         "settings_set" => {

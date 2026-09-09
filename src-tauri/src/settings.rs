@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub theme: String,
     pub density: String,
@@ -34,6 +34,22 @@ pub fn write(path: &Path, settings: Settings) -> Result<Settings> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(path, serde_json::to_vec_pretty(&settings)?)?;
+    write_json(path, &settings)?;
     Ok(settings)
+}
+
+pub fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
+    use std::io::Write;
+    static WRITER: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = WRITER.lock().unwrap_or_else(|error| error.into_inner());
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let temporary = path.with_extension("json.tmp");
+    let mut file = std::fs::File::create(&temporary)?;
+    file.write_all(&serde_json::to_vec_pretty(value)?)?;
+    file.sync_all()?;
+    drop(file);
+    std::fs::rename(&temporary, path)?;
+    Ok(())
 }

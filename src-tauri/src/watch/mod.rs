@@ -1,8 +1,6 @@
 use crate::{error::Result, repo::Repo};
 use notify::{RecommendedWatcher, RecursiveMode};
-use notify_debouncer_full::{
-    new_debouncer_opt, DebounceEventResult, Debouncer, RecommendedCache,
-};
+use notify_debouncer_full::{new_debouncer_opt, DebounceEventResult, Debouncer, RecommendedCache};
 use std::{sync::atomic::Ordering, sync::Arc, time::Duration};
 
 pub type Watcher = Debouncer<RecommendedWatcher, RecommendedCache>;
@@ -48,9 +46,10 @@ pub fn start(repo: &mut Repo, changed: impl Fn(bool) + Send + Sync + 'static) ->
     let referenced = references.clone();
     let mut git_metadata = debouncer(METADATA_INTERVAL, move |result: DebounceEventResult| {
         let head_changed = result.as_ref().map_or(true, |events| {
-            events.iter().flat_map(|event| &event.paths).any(|path| {
-                path == &head || path == &packed || path.starts_with(&referenced)
-            })
+            events
+                .iter()
+                .flat_map(|event| &event.paths)
+                .any(|path| path == &head || path == &packed || path.starts_with(&referenced))
         });
         stale.store(true, Ordering::SeqCst);
         if head_changed {

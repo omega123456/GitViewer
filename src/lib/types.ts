@@ -133,7 +133,15 @@ export interface Blame {
 type RepoArgs = { repo: string };
 type FileArgs = RepoArgs & { path: string };
 type Command<A, R> = { args: A; result: R };
+export interface Session {
+  tabs: { path: string; message: string }[];
+  active: string;
+}
 export interface Commands {
+  frontend_log: Command<{ message: string }, null>;
+  session_get: Command<Record<string, never>, Session>;
+  session_set: Command<Session, null>;
+  session_close: Command<Session, null>;
   env: Command<Record<string, never>, Environment>;
   repo_open: Command<{ path: string }, Repository>;
   repo_close: Command<RepoArgs, null>;
@@ -194,6 +202,7 @@ export interface Commands {
   system_open: Command<FileArgs, null>;
 }
 export interface Events {
+  'session://save-requested': null;
   'repo://closed': RepoArgs;
   'repo://status-changed': RepoArgs;
   'repo://head-changed': RepoArgs;

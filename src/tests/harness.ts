@@ -16,6 +16,10 @@ export function mockCommand<K extends keyof Commands>(
 }
 export function resetHarness() {
   handlers.clear();
+  mockCommand('session_get', () => ({ tabs: [], active: '' }));
+  mockCommand('session_set', () => null);
+  mockCommand('session_close', () => null);
+  mockCommand('frontend_log', () => null);
   listeners.clear();
   calls.length = 0;
   host.platform = 'macos';

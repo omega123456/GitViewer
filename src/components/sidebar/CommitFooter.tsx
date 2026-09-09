@@ -1,3 +1,4 @@
+import { TextArea } from '../shared/TextArea';
 import { GitCommitHorizontal } from 'lucide-react';
 import type { Status } from '../../lib/types';
 import { useMessage, useTabs } from '../../stores/tabs';
@@ -20,7 +21,7 @@ export function CommitFooter({
   ).length;
   return (
     <div className="flex shrink-0 flex-col gap-2 border-t border-line bg-sub p-2 dark:border-line-dark dark:bg-sub-dark">
-      <textarea
+      <TextArea
         aria-label="Commit message"
         placeholder="Commit message"
         rows={2}

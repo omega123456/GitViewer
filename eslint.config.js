@@ -27,7 +27,13 @@ export default tseslint.config(
     },
     languageOptions: { globals: globals.browser },
   },
-  { files: ['src/**/*.{ts,tsx}'], ...a11y.flatConfigs.recommended },
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ...a11y.flatConfigs.recommended,
+    settings: {
+      'jsx-a11y': { components: { TextInput: 'input', TextArea: 'textarea' } },
+    },
+  },
   {
     files: ['*.{js,mjs,ts}', 'e2e/**'],
     languageOptions: { globals: globals.node },
