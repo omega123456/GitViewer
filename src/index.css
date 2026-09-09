@@ -22,6 +22,8 @@
   --color-selected-dark: #1e3438;
   --color-hover: #e7ebee;
   --color-hover-dark: #232a2f;
+  --color-track: #e3e8eb;
+  --color-track-dark: #252b30;
   --color-add: #e4f6ea;
   --color-add-dark: #122b1d;
   --color-add-word: #aee4c0;
@@ -71,6 +73,7 @@
   --radius: 0.5rem;
   --radius-md: 0.75rem;
   --spacing-accent: 3px;
+  --spacing-control: 24px;
   --spacing-tab: 34px;
   --spacing-toolbar: 42px;
   --spacing-section: 28px;
@@ -107,5 +110,19 @@
   .file-content {
     -webkit-user-select: text;
     user-select: text;
+  }
+  :where(
+    button,
+    summary,
+    a[href],
+    label:has(input),
+    [role='button'],
+    [role='checkbox'],
+    [role='radio'],
+    [role='tab'],
+    [role='treeitem'],
+    [role='option']
+  ):not(:disabled, [aria-disabled='true']) {
+    cursor: pointer;
   }
 }

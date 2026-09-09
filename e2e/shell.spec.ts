@@ -111,6 +111,55 @@ for (const mode of ['side by side', 'swipe', 'onion skin']) {
   });
 }
 
+test('tree icons keep their size in a narrow sidebar', async ({ page }) => {
+  await page.goto('/');
+  await page
+    .getByRole('button', { name: 'Open repository', exact: true })
+    .last()
+    .click();
+  const tree = page.getByRole('tree', { name: 'Changes', exact: true });
+  await tree.getByText('app.ts').waitFor();
+  await page.addStyleTag({
+    content: '[aria-label="Changes"] { width: 120px !important; }',
+  });
+  expect(
+    await tree.evaluate((root) =>
+      [...root.querySelectorAll('[role="treeitem"] svg')].map((icon) =>
+        Math.round(icon.getBoundingClientRect().width),
+      ),
+    ),
+  ).toEqual([12, 12, 12, 12]);
+});
+
+test('diff header actions keep one left edge', async ({ page }) => {
+  await page.goto('/?scenario=history');
+  await page
+    .getByRole('button', { name: 'Open repository', exact: true })
+    .last()
+    .click();
+  const group = page
+    .getByRole('button', { name: 'Open', exact: true })
+    .locator('..');
+  const edge = async () => (await group.boundingBox())!.x;
+  await page
+    .getByRole('tree', { name: 'Changes', exact: true })
+    .getByText('app.ts')
+    .click();
+  await expect(page.getByText('index → working tree')).toBeVisible();
+  const worktree = await edge();
+  await page.getByRole('button', { name: 'Blame', exact: true }).click();
+  expect(await edge()).toBe(worktree);
+  await page.getByRole('button', { name: 'Diff', exact: true }).click();
+  await page.getByRole('radio', { name: 'history', exact: true }).click();
+  await page.getByText('Merge feature', { exact: true }).click();
+  await page
+    .getByRole('tree', { name: 'Commit files', exact: true })
+    .getByRole('treeitem', { name: 'app.ts', exact: true })
+    .click();
+  await expect(page.getByText(/parent → commit/)).toBeVisible();
+  expect(await edge()).toBe(worktree);
+});
+
 test('history uses the same diff pane', async ({ page }) => {
   await page.goto('/?scenario=history');
   await page

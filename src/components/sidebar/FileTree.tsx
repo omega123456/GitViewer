@@ -98,10 +98,10 @@ export function ChangesTree({
           return (
             <div
               key={item.getId()}
-              className="group absolute top-0 left-0 flex w-full translate-y-row items-center gap-1 pl-indent"
+              className="group absolute top-0 left-0 flex w-full translate-y-row items-center gap-1 pl-2"
               style={dynamic({
                 '--row-offset': `${row.start}px`,
-                '--tree-indent': `${item.getItemMeta().level * 14 + 8}px`,
+                '--tree-indent': `${item.getItemMeta().level * 14}px`,
               })}
             >
               <CheckBox
@@ -130,7 +130,7 @@ export function ChangesTree({
                       source: node.status === '?' ? 'file' : source,
                     });
                 }}
-                className={`relative flex min-w-0 flex-1 items-center gap-1.5 pr-2 text-left text-sm hover:bg-hover dark:hover:bg-hover-dark ${compact ? 'h-tree-compact' : 'h-tree-comfortable'} ${focus} ${selection?.path === node.path && selection.source === source ? 'bg-selected dark:bg-selected-dark' : ''}`}
+                className={`relative flex min-w-0 flex-1 items-center gap-1.5 pr-2 pl-indent text-left text-sm hover:bg-hover dark:hover:bg-hover-dark ${compact ? 'h-tree-compact' : 'h-tree-comfortable'} ${focus} ${selection?.path === node.path && selection.source === source ? 'bg-selected dark:bg-selected-dark' : ''}`}
               >
                 {selection?.path === node.path &&
                   selection.source === source && (
@@ -138,17 +138,17 @@ export function ChangesTree({
                   )}
                 {node.directory ? (
                   item.isExpanded() ? (
-                    <ChevronDown className="size-3 text-faint dark:text-faint-dark" />
+                    <ChevronDown className="size-3 shrink-0 text-faint dark:text-faint-dark" />
                   ) : (
-                    <ChevronRight className="size-3 text-faint dark:text-faint-dark" />
+                    <ChevronRight className="size-3 shrink-0 text-faint dark:text-faint-dark" />
                   )
                 ) : (
-                  <span className="w-3" />
+                  <span className="w-3 shrink-0" />
                 )}
                 {node.directory ? (
-                  <Folder className="size-3 text-faint dark:text-faint-dark" />
+                  <Folder className="size-3 shrink-0 text-faint dark:text-faint-dark" />
                 ) : (
-                  <File className="size-3 text-faint dark:text-faint-dark" />
+                  <File className="size-3 shrink-0 text-faint dark:text-faint-dark" />
                 )}
                 <span className="truncate">{node.name}</span>
                 <StatusBadge status={node.status} />
@@ -310,17 +310,17 @@ export function FilesTree({ repo, status }: { repo: string; status: Status }) {
               )}
               {node.directory ? (
                 item.isExpanded() ? (
-                  <ChevronDown className="size-3 text-faint dark:text-faint-dark" />
+                  <ChevronDown className="size-3 shrink-0 text-faint dark:text-faint-dark" />
                 ) : (
-                  <ChevronRight className="size-3 text-faint dark:text-faint-dark" />
+                  <ChevronRight className="size-3 shrink-0 text-faint dark:text-faint-dark" />
                 )
               ) : (
-                <span className="w-3" />
+                <span className="w-3 shrink-0" />
               )}
               {node.directory ? (
-                <Folder className="size-3 text-faint dark:text-faint-dark" />
+                <Folder className="size-3 shrink-0 text-faint dark:text-faint-dark" />
               ) : (
-                <File className="size-3 text-faint dark:text-faint-dark" />
+                <File className="size-3 shrink-0 text-faint dark:text-faint-dark" />
               )}
               <span className="truncate">{node.name}</span>
               <StatusBadge status={node.ignored ? '' : node.status} />

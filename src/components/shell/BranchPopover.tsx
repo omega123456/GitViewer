@@ -103,7 +103,7 @@ export function BranchPopover({
       <Popover.Root open={open} onOpenChange={setOpen}>
         <Popover.Trigger asChild>
           <Button className="border border-line bg-surface dark:border-line-dark dark:bg-surface-dark">
-            <GitBranch className="size-3.5" />
+            <GitBranch className="size-4" />
             {status.branch === '(detached)'
               ? `${status.oid.slice(0, 7)} · detached`
               : status.branch || 'Branch'}

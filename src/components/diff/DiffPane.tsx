@@ -279,7 +279,7 @@ function SelectedDiff({
   return (
     <section className="flex h-full min-w-0 flex-col" aria-label="Diff viewer">
       <header className="flex h-tab shrink-0 items-center gap-2 border-b border-line px-3 dark:border-line-dark">
-        <File className="size-3.5 shrink-0 text-faint dark:text-faint-dark" />
+        <File className="size-4 shrink-0 text-faint dark:text-faint-dark" />
         <span className="truncate text-sm" title={selection.path}>
           <span className="text-muted">{directory}</span>
           <span className="font-semibold">{name}</span>
@@ -295,31 +295,39 @@ function SelectedDiff({
             −{removed}
           </span>
         )}
-        <Button
-          title="Open in system application"
-          className="ml-auto"
-          onClick={() =>
-            void perform('system_open', { repo, path: selection.path })
-          }
-        >
-          <ExternalLink className="size-3.5" />
-        </Button>
-        <Button
-          title="File history"
-          onClick={() => openFileHistory(repo, selection.path)}
-        >
-          <History className="size-3.5" />
-        </Button>
-        <Button
-          onClick={() =>
-            useSelection
-              .getState()
-              .select(repo, { ...selection, blame: !selection.blame })
-          }
-        >
-          {selection.blame ? 'Diff' : 'Blame'}
-        </Button>
-        {letter && <StatusBadge status={letter} />}
+        <div className="ml-auto flex items-center gap-1">
+          <Button
+            title="Open in system application"
+            onClick={() =>
+              void perform('system_open', { repo, path: selection.path })
+            }
+          >
+            <ExternalLink className="size-4" />
+            <span>Open</span>
+          </Button>
+          <Button
+            title="File history"
+            onClick={() => openFileHistory(repo, selection.path)}
+          >
+            <History className="size-4" />
+            <span>History</span>
+          </Button>
+          <Button
+            onClick={() =>
+              useSelection
+                .getState()
+                .select(repo, { ...selection, blame: !selection.blame })
+            }
+          >
+            <User className="size-4" />
+            <span className="min-w-9">
+              {selection.blame ? 'Diff' : 'Blame'}
+            </span>
+          </Button>
+        </div>
+        <span className="flex w-3.5 shrink-0">
+          {letter && <StatusBadge status={letter} />}
+        </span>
       </header>
       {selection.blame ? (
         <BlameView repo={repo} selection={selection} />

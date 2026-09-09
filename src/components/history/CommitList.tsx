@@ -52,9 +52,9 @@ export function CommitList({ repo }: { repo: string }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <h2 className="flex h-section shrink-0 items-center gap-1.5 border-b border-line bg-sub px-2 text-label font-semibold tracking-wider text-muted uppercase dark:border-line-dark dark:bg-sub-dark">
-        <History className="size-3" />
+        <History className="size-3 shrink-0" />
         <span className="truncate">{status.data?.branch}</span>
-        <span className="ml-auto rounded-full bg-hover px-1.5 font-mono font-normal tracking-normal dark:bg-hover-dark">
+        <span className="ml-auto shrink-0 rounded-full bg-hover px-1.5 font-mono font-normal tracking-normal dark:bg-hover-dark">
           {commits.length}
         </span>
       </h2>

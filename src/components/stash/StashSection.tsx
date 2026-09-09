@@ -155,9 +155,9 @@ export function StashSection({
                 show('', stash.hash);
               }}
             >
-              <Archive className="size-3 text-faint dark:text-faint-dark" />
+              <Archive className="size-3 shrink-0 text-faint dark:text-faint-dark" />
               <span className="min-w-0 flex-1 truncate">{stash.message}</span>
-              <span className="font-mono text-label text-muted">
+              <span className="shrink-0 font-mono text-label text-muted">
                 {formatDistanceToNowStrict(fromUnixTime(stash.timestamp))}
               </span>
             </Button>

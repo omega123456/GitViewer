@@ -24,7 +24,7 @@ export function Segment<T extends string>({
       onValueChange={(next) => {
         if (next) onChange(next as T);
       }}
-      className={`inline-flex rounded bg-chrome p-0.5 dark:bg-chrome-dark ${stretch ? 'w-full' : ''}`}
+      className={`inline-flex rounded bg-track p-0.5 dark:bg-track-dark ${stretch ? 'w-full' : ''}`}
     >
       {options.map((option) => (
         <ToggleGroup.Item
