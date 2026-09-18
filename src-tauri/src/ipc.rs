@@ -1,5 +1,5 @@
 use crate::{
-    actions, branch, diff,
+    actions, ai, branch, diff,
     error::{Error, Result},
     git, history,
     repo::Registry,
@@ -91,7 +91,41 @@ pub async fn dispatch<R: tauri::Runtime>(
             return Ok(serde_json::to_value(service.get())?);
         }
         "env" => return Ok(serde_json::to_value(git::detect::environment().await)?),
-        "settings_get" => return Ok(serde_json::to_value(settings::read(&settings_path(&app)?))?),
+        "settings_get" => {
+            return Ok(serde_json::to_value(settings::Response {
+                settings: settings::read(&settings_path(&app)?),
+                key_stored: ai::key_stored(),
+            })?)
+        }
+        "ai_models" => {
+            let preferences = settings::read(&settings_path(&app)?);
+            let endpoint =
+                ai::Endpoint::new(&preferences.ai.base_url, &ai::key()?.unwrap_or_default());
+            return Ok(serde_json::to_value(ai::models(&endpoint).await?)?);
+        }
+        "ai_key_set" => {
+            ai::set_key(string(&args, "key")?)?;
+            return Ok(Value::Null);
+        }
+        "ai_generate" => {
+            let preferences = settings::read(&settings_path(&app)?);
+            let endpoint =
+                ai::Endpoint::new(&preferences.ai.base_url, &ai::key()?.unwrap_or_default());
+            let handle = registry.get(string(&args, "repo")?).await?;
+            let material = {
+                let repo = handle.lock().await;
+                ai::material(&repo.root).await?
+            };
+            return Ok(serde_json::to_value(
+                ai::draft(
+                    &endpoint,
+                    &preferences.ai.model,
+                    &preferences.ai.prompt,
+                    material,
+                )
+                .await?,
+            )?);
+        }
         "settings_set" => {
             let settings =
                 settings::write(&settings_path(&app)?, serde_json::from_value(args.clone())?)?;

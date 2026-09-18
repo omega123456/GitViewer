@@ -1,6 +1,7 @@
 use tauri::Manager;
 
 pub mod actions;
+pub mod ai;
 pub mod blob;
 pub mod branch;
 pub mod diff;

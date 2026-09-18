@@ -20,6 +20,38 @@ for (const theme of ['light', 'dark'] as const) {
   });
 }
 
+for (const theme of ['light', 'dark'] as const) {
+  test(`settings shell and generation surfaces ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto('/?scenario=ai');
+    await page
+      .getByRole('button', { name: 'Open repository', exact: true })
+      .last()
+      .click();
+    await expect(
+      page.getByRole('button', { name: 'Generate', exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('region', { name: 'Commit', exact: true }),
+    ).toHaveScreenshot(`commit-generate-${theme}.png`);
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await expect(
+      page.getByRole('dialog', { name: 'Settings', exact: true }),
+    ).toHaveScreenshot(`settings-shell-${theme}.png`);
+    await page.getByRole('button', { name: 'AI', exact: true }).click();
+    await expect(
+      page.getByRole('region', { name: 'AI', exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('dialog', { name: 'Settings', exact: true }),
+    ).toHaveScreenshot(`settings-ai-${theme}.png`);
+    await page.getByRole('combobox', { name: 'Model', exact: true }).click();
+    await expect(page.getByRole('listbox')).toHaveScreenshot(
+      `model-menu-${theme}.png`,
+    );
+  });
+}
+
 test('large diffs keep a bounded DOM while scrolling', async ({ page }) => {
   await page.goto('/?scenario=scale');
   await page

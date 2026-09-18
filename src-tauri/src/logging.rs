@@ -1,7 +1,7 @@
 use chrono::{Duration, NaiveDate, Utc};
 use std::path::Path;
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::fmt::writer::MakeWriterExt;
+use tracing_subscriber::{filter::Targets, fmt::writer::MakeWriterExt, layer::SubscriberExt};
 
 pub fn cleanup(directory: &Path, today: NaiveDate) -> std::io::Result<()> {
     for entry in std::fs::read_dir(directory)? {
@@ -42,7 +42,12 @@ pub fn init(directory: &Path) -> Result<Guard, Box<dyn std::error::Error>> {
         .with_ansi(false)
         .with_max_level(tracing::Level::INFO)
         .with_writer(writer.and(std::io::stdout))
-        .finish();
+        .finish()
+        .with(
+            Targets::new()
+                .with_target("async_openai", tracing::level_filters::LevelFilter::OFF)
+                .with_default(tracing::Level::INFO),
+        );
     tracing::subscriber::set_global_default(subscriber)?;
     Ok(Guard(std::sync::Mutex::new(Some(guard))))
 }

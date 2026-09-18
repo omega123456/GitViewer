@@ -18,6 +18,17 @@ async fn typed_commands_events_and_protocol_are_wired() {
         .unwrap());
     assert!(call("settings_get", json!({})).await.is_err());
     assert!(call("settings_set", json!({})).await.is_err());
+    assert!(call("ai_models", json!({})).await.is_err());
+    assert!(call("ai_generate", json!({"repo":"missing"}))
+        .await
+        .is_err());
+    assert!(call("ai_key_set", json!({})).await.is_err());
+    call("ai_key_set", json!({"key":"stored-secret"}))
+        .await
+        .unwrap();
+    assert!(gitviewer_lib::ai::key_stored());
+    call("ai_key_set", json!({"key":""})).await.unwrap();
+    assert!(!gitviewer_lib::ai::key_stored());
     assert!(call("repo_open", json!({})).await.is_err());
     let info = call("repo_open", json!({"path":dir.path()})).await.unwrap();
     let id = info["id"].as_str().unwrap();

@@ -1,5 +1,5 @@
 import { UpdateBanner } from '../states/UpdateBanner';
-import type { Settings } from '../../lib/types';
+import type { SettingsResponse } from '../../lib/types';
 import { useCompact } from '../../stores/density';
 import { useTabs } from '../../stores/tabs';
 import { useDark } from '../../stores/theme';
@@ -13,7 +13,7 @@ export function AppShell({
   settings,
   version,
 }: {
-  settings: Settings;
+  settings: SettingsResponse;
   version: string;
 }) {
   const tabs = useTabs((s) => s.tabs);

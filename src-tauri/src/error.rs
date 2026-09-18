@@ -79,3 +79,46 @@ impl From<tauri_plugin_opener::Error> for Error {
         Self::new("unexpected", error.to_string())
     }
 }
+
+impl From<reqwest::Error> for Error {
+    fn from(error: reqwest::Error) -> Self {
+        if error.is_timeout() {
+            Self::new("network", "The endpoint did not answer in time")
+        } else {
+            Self::new("network", "The endpoint could not be reached")
+        }
+    }
+}
+
+impl From<async_openai::error::OpenAIError> for Error {
+    fn from(error: async_openai::error::OpenAIError) -> Self {
+        use async_openai::error::OpenAIError;
+        match error {
+            OpenAIError::Reqwest(error) => Self::from(error),
+            OpenAIError::ApiError(response) => {
+                let status = response.status_code.as_u16();
+                match status {
+                    401 | 403 => Self::new("authentication", "The endpoint rejected the API key"),
+                    404 => Self::refused("The endpoint does not serve this route"),
+                    _ => Self::refused(format!(
+                        "The endpoint refused the request with status {status}"
+                    )),
+                }
+            }
+            OpenAIError::JSONDeserialize(..) => {
+                Self::refused("The endpoint returned a response the application could not read")
+            }
+            _ => Self::refused("The request to the endpoint could not be completed"),
+        }
+    }
+}
+
+#[cfg(not(feature = "test-utils"))]
+impl From<keyring::Error> for Error {
+    fn from(error: keyring::Error) -> Self {
+        match error {
+            keyring::Error::NoEntry => Self::refused("No API key is stored"),
+            _ => Self::new("unexpected", format!("Keychain access failed: {error}")),
+        }
+    }
+}

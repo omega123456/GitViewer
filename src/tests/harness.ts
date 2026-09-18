@@ -1,4 +1,4 @@
-import { update } from './fixtures';
+import { generated, update } from './fixtures';
 import { vi } from 'vitest';
 import type { Commands, Events } from '../lib/types';
 type Handler = (args: never) => unknown;
@@ -22,6 +22,9 @@ export function resetHarness() {
   mockCommand('session_set', () => null);
   mockCommand('session_close', () => null);
   mockCommand('frontend_log', () => null);
+  mockCommand('ai_models', () => []);
+  mockCommand('ai_key_set', () => null);
+  mockCommand('ai_generate', () => ({ ...generated }));
   listeners.clear();
   calls.length = 0;
   host.platform = 'macos';

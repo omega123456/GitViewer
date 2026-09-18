@@ -20,6 +20,15 @@ export const test = base.extend({
         const scenario = new URLSearchParams(window.location.search).get(
           'scenario',
         );
+        if (scenario === 'ai') {
+          settings.keyStored = true;
+          settings.ai = {
+            ...settings.ai,
+            enabled: true,
+            baseUrl: 'https://api.openai.com/v1',
+            model: 'gpt-4o-mini',
+          };
+        }
         if (scenario === 'image') {
           status.entries = [{ ...status.entries[0], path: 'picture.png' }];
           diff.path = 'picture.png';
@@ -91,6 +100,16 @@ export const test = base.extend({
                     return { found: true, supported: true, version: '2.50.1' };
                   case 'settings_get':
                     return settings;
+                  case 'ai_models':
+                    return ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'o4-mini'];
+                  case 'ai_key_set':
+                    return null;
+                  case 'ai_generate':
+                    return {
+                      message: 'Move stash bulk actions onto the group header',
+                      source: 'index',
+                      detail: 'patch',
+                    };
                   case 'repo_open':
                     return repository;
                   case 'status':

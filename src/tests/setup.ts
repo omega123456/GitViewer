@@ -10,6 +10,8 @@ import { useFilterStore } from '../stores/filter';
 import { useDiffView } from '../stores/diff-view';
 import { useImageViews } from '../stores/image-view';
 import { usePalette } from '../stores/palette';
+import { useSettingsNav } from '../stores/settings-nav';
+import { useGenerate } from '../stores/generate';
 import { useTheme } from '../stores/theme';
 import { useDensity } from '../stores/density';
 import { useUpdate } from '../stores/update';
@@ -77,6 +79,8 @@ beforeEach(() => {
   useDiffView.setState({ mode: null });
   useImageViews.setState({ tabs: {} });
   usePalette.setState({ open: false, settings: false });
+  useSettingsNav.setState({ pane: 'general' });
+  useGenerate.setState({ repos: {} });
   useTheme.setState({ preference: 'system', system: false });
   useDensity.setState({ density: 'comfortable' });
 });

@@ -49,6 +49,7 @@ export function handleEvent<K extends keyof Events>(
     void client.invalidateQueries({ queryKey: ['app', 'update_get'] });
   } else if (name === 'settings://changed') {
     void client.invalidateQueries({ queryKey: ['app', 'settings_get'] });
+    void client.invalidateQueries({ queryKey: ['app', 'ai_models'] });
   } else if (name === 'repo://closed' && payload && 'repo' in payload) {
     client.removeQueries({ queryKey: [payload.repo] });
   } else if (payload && 'repo' in payload && name !== 'sync://progress') {

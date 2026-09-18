@@ -36,10 +36,7 @@ export function UpdatesSection({ settings }: { settings: Settings }) {
   const query = useBackend('update_get', {});
   const state = query.data;
   return (
-    <section
-      aria-label="Updates"
-      className="mt-4 flex flex-col gap-3 border-t border-line pt-4 text-xs dark:border-line-dark"
-    >
+    <section aria-label="Updates" className="flex flex-col gap-3 text-xs">
       <h2 className="text-sm font-semibold">Updates</h2>
       {query.error && <p role="alert">Couldn’t load update status.</p>}
       {!state && !query.error && <p>Loading update status…</p>}

@@ -11,6 +11,7 @@ import {
   RefreshCw,
   RotateCcw,
   RotateCw,
+  Sparkles,
   SquareMinus,
   SquarePlus,
   Upload,
@@ -19,7 +20,8 @@ import { confirm } from '@tauri-apps/plugin-dialog';
 import { useActions } from '../../lib/actions';
 import { perform, useBackend } from '../../lib/query';
 import type { Action } from '../../lib/keyboard';
-import type { Settings } from '../../lib/types';
+import type { SettingsResponse } from '../../lib/types';
+import { useGenerate, useGenerateState } from '../../stores/generate';
 import { useMessage, useTabs } from '../../stores/tabs';
 import { useLayout, useTabLayout } from '../../stores/layout';
 import { useCurrentSelection, useSelection } from '../../stores/selection';
@@ -29,7 +31,7 @@ import { State } from '../states/State';
 import { DiffPane } from '../diff/DiffPane';
 import { CommitList } from '../history/CommitList';
 import { ChangesSection } from '../sidebar/ChangesSection';
-import { CommitFooter } from '../sidebar/CommitFooter';
+import { aiConfigured, CommitFooter } from '../sidebar/CommitFooter';
 import { FilesSection } from '../sidebar/FilesSection';
 import { SidebarModeToggle } from '../sidebar/SidebarModeToggle';
 import { StashSection } from '../stash/StashSection';
@@ -42,11 +44,12 @@ export function RepositoryView({
   version,
 }: {
   repo: string;
-  settings: Settings;
+  settings: SettingsResponse;
   version: string;
 }) {
   const query = useBackend('status', { repo });
   const busy = useTabs((s) => s.busy) > 0;
+  const generate = useGenerateState(repo);
   const message = useMessage(repo);
   const filter = useFilter(repo);
   const layout = useTabLayout(repo);
@@ -203,6 +206,14 @@ export function RepositoryView({
       run: commit,
     },
     {
+      id: 'generate-message',
+      icon: <Sparkles className="size-3.5" />,
+      label: 'Generate commit message',
+      key: 'Mod+Alt+g',
+      disabled: !aiConfigured(settings) || generate.busy,
+      run: () => useGenerate.getState().generate(repo),
+    },
+    {
       id: 'fetch',
       icon: <RefreshCw className="size-3.5" />,
       label: 'Fetch',
@@ -309,6 +320,7 @@ export function RepositoryView({
           <CommitFooter
             repo={repo}
             status={status}
+            settings={settings}
             disabled={
               actions.find((action) => action.id === 'commit')!.disabled ??
               false

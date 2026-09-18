@@ -1,10 +1,31 @@
-import type { Diff, Status, Settings, Repository } from '../lib/types';
-export const settings: Settings = {
+import type {
+  Diff,
+  Status,
+  SettingsResponse,
+  AiSettings,
+  GeneratedMessage,
+  Repository,
+} from '../lib/types';
+export const ai: AiSettings = {
+  enabled: false,
+  baseUrl: '',
+  model: '',
+  prompt:
+    'Write a commit message for this diff. One short imperative subject line under 60 characters. Add a body only when needed.',
+};
+export const settings: SettingsResponse = {
   theme: 'light',
   density: 'comfortable',
   diffMode: 'split',
   updateCheckInterval: '1d',
   installUpdateOnQuit: true,
+  ai,
+  keyStored: false,
+};
+export const generated: GeneratedMessage = {
+  message: 'Add a generated commit message',
+  source: 'index',
+  detail: 'patch',
 };
 export const status: Status = {
   branch: 'main',

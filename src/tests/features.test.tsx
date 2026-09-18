@@ -16,6 +16,7 @@ import { useTabs } from '../stores/tabs';
 import { useLayout } from '../stores/layout';
 import { useSelection } from '../stores/selection';
 import { useDiffView } from '../stores/diff-view';
+import { useSettingsNav } from '../stores/settings-nav';
 import { initials } from '../components/shared/Avatar';
 import { checkout } from '../components/shell/BranchPopover';
 import { DiffPane } from '../components/diff/DiffPane';
@@ -369,7 +370,7 @@ describe('repository workflows', () => {
     let preferences = settings;
     mockCommand('settings_get', () => preferences);
     mockCommand('settings_set', (next) => {
-      preferences = next;
+      preferences = { ...next, keyStored: settings.keyStored };
       emit('settings://changed', null);
       return next;
     });
@@ -394,7 +395,17 @@ describe('repository workflows', () => {
         diffMode: 'unified',
       }),
     );
+    const rail = screen.getByRole('navigation', { name: 'Settings sections' });
+    expect(
+      within(rail).getByRole('button', { name: 'General' }),
+    ).toHaveAttribute('aria-current', 'page');
+    await user.click(within(rail).getByRole('button', { name: 'Updates' }));
+    expect(
+      await screen.findByRole('region', { name: 'Updates' }),
+    ).toBeVisible();
+    expect(useSettingsNav.getState().pane).toBe('updates');
     await user.click(screen.getByLabelText('Close dialog'));
+    expect(useSettingsNav.getState().pane).toBe('general');
     expect(useDiffView.getState().mode).toBeNull();
   });
   it('shows stash files and uses hash-addressed apply, pop, and drop with confirmations', async () => {

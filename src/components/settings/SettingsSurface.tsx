@@ -1,73 +1,41 @@
-import { UpdatesSection } from './UpdatesSection';
-import type { ReactNode } from 'react';
-import { perform } from '../../lib/query';
-import type { Settings } from '../../lib/types';
+import { Dialog } from 'radix-ui';
+import { X } from 'lucide-react';
+import type { SettingsResponse } from '../../lib/types';
 import { usePalette } from '../../stores/palette';
+import { useSettingsNav } from '../../stores/settings-nav';
+import { Button } from '../shared/Button';
 import { Modal } from '../shared/Modal';
-import { Segment } from '../shared/Segment';
-export function SettingsSurface({ settings }: { settings: Settings }) {
+import { AiSection } from './AiSection';
+import { GeneralSection } from './GeneralSection';
+import { SettingsNav } from './SettingsNav';
+import { UpdatesSection } from './UpdatesSection';
+export function SettingsSurface({ settings }: { settings: SettingsResponse }) {
   const open = usePalette((s) => s.settings);
+  const pane = useSettingsNav((s) => s.pane);
   return (
     <Modal
+      hideChrome
+      size="settings"
       title="Settings"
       open={open}
-      onOpenChange={usePalette.getState().setSettings}
+      onOpenChange={(next) => {
+        usePalette.getState().setSettings(next);
+        if (!next) useSettingsNav.getState().select('general');
+      }}
     >
-      <div className="flex max-h-settings overflow-y-auto flex-col">
-        <SettingRow title="Theme" description="Follows the system by default">
-          <Segment
-            label="Theme"
-            value={settings.theme}
-            options={['light', 'dark', 'system']}
-            onChange={(theme) =>
-              void perform('settings_set', { ...settings, theme })
-            }
-          />
-        </SettingRow>
-        <SettingRow title="Density" description="Row height in both trees">
-          <Segment
-            label="Density"
-            value={settings.density}
-            options={['compact', 'comfortable']}
-            onChange={(density) =>
-              void perform('settings_set', { ...settings, density })
-            }
-          />
-        </SettingRow>
-        <SettingRow
-          title="Default diff mode"
-          description="Applied to every newly opened file"
-        >
-          <Segment
-            label="Default diff mode"
-            value={settings.diffMode}
-            options={['split', 'unified']}
-            onChange={(diffMode) =>
-              void perform('settings_set', { ...settings, diffMode })
-            }
-          />
-        </SettingRow>
-        <UpdatesSection settings={settings} />
+      <div className="flex h-full">
+        <SettingsNav />
+        <div className="min-w-0 flex-1 overflow-y-auto px-5 pt-9 pb-5">
+          {pane === 'general' && <GeneralSection settings={settings} />}
+          {pane === 'ai' && <AiSection settings={settings} />}
+          {pane === 'updates' && <UpdatesSection settings={settings} />}
+        </div>
       </div>
+      <Dialog.Close asChild>
+        <Button aria-label="Close dialog" className="absolute top-3 right-3">
+          <X className="size-4" />
+        </Button>
+      </Dialog.Close>
     </Modal>
-  );
-}
-function SettingRow({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="flex items-center gap-3 border-b border-line py-3 last:border-b-0 dark:border-line-dark">
-      <span className="text-xs">
-        {title}
-        <small className="block text-label text-muted">{description}</small>
-      </span>
-      <span className="ml-auto">{children}</span>
-    </div>
   );
 }

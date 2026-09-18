@@ -74,12 +74,27 @@ export interface UpdateSnapshot {
   error: string | null;
   canQuitWithoutUpdating: boolean;
 }
+export interface AiSettings {
+  enabled: boolean;
+  baseUrl: string;
+  model: string;
+  prompt: string;
+}
 export interface Settings {
   theme: 'system' | 'light' | 'dark';
   density: 'compact' | 'comfortable';
   diffMode: 'split' | 'unified';
   updateCheckInterval: '1h' | '5h' | '1d' | '7d' | 'off';
   installUpdateOnQuit: boolean;
+  ai: AiSettings;
+}
+export interface SettingsResponse extends Settings {
+  keyStored: boolean;
+}
+export interface GeneratedMessage {
+  message: string;
+  source: 'index' | 'workingTree';
+  detail: 'patch' | 'summary';
 }
 export interface Mark {
   text: string;
@@ -204,8 +219,11 @@ export interface Commands {
     null
   >;
   commit: Command<RepoArgs & { message: string }, null>;
-  settings_get: Command<Record<string, never>, Settings>;
+  settings_get: Command<Record<string, never>, SettingsResponse>;
   settings_set: Command<Settings, Settings>;
+  ai_models: Command<Record<string, never>, string[]>;
+  ai_key_set: Command<{ key: string }, null>;
+  ai_generate: Command<RepoArgs, GeneratedMessage>;
   branches: Command<RepoArgs, Branch[]>;
   branch_switch: Command<RepoArgs & { name: string }, null>;
   branch_create: Command<

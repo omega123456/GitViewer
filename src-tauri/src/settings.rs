@@ -2,6 +2,27 @@ use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+pub const DEFAULT_PROMPT: &str = "Write a commit message for this diff. One short imperative subject line under 60 characters. Add a body only when needed.";
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Ai {
+    pub enabled: bool,
+    pub base_url: String,
+    pub model: String,
+    pub prompt: String,
+}
+impl Default for Ai {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            base_url: String::new(),
+            model: String::new(),
+            prompt: DEFAULT_PROMPT.into(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -10,6 +31,7 @@ pub struct Settings {
     pub diff_mode: String,
     pub update_check_interval: String,
     pub install_update_on_quit: bool,
+    pub ai: Ai,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -19,8 +41,20 @@ impl Default for Settings {
             diff_mode: "split".into(),
             update_check_interval: "1d".into(),
             install_update_on_quit: true,
+            ai: Ai::default(),
         }
     }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Response {
+    #[serde(flatten)]
+    pub settings: Settings,
+    pub key_stored: bool,
+}
+pub fn endpoint_supported(base_url: &str) -> bool {
+    reqwest::Url::parse(base_url).is_ok_and(|url| matches!(url.scheme(), "http" | "https"))
 }
 pub fn read(path: &Path) -> Settings {
     std::fs::read(path)
@@ -35,6 +69,9 @@ pub fn write(path: &Path, settings: Settings) -> Result<Settings> {
         || !["split", "unified"].contains(&settings.diff_mode.as_str())
     {
         return Err(Error::refused("Invalid settings"));
+    }
+    if !settings.ai.base_url.is_empty() && !endpoint_supported(&settings.ai.base_url) {
+        return Err(Error::refused("Invalid endpoint"));
     }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;

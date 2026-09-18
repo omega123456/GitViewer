@@ -1,7 +1,9 @@
 @import 'tailwindcss';
 @custom-variant dark (&:where(.dark, .dark *));
 @theme inline {
-  --spacing-settings: 60vh;
+  --spacing-settings-width: 640px;
+  --spacing-settings-height: 480px;
+  --spacing-settings-nav: 168px;
   --color-surface: #ffffff;
   --color-surface-dark: #16191c;
   --color-chrome: #edf0f2;

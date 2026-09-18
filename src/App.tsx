@@ -1,15 +1,23 @@
 import { useBrowserRestrictions } from './lib/browser';
 import { useBackend } from './lib/query';
-import type { Settings } from './lib/types';
+import type { SettingsResponse } from './lib/types';
 import { AppShell } from './components/shell/AppShell';
 import { MissingGit } from './components/states/MissingGit';
 import { State } from './components/states/State';
-const defaults: Settings = {
+const defaults: SettingsResponse = {
+  keyStored: false,
   theme: 'system',
   density: 'comfortable',
   diffMode: 'split',
   updateCheckInterval: '1d',
   installUpdateOnQuit: true,
+  ai: {
+    enabled: false,
+    baseUrl: '',
+    model: '',
+    prompt:
+      'Write a commit message for this diff. One short imperative subject line under 60 characters. Add a body only when needed.',
+  },
 };
 export default function App() {
   useBrowserRestrictions();

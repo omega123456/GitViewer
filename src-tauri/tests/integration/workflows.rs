@@ -1,8 +1,10 @@
 use gitviewer_lib::{
-    actions, branch, diff, git, history,
+    actions, ai, branch, diff, git, history,
     repo::{Registry, Repository},
     stash, tree, watch,
 };
+use serde_json::json;
+use std::time::Duration;
 use std::{
     path::Path,
     sync::{
@@ -11,6 +13,10 @@ use std::{
     },
 };
 use tempfile::TempDir;
+use wiremock::{
+    matchers::{method, path},
+    Mock, MockServer, ResponseTemplate,
+};
 
 pub(super) fn silent() -> impl Fn(&str) {
     |_| {}
@@ -938,4 +944,312 @@ async fn revert_one_file_preserves_other_changes_and_handles_unborn_repo() {
         std::fs::read_to_string(dir.path().join("keep.txt")).unwrap(),
         "keep"
     );
+}
+
+fn endpoint(base_url: &str, key: &str, timeout: Duration) -> ai::Endpoint {
+    ai::Endpoint {
+        timeout,
+        ..ai::Endpoint::new(base_url, key)
+    }
+}
+fn sample() -> ai::Material {
+    ai::Material {
+        text: "diff --git a/file.txt b/file.txt".into(),
+        source: ai::Source::Index,
+        detail: ai::Detail::Patch,
+    }
+}
+async fn completion(server: &MockServer, response: ResponseTemplate) {
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(response)
+        .mount(server)
+        .await;
+}
+
+#[tokio::test]
+async fn ai_lists_models_and_reports_an_absent_model_route() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "object": "list",
+            "data": [
+                {"id": "small", "object": "model", "created": 0, "owned_by": "local"},
+                {"id": "large", "object": "model", "created": 0, "owned_by": "local"},
+            ]
+        })))
+        .mount(&server)
+        .await;
+    let base = format!("{}/v1/", server.uri());
+    let reachable = endpoint(&base, "key", Duration::from_secs(5));
+    assert_eq!(reachable.base_url, format!("{}/v1", server.uri()));
+    assert_eq!(
+        ai::models(&reachable).await.unwrap(),
+        vec!["large".to_string(), "small".to_string()]
+    );
+    let missing = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/models"))
+        .respond_with(
+            ResponseTemplate::new(404).set_body_json(json!({"error": {"message": "no route"}})),
+        )
+        .mount(&missing)
+        .await;
+    let absent = ai::models(&endpoint(&missing.uri(), "key", Duration::from_secs(5)))
+        .await
+        .unwrap_err();
+    assert_eq!(absent.category, "refused");
+    assert_eq!(absent.message, "The endpoint does not serve this route");
+}
+
+#[tokio::test]
+async fn ai_drafts_a_message_and_reports_its_source_and_detail() {
+    let server = MockServer::start().await;
+    let generated: String = std::iter::repeat_n('m', ai::MESSAGE_CAP + 500).collect();
+    completion(
+        &server,
+        ResponseTemplate::new(200).set_body_json(json!({
+            "id": "one",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "small",
+            "choices": [{
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {"role": "assistant", "content": format!("  \n{generated}\n  ")}
+            }]
+        })),
+    )
+    .await;
+    let base = format!("{}/v1", server.uri());
+    let draft = ai::draft(
+        &endpoint(&base, "key", Duration::from_secs(5)),
+        " small ",
+        "Describe it.",
+        ai::Material {
+            source: ai::Source::WorkingTree,
+            detail: ai::Detail::Summary,
+            ..sample()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(draft.message.chars().count(), ai::MESSAGE_CAP);
+    assert_eq!(draft.source, ai::Source::WorkingTree);
+    assert_eq!(draft.detail, ai::Detail::Summary);
+}
+
+#[tokio::test]
+async fn ai_generation_answers_while_a_repository_lock_is_held() {
+    let (_dir, handle) = fixture().await;
+    let server = MockServer::start().await;
+    completion(
+        &server,
+        ResponseTemplate::new(200).set_body_json(json!({
+            "id": "one",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "small",
+            "choices": [{
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {"role": "assistant", "content": "Add the thing"}
+            }]
+        })),
+    )
+    .await;
+    let guard = handle.lock().await;
+    let draft = ai::draft(
+        &endpoint(
+            &format!("{}/v1", server.uri()),
+            "key",
+            Duration::from_secs(5),
+        ),
+        "small",
+        "Describe it.",
+        sample(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(draft.message, "Add the thing");
+    assert!(guard.root.exists());
+}
+
+#[tokio::test]
+async fn ai_refuses_an_unconfigured_endpoint_and_maps_endpoint_failures() {
+    let short = Duration::from_millis(80);
+    assert_eq!(
+        ai::draft(&endpoint("", "key", short), "small", "t", sample())
+            .await
+            .unwrap_err()
+            .message,
+        "No endpoint is configured"
+    );
+    assert_eq!(
+        ai::models(&endpoint("https://example.invalid", "", short))
+            .await
+            .unwrap_err()
+            .message,
+        "No API key is stored"
+    );
+    assert_eq!(
+        ai::draft(
+            &endpoint("https://example.invalid", "key", short),
+            "  ",
+            "t",
+            sample()
+        )
+        .await
+        .unwrap_err()
+        .message,
+        "No model is configured"
+    );
+
+    let rejecting = MockServer::start().await;
+    completion(
+        &rejecting,
+        ResponseTemplate::new(401).set_body_json(json!({"error": {"message": "bad key"}})),
+    )
+    .await;
+    let rejected = ai::draft(
+        &endpoint(&format!("{}/v1", rejecting.uri()), "key", short),
+        "small",
+        "t",
+        sample(),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(rejected.category, "authentication");
+    assert_eq!(rejected.message, "The endpoint rejected the API key");
+
+    let failing = MockServer::start().await;
+    completion(
+        &failing,
+        ResponseTemplate::new(500).set_body_string("upstream exploded"),
+    )
+    .await;
+    let refused = ai::draft(
+        &endpoint(&format!("{}/v1", failing.uri()), "key", short),
+        "small",
+        "t",
+        sample(),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(refused.category, "refused");
+    assert_eq!(
+        refused.message,
+        "The endpoint refused the request with status 500"
+    );
+    assert!(!refused.message.contains("upstream exploded"));
+
+    let malformed = MockServer::start().await;
+    completion(
+        &malformed,
+        ResponseTemplate::new(200).set_body_json(json!({"unexpected": true})),
+    )
+    .await;
+    assert_eq!(
+        ai::draft(
+            &endpoint(&format!("{}/v1", malformed.uri()), "key", short),
+            "small",
+            "t",
+            sample()
+        )
+        .await
+        .unwrap_err()
+        .message,
+        "The endpoint returned a response the application could not read"
+    );
+
+    let empty = MockServer::start().await;
+    completion(
+        &empty,
+        ResponseTemplate::new(200).set_body_json(json!({
+            "id": "one",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "small",
+            "choices": []
+        })),
+    )
+    .await;
+    assert_eq!(
+        ai::draft(
+            &endpoint(&format!("{}/v1", empty.uri()), "key", short),
+            "small",
+            "t",
+            sample()
+        )
+        .await
+        .unwrap_err()
+        .message,
+        "The endpoint returned no message"
+    );
+
+    let blank = MockServer::start().await;
+    completion(
+        &blank,
+        ResponseTemplate::new(200).set_body_json(json!({
+            "id": "one",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "small",
+            "choices": [{
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {"role": "assistant", "content": "   "}
+            }]
+        })),
+    )
+    .await;
+    assert_eq!(
+        ai::draft(
+            &endpoint(&format!("{}/v1", blank.uri()), "key", short),
+            "small",
+            "t",
+            sample()
+        )
+        .await
+        .unwrap_err()
+        .message,
+        "The endpoint returned an empty message"
+    );
+}
+
+#[tokio::test]
+async fn ai_maps_a_timeout_and_an_unreachable_endpoint_to_the_network_category() {
+    let slow = MockServer::start().await;
+    completion(
+        &slow,
+        ResponseTemplate::new(200)
+            .set_delay(Duration::from_secs(2))
+            .set_body_json(json!({"choices": []})),
+    )
+    .await;
+    let timed_out = ai::draft(
+        &endpoint(
+            &format!("{}/v1", slow.uri()),
+            "key",
+            Duration::from_millis(80),
+        ),
+        "small",
+        "t",
+        sample(),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(timed_out.category, "network");
+    assert_eq!(timed_out.message, "The endpoint did not answer in time");
+
+    let unreachable = ai::models(&endpoint(
+        "http://127.0.0.1:1",
+        "key",
+        Duration::from_secs(5),
+    ))
+    .await
+    .unwrap_err();
+    assert_eq!(unreachable.category, "network");
+    assert_eq!(unreachable.message, "The endpoint could not be reached");
 }

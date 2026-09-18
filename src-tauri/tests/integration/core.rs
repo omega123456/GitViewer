@@ -1,5 +1,5 @@
 use gitviewer_lib::{
-    diff,
+    ai, diff,
     error::Error,
     git::{self, detect},
     graph::{lanes, Commit},
@@ -188,6 +188,127 @@ fn settings_roundtrip_and_invalid_values() {
     assert!(settings::write(&path, invalid).is_err());
     std::fs::write(&path, "invalid").unwrap();
     assert_eq!(settings::read(&path).density, "comfortable");
+}
+#[test]
+fn settings_carry_ai_defaults_validation_and_a_legacy_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    std::fs::write(
+        &path,
+        r#"{"theme":"dark","density":"compact","diffMode":"unified","updateCheckInterval":"7d","installUpdateOnQuit":false}"#,
+    )
+    .unwrap();
+    let legacy = settings::read(&path);
+    assert_eq!(legacy.theme, "dark");
+    assert_eq!(legacy.ai, settings::Ai::default());
+    assert!(!legacy.ai.enabled);
+    assert_eq!(legacy.ai.prompt, settings::DEFAULT_PROMPT);
+    let mut enabled = legacy.clone();
+    enabled.ai.enabled = true;
+    assert_eq!(settings::write(&path, enabled.clone()).unwrap(), enabled);
+    let mut configured = enabled.clone();
+    configured.ai.base_url = "https://api.example.invalid/v1".into();
+    configured.ai.model = "tiny".into();
+    assert_eq!(
+        settings::write(&path, configured.clone()).unwrap(),
+        configured
+    );
+    assert_eq!(settings::read(&path), configured);
+    for rejected in ["not a url", "file:///etc/passwd", "ftp://example.invalid"] {
+        let mut invalid = configured.clone();
+        invalid.ai.base_url = rejected.into();
+        assert_eq!(
+            settings::write(&path, invalid).unwrap_err().message,
+            "Invalid endpoint"
+        );
+    }
+}
+#[test]
+fn settings_response_reports_key_presence_without_the_key() {
+    ai::set_key("secret-key-value").unwrap();
+    assert!(ai::key_stored());
+    let response = serde_json::to_value(settings::Response {
+        settings: settings::Settings::default(),
+        key_stored: ai::key_stored(),
+    })
+    .unwrap();
+    assert_eq!(response["keyStored"], true);
+    assert_eq!(response["theme"], "system");
+    assert_eq!(response["ai"]["enabled"], false);
+    assert!(!response.to_string().contains("secret-key-value"));
+    ai::set_key("").unwrap();
+    assert!(!ai::key_stored());
+    assert_eq!(ai::key().unwrap(), None);
+    assert_eq!(
+        serde_json::to_value(settings::Response {
+            settings: settings::Settings::default(),
+            key_stored: ai::key_stored(),
+        })
+        .unwrap()["keyStored"],
+        false
+    );
+}
+#[tokio::test]
+async fn ai_material_chooses_its_source_and_budget() {
+    let (dir, handle) = super::workflows::fixture().await;
+    super::workflows::base(&dir, &handle).await;
+    let root = dir.path().to_path_buf();
+    assert_eq!(
+        ai::material(&root).await.unwrap_err().message,
+        "There are no changes to describe"
+    );
+    std::fs::write(root.join("file.txt"), "one\ntwo\nfour\n").unwrap();
+    let unstaged = ai::material(&root).await.unwrap();
+    assert_eq!(unstaged.source, ai::Source::WorkingTree);
+    assert_eq!(unstaged.detail, ai::Detail::Patch);
+    assert!(unstaged.text.contains("+four"));
+    super::workflows::command(&root, &["add", "file.txt"]).await;
+    let staged = ai::material(&root).await.unwrap();
+    assert_eq!(staged.source, ai::Source::Index);
+    assert_eq!(staged.detail, ai::Detail::Patch);
+    let large: String = std::iter::repeat_n("a line of change\n", 4000).collect();
+    assert!(large.chars().count() > ai::DIFF_BUDGET);
+    std::fs::write(root.join("file.txt"), &large).unwrap();
+    super::workflows::command(&root, &["add", "file.txt"]).await;
+    let summarized = ai::material(&root).await.unwrap();
+    assert_eq!(summarized.source, ai::Source::Index);
+    assert_eq!(summarized.detail, ai::Detail::Summary);
+    assert!(summarized.text.contains("file.txt"));
+    super::workflows::command(&root, &["reset"]).await;
+    let unstaged_summary = ai::material(&root).await.unwrap();
+    assert_eq!(unstaged_summary.source, ai::Source::WorkingTree);
+    assert_eq!(unstaged_summary.detail, ai::Detail::Summary);
+}
+#[test]
+fn ai_prompt_states_the_source_and_the_detail() {
+    let material = |source, detail| ai::Material {
+        text: "PATCH BODY".into(),
+        source,
+        detail,
+    };
+    let staged = ai::prompt(
+        "Describe it.",
+        &material(ai::Source::Index, ai::Detail::Patch),
+    );
+    assert!(staged.starts_with("Describe it."));
+    assert!(staged.contains("The staged patch follows."));
+    assert!(staged.ends_with("PATCH BODY"));
+    assert!(
+        ai::prompt("   ", &material(ai::Source::Index, ai::Detail::Patch))
+            .starts_with(settings::DEFAULT_PROMPT)
+    );
+    assert!(
+        ai::prompt("t", &material(ai::Source::Index, ai::Detail::Summary))
+            .contains("staged changes exceed the patch budget")
+    );
+    assert!(
+        ai::prompt("t", &material(ai::Source::WorkingTree, ai::Detail::Patch))
+            .contains("Nothing is staged, so the unstaged working tree patch follows.")
+    );
+    assert!(
+        ai::prompt("t", &material(ai::Source::WorkingTree, ai::Detail::Summary))
+            .contains("working tree changes exceed the patch budget")
+    );
 }
 #[test]
 fn lane_assignment_handles_merges_and_termination() {
