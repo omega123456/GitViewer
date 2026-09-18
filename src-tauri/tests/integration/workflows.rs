@@ -14,7 +14,7 @@ use std::{
 };
 use tempfile::TempDir;
 use wiremock::{
-    matchers::{method, path},
+    matchers::{body_partial_json, method, path},
     Mock, MockServer, ResponseTemplate,
 };
 
@@ -1004,6 +1004,55 @@ async fn ai_lists_models_and_reports_an_absent_model_route() {
 }
 
 #[tokio::test]
+async fn ai_accepts_a_local_endpoint_without_a_key_and_with_sparse_responses() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "object": "list",
+            "data": [{"id": "qwen", "object": "model", "owned_by": "organization_owner"}]
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .and(body_partial_json(json!({"think": false})))
+        .respond_with(
+            ResponseTemplate::new(400)
+                .set_body_string("Unrecognized request argument supplied: think"),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .and(body_partial_json(
+            json!({"model": "qwen", "reasoning_effort": "none"}),
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{"message": {
+                "role": "assistant",
+                "content": "<think>weighing it up</think>\nAdd the thing"
+            }}]
+        })))
+        .mount(&server)
+        .await;
+    let local = endpoint(&format!("{}/v1", server.uri()), "", Duration::from_secs(5));
+    assert_eq!(ai::models(&local).await.unwrap(), vec!["qwen".to_string()]);
+    let draft = ai::draft(&local, "qwen", "t", sample()).await.unwrap();
+    assert_eq!(draft.message, "Add the thing");
+    assert_eq!(
+        server.received_requests().await.unwrap().len(),
+        3,
+        "one model list, one rejected body, one accepted body"
+    );
+    assert_eq!(
+        ai::strip_think_blocks("<reasoning>still going"),
+        "",
+        "an unterminated block yields no text"
+    );
+}
+
+#[tokio::test]
 async fn ai_drafts_a_message_and_reports_its_source_and_detail() {
     let server = MockServer::start().await;
     let generated: String = std::iter::repeat_n('m', ai::MESSAGE_CAP + 500).collect();
@@ -1085,13 +1134,6 @@ async fn ai_refuses_an_unconfigured_endpoint_and_maps_endpoint_failures() {
             .unwrap_err()
             .message,
         "No endpoint is configured"
-    );
-    assert_eq!(
-        ai::models(&endpoint("https://example.invalid", "", short))
-            .await
-            .unwrap_err()
-            .message,
-        "No API key is stored"
     );
     assert_eq!(
         ai::draft(

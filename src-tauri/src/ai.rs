@@ -3,20 +3,23 @@ use crate::{
     git,
     settings::DEFAULT_PROMPT,
 };
-use async_openai::{
-    config::OpenAIConfig,
-    types::chat::{
-        ChatCompletionRequestMessage, ChatCompletionRequestUserMessage,
-        ChatCompletionRequestUserMessageContent, CreateChatCompletionRequest,
-    },
-    Client,
+use async_openai::{config::OpenAIConfig, error::OpenAIError, Client};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::{
+    path::Path,
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
 };
-use serde::Serialize;
-use std::{path::Path, time::Duration};
 
 pub const DIFF_BUDGET: usize = 32000;
 pub const MESSAGE_CAP: usize = 4000;
 pub const TIMEOUT: Duration = Duration::from_secs(60);
+
+const LAST_REASONING_TIER: usize = 3;
+const THINK_OPEN: [&str; 3] = ["<think>", "<thinking>", "<reasoning>"];
+const THINK_CLOSE: [&str; 3] = ["</think>", "</thinking>", "</reasoning>"];
+static REASONING_TIER: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(not(feature = "test-utils"))]
 const SERVICE: &str = "GitViewer";
@@ -50,6 +53,31 @@ pub struct Draft {
     pub message: String,
     pub source: Source,
     pub detail: Detail,
+}
+
+#[derive(Deserialize)]
+struct ModelList {
+    data: Vec<ModelEntry>,
+}
+
+#[derive(Deserialize)]
+struct ModelEntry {
+    id: String,
+}
+
+#[derive(Deserialize)]
+struct Completion {
+    choices: Vec<Choice>,
+}
+
+#[derive(Deserialize)]
+struct Choice {
+    message: ChoiceMessage,
+}
+
+#[derive(Deserialize)]
+struct ChoiceMessage {
+    content: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -116,9 +144,6 @@ fn client(endpoint: &Endpoint) -> Result<Client<OpenAIConfig>> {
     if endpoint.base_url.is_empty() {
         return Err(Error::refused("No endpoint is configured"));
     }
-    if endpoint.key.is_empty() {
-        return Err(Error::refused("No API key is stored"));
-    }
     let transport = reqwest::Client::builder()
         .timeout(endpoint.timeout)
         .build()?;
@@ -129,7 +154,7 @@ fn client(endpoint: &Endpoint) -> Result<Client<OpenAIConfig>> {
 }
 
 pub async fn models(endpoint: &Endpoint) -> Result<Vec<String>> {
-    let listed = client(endpoint)?.models().list().await?;
+    let listed: ModelList = client(endpoint)?.models().list_byot().await?;
     let mut names: Vec<String> = listed.data.into_iter().map(|model| model.id).collect();
     names.sort();
     names.dedup();
@@ -184,7 +209,70 @@ pub fn prompt(template: &str, material: &Material) -> String {
     format!("{template}\n\n{introduction}\n\n{}", material.text)
 }
 
+fn reasoning_off_fields(tier: usize) -> Value {
+    match tier {
+        0 => json!({
+            "reasoning_effort": "none",
+            "reasoning": {"enabled": false, "exclude": true},
+            "thinking": {"type": "disabled", "budget_tokens": 0},
+            "enable_thinking": false,
+            "think": false,
+            "thinking_budget": 0,
+            "reasoning_budget": 0,
+            "thinking_budget_tokens": 0,
+            "chat_template_kwargs": {"enable_thinking": false, "thinking": false, "reasoning": false},
+            "google": {"thinking_config": {"thinking_budget": 0, "include_thoughts": false}},
+        }),
+        1 => json!({"reasoning_effort": "none"}),
+        2 => json!({"reasoning_effort": "low"}),
+        _ => json!({}),
+    }
+}
+
+fn request_body(model: &str, prompt: &str, tier: usize) -> Value {
+    let mut body = json!({
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": false,
+    });
+    if let (Some(body), Some(fields)) =
+        (body.as_object_mut(), reasoning_off_fields(tier).as_object())
+    {
+        body.extend(fields.clone());
+    }
+    body
+}
+
+fn rejects_the_body(error: &OpenAIError) -> bool {
+    match error {
+        OpenAIError::ApiError(response) => response.status_code.as_u16() == 400,
+        OpenAIError::JSONDeserialize(..) => true,
+        _ => false,
+    }
+}
+
+fn first_tag(text: &str, tags: &[&str]) -> Option<(usize, usize)> {
+    tags.iter()
+        .filter_map(|tag| text.find(tag).map(|at| (at, tag.len())))
+        .min_by_key(|(at, _)| *at)
+}
+
+pub fn strip_think_blocks(text: &str) -> String {
+    let mut text = text.to_string();
+    while let Some((open_at, open_len)) = first_tag(&text, &THINK_OPEN) {
+        let after_open = open_at + open_len;
+        match first_tag(&text[after_open..], &THINK_CLOSE) {
+            Some((close_at, close_len)) => {
+                text.replace_range(open_at..after_open + close_at + close_len, "");
+            }
+            None => text.truncate(open_at),
+        }
+    }
+    text
+}
+
 fn trim(text: &str) -> Result<String> {
+    let text = strip_think_blocks(text);
     let text = text.trim();
     if text.is_empty() {
         return Err(Error::refused("The endpoint returned an empty message"));
@@ -201,17 +289,22 @@ pub async fn draft(
     if model.trim().is_empty() {
         return Err(Error::refused("No model is configured"));
     }
-    let request = CreateChatCompletionRequest {
-        model: model.trim().to_string(),
-        messages: vec![ChatCompletionRequestMessage::User(
-            ChatCompletionRequestUserMessage {
-                content: ChatCompletionRequestUserMessageContent::Text(prompt(template, &material)),
-                name: None,
-            },
-        )],
-        ..Default::default()
+    let client = client(endpoint)?;
+    let prompt = prompt(template, &material);
+    let completion: Completion = loop {
+        let tier = REASONING_TIER.load(Ordering::SeqCst);
+        match client
+            .chat()
+            .create_byot(request_body(model.trim(), &prompt, tier))
+            .await
+        {
+            Ok(completion) => break completion,
+            Err(error) if rejects_the_body(&error) && tier < LAST_REASONING_TIER => {
+                REASONING_TIER.store(tier + 1, Ordering::SeqCst);
+            }
+            Err(error) => return Err(Error::from(error)),
+        }
     };
-    let completion = client(endpoint)?.chat().create(request).await?;
     let text = completion
         .choices
         .into_iter()

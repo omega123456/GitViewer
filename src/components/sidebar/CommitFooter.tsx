@@ -11,10 +11,7 @@ import { Button } from '../shared/Button';
 import { field } from '../shared/styles';
 export function aiConfigured(settings: SettingsResponse) {
   return Boolean(
-    settings.ai.enabled &&
-    settings.ai.baseUrl &&
-    settings.ai.model &&
-    settings.keyStored,
+    settings.ai.enabled && settings.ai.baseUrl && settings.ai.model,
   );
 }
 export function sourceNotice(result: GeneratedMessage) {

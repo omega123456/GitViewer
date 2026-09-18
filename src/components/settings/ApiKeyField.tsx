@@ -29,7 +29,11 @@ export function ApiKeyField({ settings }: { settings: SettingsResponse }) {
     await perform('settings_set', settings);
   };
   return (
-    <SettingRow title="API key" description="Stored in the OS keychain" stack>
+    <SettingRow
+      title="API key"
+      description="Optional for local endpoints. Stored in the OS keychain"
+      stack
+    >
       {confirming && (
         <div className="flex items-center gap-2">
           <p className="text-label text-muted">Remove the stored API key?</p>

@@ -72,7 +72,7 @@ describe('ai settings pane', () => {
     mount();
     await openAiPane(user);
     expect(
-      screen.getByText('Save an endpoint and API key to load the list.'),
+      screen.getByText('Save an endpoint to load the list.'),
     ).toBeVisible();
     expect(screen.getByLabelText('Model')).toBeDisabled();
     const key = screen.getByLabelText('API key');

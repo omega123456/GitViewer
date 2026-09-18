@@ -13,7 +13,7 @@ import { SettingRow } from './GeneralSection';
 export function AiSection({ settings }: { settings: SettingsResponse }) {
   const [draft, setDraft] = useState<AiSettings>(settings.ai);
   const [result, setResult] = useState<string | null>(null);
-  const listable = Boolean(settings.ai.baseUrl) && settings.keyStored;
+  const listable = Boolean(settings.ai.baseUrl);
   const models = useBackend('ai_models', {}, listable);
   const options = models.data ?? [];
   const save = (ai: AiSettings) => perform('settings_set', { ...settings, ai });
@@ -83,7 +83,7 @@ export function AiSection({ settings }: { settings: SettingsResponse }) {
         />
         {!listable && (
           <p className="text-label text-muted">
-            Save an endpoint and API key to load the list.
+            Save an endpoint to load the list.
           </p>
         )}
         {listable && !models.isPending && !options.length && (
