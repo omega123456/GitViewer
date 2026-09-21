@@ -1,4 +1,10 @@
 import type { PointerEvent as ReactPointerEvent } from 'react';
+export function percentBelow(event: ReactPointerEvent<HTMLDivElement>) {
+  const handle = event.currentTarget;
+  const pane = handle.nextElementSibling!.getBoundingClientRect();
+  const column = handle.parentElement!.getBoundingClientRect();
+  return ((pane.bottom - event.clientY) / column.height) * 100;
+}
 export function ResizeHandle({
   label,
   orientation,

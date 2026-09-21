@@ -2,7 +2,7 @@ import type { Status } from '../../lib/types';
 import { useLayout, useTabLayout } from '../../stores/layout';
 import { Section } from '../shared/Section';
 import { dynamic } from '../shared/styles';
-import { ResizeHandle } from '../shell/ResizeHandle';
+import { percentBelow, ResizeHandle } from '../shell/ResizeHandle';
 import { FilesTree } from './FileTree';
 export function FilesSection({
   repo,
@@ -23,11 +23,7 @@ export function FilesSection({
           step={2}
           value={filesHeight}
           className="h-1.5 shrink-0 cursor-row-resize border-y border-line hover:bg-accent focus-visible:bg-accent dark:border-line-dark"
-          measure={(event) => {
-            const bounds =
-              event.currentTarget.parentElement!.getBoundingClientRect();
-            return ((bounds.bottom - event.clientY) / bounds.height) * 100;
-          }}
+          measure={percentBelow}
           onChange={(next) =>
             useLayout.getState().update(repo, { filesHeight: next })
           }

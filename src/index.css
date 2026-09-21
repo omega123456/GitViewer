@@ -126,6 +126,8 @@
   --spacing-swipe: var(--swipe-position);
   --spacing-image: var(--image-width, auto);
   --spacing-files: var(--files-height, 40%);
+  --spacing-stash: var(--stash-height, 30%);
+  --spacing-message: var(--message-height, 80px);
   --translate-row: var(--row-offset);
   --opacity-blend: var(--blend-opacity);
   --background-image-checker: url('/checker.svg');

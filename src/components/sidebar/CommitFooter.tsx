@@ -16,6 +16,7 @@ import { shortcutLabel } from '../../lib/keyboard';
 import { perform } from '../../lib/query';
 import { useCommit, useCommitState } from '../../stores/commit';
 import { useGenerate, useGenerateState } from '../../stores/generate';
+import { useLayout, useTabLayout } from '../../stores/layout';
 import {
   type CommitMode,
   useCommitMode,
@@ -23,7 +24,8 @@ import {
   useTabs,
 } from '../../stores/tabs';
 import { Button } from '../shared/Button';
-import { field, focus } from '../shared/styles';
+import { dynamic, field, focus } from '../shared/styles';
+import { ResizeHandle } from '../shell/ResizeHandle';
 export function aiConfigured(settings: SettingsResponse) {
   return Boolean(
     settings.ai.enabled && settings.ai.baseUrl && settings.ai.model,
@@ -96,158 +98,179 @@ export function CommitFooter({
       stage: changes,
     });
   };
+  const { messageHeight } = useTabLayout(repo);
   return (
     <section
       aria-label="Commit"
-      className="flex shrink-0 flex-col gap-2 border-t border-line bg-sub p-2 dark:border-line-dark dark:bg-sub-dark"
+      className="flex shrink-0 flex-col border-t border-line bg-sub dark:border-line-dark dark:bg-sub-dark"
     >
-      {aiConfigured(settings) && (
-        <div className="flex justify-end">
-          <Button
-            disabled={generate.busy}
-            onClick={() => void useGenerate.getState().generate(repo)}
+      <div className="flex flex-col gap-2 p-2">
+        {aiConfigured(settings) && (
+          <div className="flex justify-end">
+            <Button
+              disabled={generate.busy}
+              onClick={() => void useGenerate.getState().generate(repo)}
+            >
+              {generate.busy ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="size-3.5" />
+              )}
+              {generate.busy ? 'Generating' : 'Generate'}
+            </Button>
+          </div>
+        )}
+        <div className="relative">
+          <ResizeHandle
+            label="Resize commit message"
+            orientation="vertical"
+            min={40}
+            max={400}
+            step={10}
+            value={messageHeight}
+            className="absolute inset-x-0 top-0 z-10 h-2 cursor-row-resize rounded-t focus-visible:bg-accent"
+            measure={(event) =>
+              event.currentTarget.nextElementSibling!.getBoundingClientRect()
+                .bottom - event.clientY
+            }
+            onChange={(next) =>
+              useLayout.getState().update(repo, { messageHeight: next })
+            }
+          />
+          <TextArea
+            aria-label="Commit message"
+            placeholder="Commit message"
+            value={message}
+            className={`${field} h-message resize-none`}
+            style={dynamic({ '--message-height': `${messageHeight}px` })}
+            onChange={(event) =>
+              useTabs.getState().setMessage(repo, event.target.value)
+            }
+          />
+        </div>
+        {generate.error && (
+          <p
+            role="alert"
+            className="text-label text-remove-ink dark:text-remove-ink-dark"
           >
-            {generate.busy ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Sparkles className="size-3.5" />
-            )}
-            {generate.busy ? 'Generating' : 'Generate'}
-          </Button>
-        </div>
-      )}
-      <TextArea
-        aria-label="Commit message"
-        placeholder="Commit message"
-        rows={2}
-        value={message}
-        className={`${field} resize-none`}
-        onChange={(event) =>
-          useTabs.getState().setMessage(repo, event.target.value)
-        }
-      />
-      {generate.error && (
-        <p
-          role="alert"
-          className="text-label text-remove-ink dark:text-remove-ink-dark"
-        >
-          {generate.error}
-        </p>
-      )}
-      {notice && (
-        <p className="text-label text-muted dark:text-muted-dark">{notice}</p>
-      )}
-      {generate.pending && (
-        <div className="flex flex-col gap-2 rounded border border-line bg-surface p-2 dark:border-line-dark dark:bg-surface-dark">
-          <p className="text-label text-muted dark:text-muted-dark">
-            Replace your draft with the generated message?
+            {generate.error}
           </p>
-          <div className="flex justify-end gap-1.5">
-            <Button onClick={() => useGenerate.getState().dismiss(repo)}>
-              Keep draft
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => useGenerate.getState().confirm(repo)}
-            >
-              Replace
-            </Button>
-          </div>
-        </div>
-      )}
-      {flow.prompt && (
-        <div
-          role="group"
-          aria-label="Stage all and commit"
-          className="flex flex-col gap-2 rounded border border-line bg-surface p-2 dark:border-line-dark dark:bg-surface-dark"
-        >
-          <p className="text-label text-muted dark:text-muted-dark">
-            Nothing is staged. Stage all {changes.length}{' '}
-            {changes.length === 1 ? 'change' : 'changes'} and commit?
-          </p>
-          <div className="flex justify-end gap-1.5">
-            <Button onClick={() => useCommit.getState().dismiss(repo)}>
-              Not now
-            </Button>
-            <Button onClick={() => stageAll(true)}>Always</Button>
-            <Button variant="primary" onClick={() => stageAll(false)}>
-              Stage all &amp; commit
-            </Button>
-          </div>
-        </div>
-      )}
-      {flow.notice && (
-        <p
-          role="alert"
-          className="text-label text-remove-ink dark:text-remove-ink-dark"
-        >
-          {flow.notice}
-        </p>
-      )}
-      {status.branch === '(detached)' && (
-        <p className="text-label text-modified">
-          This commit will be created on detached HEAD.
-        </p>
-      )}
-      <div className="flex">
-        <Button
-          disabled={disabled}
-          variant="primary"
-          className="min-w-0 flex-1 rounded-r-none"
-          onClick={() => commit(active)}
-        >
-          {flow.phase === 'idle' ? (
-            <GitCommitHorizontal className="size-3.5" />
-          ) : (
-            <Loader2 className="size-3.5 animate-spin" />
-          )}
-          <span className="truncate">{label}</span>
-        </Button>
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger asChild>
-            <Button
-              disabled={disabled || !pushable}
-              variant="primary"
-              aria-label="Commit options"
-              className="rounded-l-none border-l border-white/30 px-1.5 dark:border-surface-dark/30"
-            >
-              <ChevronDown className="size-3.5" />
-            </Button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content
-              align="end"
-              side="top"
-              sideOffset={4}
-              className="z-30 flex w-48 flex-col rounded-md border border-line bg-surface p-1 text-ink shadow-lg dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark"
-            >
-              <DropdownMenu.RadioGroup
-                value={active}
-                onValueChange={(value) =>
-                  useTabs.getState().setCommitMode(repo, value as CommitMode)
-                }
+        )}
+        {notice && (
+          <p className="text-label text-muted dark:text-muted-dark">{notice}</p>
+        )}
+        {generate.pending && (
+          <div className="flex flex-col gap-2 rounded border border-line bg-surface p-2 dark:border-line-dark dark:bg-surface-dark">
+            <p className="text-label text-muted dark:text-muted-dark">
+              Replace your draft with the generated message?
+            </p>
+            <div className="flex justify-end gap-1.5">
+              <Button onClick={() => useGenerate.getState().dismiss(repo)}>
+                Keep draft
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => useGenerate.getState().confirm(repo)}
               >
-                {(Object.keys(modes) as CommitMode[]).map((option) => (
-                  <DropdownMenu.RadioItem
-                    key={option}
-                    value={option}
-                    className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs outline-none data-highlighted:bg-hover dark:data-highlighted:bg-hover-dark ${focus}`}
-                  >
-                    <span className="flex size-3 items-center justify-center">
-                      <DropdownMenu.ItemIndicator>
-                        <Check className="size-3" />
-                      </DropdownMenu.ItemIndicator>
-                    </span>
-                    <span className="flex-1">{modes[option].label}</span>
-                    <span className="text-label text-muted dark:text-muted-dark">
-                      {shortcutLabel(modes[option].key)}
-                    </span>
-                  </DropdownMenu.RadioItem>
-                ))}
-              </DropdownMenu.RadioGroup>
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
+                Replace
+              </Button>
+            </div>
+          </div>
+        )}
+        {flow.prompt && (
+          <div
+            role="group"
+            aria-label="Stage all and commit"
+            className="flex flex-col gap-2 rounded border border-line bg-surface p-2 dark:border-line-dark dark:bg-surface-dark"
+          >
+            <p className="text-label text-muted dark:text-muted-dark">
+              Nothing is staged. Stage all {changes.length}{' '}
+              {changes.length === 1 ? 'change' : 'changes'} and commit?
+            </p>
+            <div className="flex justify-end gap-1.5">
+              <Button onClick={() => useCommit.getState().dismiss(repo)}>
+                Not now
+              </Button>
+              <Button onClick={() => stageAll(true)}>Always</Button>
+              <Button variant="primary" onClick={() => stageAll(false)}>
+                Stage all &amp; commit
+              </Button>
+            </div>
+          </div>
+        )}
+        {flow.notice && (
+          <p
+            role="alert"
+            className="text-label text-remove-ink dark:text-remove-ink-dark"
+          >
+            {flow.notice}
+          </p>
+        )}
+        {status.branch === '(detached)' && (
+          <p className="text-label text-modified">
+            This commit will be created on detached HEAD.
+          </p>
+        )}
+        <div className="flex">
+          <Button
+            disabled={disabled}
+            variant="primary"
+            className="min-w-0 flex-1 rounded-r-none"
+            onClick={() => commit(active)}
+          >
+            {flow.phase === 'idle' ? (
+              <GitCommitHorizontal className="size-3.5" />
+            ) : (
+              <Loader2 className="size-3.5 animate-spin" />
+            )}
+            <span className="truncate">{label}</span>
+          </Button>
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <Button
+                disabled={disabled || !pushable}
+                variant="primary"
+                aria-label="Commit options"
+                className="rounded-l-none border-l border-white/30 px-1.5 dark:border-surface-dark/30"
+              >
+                <ChevronDown className="size-3.5" />
+              </Button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content
+                align="end"
+                side="top"
+                sideOffset={4}
+                className="z-30 flex w-48 flex-col rounded-md border border-line bg-surface p-1 text-ink shadow-lg dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark"
+              >
+                <DropdownMenu.RadioGroup
+                  value={active}
+                  onValueChange={(value) =>
+                    useTabs.getState().setCommitMode(repo, value as CommitMode)
+                  }
+                >
+                  {(Object.keys(modes) as CommitMode[]).map((option) => (
+                    <DropdownMenu.RadioItem
+                      key={option}
+                      value={option}
+                      className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs outline-none data-highlighted:bg-hover dark:data-highlighted:bg-hover-dark ${focus}`}
+                    >
+                      <span className="flex size-3 items-center justify-center">
+                        <DropdownMenu.ItemIndicator>
+                          <Check className="size-3" />
+                        </DropdownMenu.ItemIndicator>
+                      </span>
+                      <span className="flex-1">{modes[option].label}</span>
+                      <span className="text-label text-muted dark:text-muted-dark">
+                        {shortcutLabel(modes[option].key)}
+                      </span>
+                    </DropdownMenu.RadioItem>
+                  ))}
+                </DropdownMenu.RadioGroup>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+        </div>
       </div>
     </section>
   );

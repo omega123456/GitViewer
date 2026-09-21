@@ -477,7 +477,16 @@ describe('repository workflows', () => {
     const user = userEvent.setup();
     mount();
     await screen.findByLabelText('Commit message');
+    expect(
+      screen.queryByLabelText('Resize stash section'),
+    ).not.toBeInTheDocument();
     await user.click(await screen.findByRole('button', { name: /Stashes/ }));
+    const handle = screen.getByLabelText('Resize stash section');
+    fireEvent.keyDown(handle, { key: 'ArrowUp' });
+    expect(useLayout.getState().tabs[repository.id].stashHeight).toBe(28);
+    fireEvent.pointerDown(handle);
+    fireEvent.pointerMove(handle, { clientY: 300 });
+    expect(handle).toHaveAttribute('aria-valuenow', '50');
     await user.click(
       await screen.findByRole('button', { name: /Saved experiment/ }),
     );
@@ -780,6 +789,12 @@ describe('keyboard and pointer access', () => {
     fireEvent.pointerDown(sections);
     fireEvent.pointerMove(sections, { clientY: 300 });
     expect(sections).toHaveAttribute('aria-valuenow', '50');
+    const messageHandle = screen.getByLabelText('Resize commit message');
+    fireEvent.keyDown(messageHandle, { key: 'ArrowDown' });
+    expect(useLayout.getState().tabs[repository.id].messageHeight).toBe(90);
+    fireEvent.pointerDown(messageHandle);
+    fireEvent.pointerMove(messageHandle, { clientY: 400 });
+    expect(messageHandle).toHaveAttribute('aria-valuenow', '200');
     await user.click(screen.getByRole('button', { name: /^Files/ }));
     expect(screen.getByRole('button', { name: /^Files/ })).toHaveAttribute(
       'aria-expanded',

@@ -5,8 +5,6 @@ export function Section({
   title,
   count,
   icon,
-  defaultOpen = true,
-  grow = true,
   open,
   onOpenChange,
   actions,
@@ -15,18 +13,16 @@ export function Section({
   title: string;
   count?: number;
   icon?: ReactNode;
-  defaultOpen?: boolean;
-  grow?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   actions?: ReactNode;
   children: ReactNode;
 }) {
-  const [internal, setInternal] = useState(defaultOpen);
+  const [internal, setInternal] = useState(true);
   const expanded = open ?? internal;
   return (
     <div
-      className={`flex min-h-0 flex-col ${expanded && grow ? 'flex-1' : 'shrink-0'}`}
+      className={`flex min-h-0 flex-col ${expanded ? 'flex-1' : 'shrink-0'}`}
     >
       <div className="flex h-section shrink-0 items-center gap-1 border-b border-line bg-sub px-2 dark:border-line-dark dark:bg-sub-dark">
         <button

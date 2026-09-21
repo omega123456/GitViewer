@@ -5,6 +5,9 @@ export interface TabLayout {
   historyWidth: number;
   filesHeight: number;
   filesOpen: boolean;
+  stashHeight: number;
+  stashOpen: boolean;
+  messageHeight: number;
 }
 export const layoutDefaults: TabLayout = {
   history: false,
@@ -12,6 +15,9 @@ export const layoutDefaults: TabLayout = {
   historyWidth: 440,
   filesHeight: 40,
   filesOpen: false,
+  stashHeight: 30,
+  stashOpen: false,
+  messageHeight: 80,
 };
 interface Layout {
   tabs: Record<string, TabLayout>;
