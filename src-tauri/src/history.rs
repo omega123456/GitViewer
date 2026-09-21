@@ -101,9 +101,9 @@ impl Session {
                 Some(task) => task.await.map_err(Error::from)??,
                 None => String::new(),
             };
-            if !code.success()
-                && !(code.code() == Some(128) && stderr.contains("does not have any commits yet"))
-            {
+            let unborn =
+                code.code() == Some(128) && stderr.contains("does not have any commits yet");
+            if !code.success() && !unborn {
                 return Err(Error::git(stderr));
             }
         }

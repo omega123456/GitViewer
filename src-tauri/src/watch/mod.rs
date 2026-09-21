@@ -1,9 +1,9 @@
 use crate::{error::Result, repo::Repo};
 use notify::{RecommendedWatcher, RecursiveMode};
-use notify_debouncer_full::{new_debouncer_opt, DebounceEventResult, Debouncer, RecommendedCache};
+use notify_debouncer_full::{new_debouncer_opt, DebounceEventResult, Debouncer, NoCache};
 use std::{sync::atomic::Ordering, sync::Arc, time::Duration};
 
-pub type Watcher = Debouncer<RecommendedWatcher, RecommendedCache>;
+pub type Watcher = Debouncer<RecommendedWatcher, NoCache>;
 
 const WORKING_TREE_INTERVAL: Duration = Duration::from_millis(200);
 const METADATA_INTERVAL: Duration = Duration::from_millis(1000);
@@ -16,7 +16,7 @@ fn debouncer(
         interval,
         None,
         handler,
-        RecommendedCache::new(),
+        NoCache::new(),
         notify::Config::default(),
     )?)
 }
