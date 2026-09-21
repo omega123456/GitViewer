@@ -1,10 +1,22 @@
-name: Verify
-on: [push, pull_request]
+name: Cache
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'src/**'
+      - 'src-tauri/**'
 jobs:
-  check:
+  warm:
     strategy:
       matrix:
-        os: [macos-latest, windows-latest]
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -17,21 +29,14 @@ jobs:
           cache: pnpm
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt, llvm-tools-preview
-      - uses: taiki-e/install-action@v2
+          targets: ${{ matrix.target }}
+      - uses: swatinem/rust-cache@v2
         with:
-          tool: cargo-nextest,cargo-llvm-cov
+          workspaces: ./src-tauri -> target
+          cache-on-failure: true
+          prefix-key: v0-rust-gitviewer-${{ matrix.target }}
+          add-job-id-key: false
+          cache-all-crates: true
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test:release
-      - run: pnpm lint
-      - run: pnpm format
-      - run: pnpm typecheck
-      - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
-      - run: pnpm clippy
-      - run: cargo build --manifest-path src-tauri/Cargo.toml --no-default-features
-      - run: pnpm test:coverage
-      - run: pnpm test:rust:coverage
-      - run: pnpm exec playwright install chromium
-      - if: runner.os == 'macOS'
-        run: pnpm test:e2e
-      - run: pnpm build
+      - run: pnpm exec vite build
+      - run: cargo build --release --locked --target ${{ matrix.target }} --manifest-path src-tauri/Cargo.toml

@@ -38,6 +38,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+          prefix-key: v0-rust-gitviewer-${{ matrix.target }}
+          add-job-id-key: false
+          cache-all-crates: true
+          save-if: false
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:release
       - name: Validate signing and generate release configuration
