@@ -65,6 +65,12 @@ export function RevisionTree({
     estimateSize: () => (compact ? 22 : 26),
     overscan: 8,
   });
+  const selectedIndex = items.findIndex(
+    (item) => item.getItemData().path === selectedPath,
+  );
+  useEffect(() => {
+    if (selectedIndex >= 0) virtual.scrollToIndex(selectedIndex);
+  }, [virtual, selectedIndex]);
   return (
     <div
       {...tree.getContainerProps()}

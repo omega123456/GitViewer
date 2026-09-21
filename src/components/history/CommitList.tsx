@@ -85,7 +85,7 @@ export function CommitList({ repo }: { repo: string }) {
               className={`relative flex h-commit w-full items-center gap-2 pr-2 text-left hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent dark:hover:bg-hover-dark ${selection?.revision === commit.hash ? 'bg-selected dark:bg-selected-dark' : ''}`}
               onClick={() =>
                 useSelection.getState().select(repo, {
-                  path: '',
+                  path,
                   source: 'commit',
                   revision: commit.hash,
                 })

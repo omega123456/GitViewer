@@ -322,6 +322,9 @@ describe('repository workflows', () => {
     await screen.findByTitle('Stage hunk');
     await action('file-history');
     await user.click(await screen.findByText('Review commit'));
+    expect(useSelection.getState().history[repository.id]?.path).toBe(
+      'src/app.ts',
+    );
     const fileTree = await screen.findByRole('tree', { name: 'Commit files' });
     await within(fileTree).findByRole('treeitem', { name: 'app.ts' });
     const folder = within(fileTree).getByRole('treeitem', { name: 'src' });
