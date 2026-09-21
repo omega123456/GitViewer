@@ -85,5 +85,22 @@ export function changeNodes(
       parent = path;
     });
   }
+  compactChains(map, treeRoot);
   return map;
+}
+
+function compactChains(map: Record<string, Node>, id: string) {
+  const node = map[id];
+  if (!node) return;
+  if (id !== treeRoot) {
+    let only = node.children.length === 1 ? map[node.children[0]] : undefined;
+    while (only?.directory) {
+      delete map[only.path];
+      node.name = `${node.name}/${only.name}`;
+      node.path = only.path;
+      node.children = only.children;
+      only = node.children.length === 1 ? map[node.children[0]] : undefined;
+    }
+  }
+  for (const child of node.children) compactChains(map, child);
 }

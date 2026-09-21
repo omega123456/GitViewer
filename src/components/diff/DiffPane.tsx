@@ -9,7 +9,7 @@ import {
   FileCog,
   History,
   Image,
-  RotateCcw,
+  Trash2,
   SquareMinus,
   SquarePlus,
   UnfoldVertical,
@@ -158,7 +158,7 @@ function SelectedDiff({
     },
     {
       id: 'discard-hunk',
-      icon: <RotateCcw className="size-3.5" />,
+      icon: <Trash2 className="size-3.5" />,
       label: 'Discard hunk',
       key: 'Mod+Alt+d',
       run: () => hunkAction(selectedHunk, 'discard'),

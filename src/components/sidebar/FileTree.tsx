@@ -8,13 +8,7 @@ import {
   selectionFeature,
   hotkeysCoreFeature,
 } from '@headless-tree/core';
-import {
-  ChevronRight,
-  ChevronDown,
-  File,
-  Folder,
-  RotateCcw,
-} from 'lucide-react';
+import { ChevronRight, ChevronDown, Minus, Plus, Trash2 } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { client, perform, queryKey } from '../../lib/query';
 import { invoke, normalizeError } from '../../lib/ipc';
@@ -23,11 +17,18 @@ import { useSelection, useWorkingSelection } from '../../stores/selection';
 import { useFilter } from '../../stores/filter';
 import { useCompact } from '../../stores/density';
 import type { Status, TreeEntry } from '../../lib/types';
-import { CheckBox } from '../shared/CheckBox';
 import { dynamic, focus } from '../shared/styles';
 import { State } from '../states/State';
+import { FileIcon } from './FileIcon';
 import { StatusBadge } from './StatusBadge';
 import { changeNodes, sourceFor, treeRoot, type Node } from './nodes';
+const rowAction = 'size-6';
+const discardTint =
+  'text-muted hover:text-deleted dark:text-muted-dark dark:hover:text-deleted-dark';
+const rowTint =
+  'hover:bg-hover focus-within:bg-hover dark:hover:bg-hover-dark dark:focus-within:bg-hover-dark';
+const slot =
+  'pointer-events-none absolute inset-y-0 right-badge-slot flex items-center bg-inherit opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100';
 export function ChangesTree({
   repo,
   status,
@@ -98,28 +99,12 @@ export function ChangesTree({
           return (
             <div
               key={item.getId()}
-              className="group absolute top-0 left-0 flex w-full translate-y-row items-center gap-1 pl-2"
+              className={`group absolute top-0 left-0 flex w-full translate-y-row items-center ${rowTint} ${selection?.path === node.path && selection.source === source ? 'bg-selected dark:bg-selected-dark' : ''}`}
               style={dynamic({
                 '--row-offset': `${row.start}px`,
-                '--tree-indent': `${item.getItemMeta().level * 14}px`,
+                '--tree-indent': `${item.getItemMeta().level * 14 + 8}px`,
               })}
             >
-              <CheckBox
-                disabled={disabled}
-                label={`${source === 'staged' ? 'Unstage' : 'Stage'} ${node.path}`}
-                checked={
-                  node.directory && node.partial
-                    ? 'indeterminate'
-                    : source === 'staged'
-                }
-                onChange={() =>
-                  void perform('files_action', {
-                    repo,
-                    paths: node.paths,
-                    action: source === 'staged' ? 'unstage' : 'stage',
-                  })
-                }
-              />
               <button
                 {...item.getProps()}
                 onClick={(event) => {
@@ -130,7 +115,7 @@ export function ChangesTree({
                       source: node.status === '?' ? 'file' : source,
                     });
                 }}
-                className={`relative flex min-w-0 flex-1 items-center gap-1.5 pr-2 pl-indent text-left text-sm hover:bg-hover dark:hover:bg-hover-dark ${compact ? 'h-tree-compact' : 'h-tree-comfortable'} ${focus} ${selection?.path === node.path && selection.source === source ? 'bg-selected dark:bg-selected-dark' : ''}`}
+                className={`relative flex min-w-0 flex-1 items-center gap-1.5 pr-2 pl-indent text-left text-sm ${compact ? 'h-tree-compact' : 'h-tree-comfortable'} ${focus}`}
               >
                 {selection?.path === node.path &&
                   selection.source === source && (
@@ -138,51 +123,77 @@ export function ChangesTree({
                   )}
                 {node.directory ? (
                   item.isExpanded() ? (
-                    <ChevronDown className="size-3 shrink-0 text-faint dark:text-faint-dark" />
+                    <ChevronDown className="size-3 shrink-0 text-muted dark:text-muted-dark" />
                   ) : (
-                    <ChevronRight className="size-3 shrink-0 text-faint dark:text-faint-dark" />
+                    <ChevronRight className="size-3 shrink-0 text-muted dark:text-muted-dark" />
                   )
                 ) : (
                   <span className="w-3 shrink-0" />
                 )}
-                {node.directory ? (
-                  <Folder className="size-3 shrink-0 text-faint dark:text-faint-dark" />
-                ) : (
-                  <File className="size-3 shrink-0 text-faint dark:text-faint-dark" />
-                )}
+                <FileIcon
+                  name={node.name}
+                  directory={node.directory}
+                  expanded={item.isExpanded()}
+                />
                 <span className="truncate">{node.name}</span>
-                <StatusBadge status={node.status} />
+                <StatusBadge
+                  status={node.status}
+                  partial={node.directory && node.partial}
+                />
               </button>
-              <Button
-                className="size-6 p-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-                disabled={disabled}
-                aria-label={
-                  node.directory
-                    ? `Revert all in ${node.path}`
-                    : `Revert ${node.path}`
-                }
-                title={
-                  node.directory
-                    ? `Revert all in ${node.path}`
-                    : `Revert ${node.path}`
-                }
-                onClick={() =>
-                  void revertFiles(
-                    repo,
+              <div className={slot}>
+                <Button
+                  variant="icon"
+                  className={`${rowAction} ${discardTint}`}
+                  disabled={disabled}
+                  aria-label={
                     node.directory
-                      ? status.entries
-                          .filter((entry) =>
-                            entry.path.startsWith(`${node.path}/`),
-                          )
-                          .map((entry) => entry.path)
-                      : [node.path],
-                    false,
-                    node.directory ? node.path : undefined,
-                  )
-                }
-              >
-                <RotateCcw className="size-3" />
-              </Button>
+                      ? `Discard all in ${node.path}`
+                      : `Discard ${node.path}`
+                  }
+                  title={
+                    node.directory
+                      ? `Discard all in ${node.path}`
+                      : `Discard ${node.path}`
+                  }
+                  onClick={() =>
+                    void revertFiles(
+                      repo,
+                      node.directory
+                        ? status.entries
+                            .filter((entry) =>
+                              entry.path.startsWith(`${node.path}/`),
+                            )
+                            .map((entry) => entry.path)
+                        : [node.path],
+                      false,
+                      node.directory ? node.path : undefined,
+                    )
+                  }
+                >
+                  <Trash2 className="size-3" />
+                </Button>
+                <Button
+                  variant="icon"
+                  className={`${rowAction} ${source === 'staged' ? 'text-modified dark:text-modified-dark' : 'text-added dark:text-added-dark'}`}
+                  disabled={disabled}
+                  aria-label={`${source === 'staged' ? 'Unstage' : 'Stage'} ${node.path}`}
+                  title={`${source === 'staged' ? 'Unstage' : 'Stage'} ${node.path}`}
+                  onClick={() =>
+                    void perform('files_action', {
+                      repo,
+                      paths: node.paths,
+                      action: source === 'staged' ? 'unstage' : 'stage',
+                    })
+                  }
+                >
+                  {source === 'staged' ? (
+                    <Minus className="size-3" />
+                  ) : (
+                    <Plus className="size-3" />
+                  )}
+                </Button>
+              </div>
             </div>
           );
         })}
@@ -310,18 +321,18 @@ export function FilesTree({ repo, status }: { repo: string; status: Status }) {
               )}
               {node.directory ? (
                 item.isExpanded() ? (
-                  <ChevronDown className="size-3 shrink-0 text-faint dark:text-faint-dark" />
+                  <ChevronDown className="size-3 shrink-0 text-muted dark:text-muted-dark" />
                 ) : (
-                  <ChevronRight className="size-3 shrink-0 text-faint dark:text-faint-dark" />
+                  <ChevronRight className="size-3 shrink-0 text-muted dark:text-muted-dark" />
                 )
               ) : (
                 <span className="w-3 shrink-0" />
               )}
-              {node.directory ? (
-                <Folder className="size-3 shrink-0 text-faint dark:text-faint-dark" />
-              ) : (
-                <File className="size-3 shrink-0 text-faint dark:text-faint-dark" />
-              )}
+              <FileIcon
+                name={node.name}
+                directory={node.directory}
+                expanded={item.isExpanded()}
+              />
               <span className="truncate">{node.name}</span>
               <StatusBadge status={node.ignored ? '' : node.status} />
             </button>

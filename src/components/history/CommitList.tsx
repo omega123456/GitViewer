@@ -1,7 +1,7 @@
 import { RevisionTree } from '../sidebar/RevisionTree';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { formatDistanceToNowStrict, fromUnixTime } from 'date-fns';
-import { FileDiff, History } from 'lucide-react';
+import { History, Layers } from 'lucide-react';
 import { invoke } from '../../lib/ipc';
 import { useBackend } from '../../lib/query';
 import { useTabLayout } from '../../stores/layout';
@@ -140,12 +140,13 @@ export function CommitList({ repo }: { repo: string }) {
             count={files.data?.length ?? 0}
             actions={
               <Button
-                className="size-6 p-0"
-                aria-label="View all changes in commit"
-                title="View all changes in commit"
+                variant="icon"
+                className="size-6"
+                aria-label="All changes in commit"
+                title="All changes in commit"
                 onClick={() => useSelection.getState().viewAll(repo, 'commit')}
               >
-                <FileDiff className="size-3.5" />
+                <Layers className="size-4 text-muted dark:text-muted-dark" />
               </Button>
             }
           />

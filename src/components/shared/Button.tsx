@@ -2,6 +2,7 @@ import type { ButtonHTMLAttributes } from 'react';
 import { focus, focusInset } from './styles';
 const variants = {
   default: `rounded px-2 py-1 hover:bg-hover dark:hover:bg-hover-dark ${focus}`,
+  icon: `rounded hover:bg-press dark:hover:bg-press-dark ${focus}`,
   primary: `rounded px-2 py-1 bg-accent text-white enabled:hover:brightness-90 ${focus}`,
   chrome: `rounded-none ${focusInset}`,
 };

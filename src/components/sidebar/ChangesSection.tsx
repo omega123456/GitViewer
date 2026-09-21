@@ -3,11 +3,11 @@ import { revertFiles } from '../../lib/revert';
 import { Button } from '../shared/Button';
 import {
   CheckCircle2,
-  FileDiff,
-  RotateCcw,
+  Layers,
+  Minus,
+  Plus,
   SearchX,
-  SquareMinus,
-  SquarePlus,
+  Trash2,
 } from 'lucide-react';
 import type { Entry, Status } from '../../lib/types';
 import { useFilter } from '../../stores/filter';
@@ -16,7 +16,11 @@ import { GroupHeader } from '../shared/Section';
 import { State } from '../states/State';
 import { ChangesTree } from './FileTree';
 import { groupEntries } from './nodes';
-const iconButton = 'size-6 p-0';
+const iconButton = 'size-6';
+const viewTint =
+  'text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark';
+const discardTint =
+  'text-muted hover:text-deleted dark:text-muted-dark dark:hover:text-deleted-dark';
 export function ChangesSection({
   repo,
   status,
@@ -53,17 +57,19 @@ export function ChangesSection({
                 actions={
                   <>
                     <Button
-                      className={iconButton}
-                      aria-label="View all staged changes"
-                      title="View all staged changes"
+                      variant="icon"
+                      className={`${iconButton} ${viewTint}`}
+                      aria-label="All staged changes"
+                      title="All staged changes"
                       onClick={() =>
                         useSelection.getState().viewAll(repo, 'staged')
                       }
                     >
-                      <FileDiff className="size-3.5" />
+                      <Layers className="size-4" />
                     </Button>
                     <Button
-                      className={iconButton}
+                      variant="icon"
+                      className={`${iconButton} ml-2 text-modified dark:text-modified-dark`}
                       disabled={disabled}
                       aria-label="Unstage all"
                       title="Unstage all"
@@ -75,18 +81,19 @@ export function ChangesSection({
                         })
                       }
                     >
-                      <SquareMinus className="size-3.5" />
+                      <Minus className="size-4" />
                     </Button>
                     <Button
-                      className={iconButton}
+                      variant="icon"
+                      className={`${iconButton} ${discardTint}`}
                       disabled={disabled}
-                      aria-label="Revert all staged changes"
-                      title="Revert all staged changes"
+                      aria-label="Discard all staged changes"
+                      title="Discard all staged changes"
                       onClick={() =>
                         void revertFiles(repo, paths(staged), true)
                       }
                     >
-                      <RotateCcw className="size-3.5" />
+                      <Trash2 className="size-4" />
                     </Button>
                   </>
                 }
@@ -108,17 +115,19 @@ export function ChangesSection({
                 actions={
                   <>
                     <Button
-                      className={iconButton}
-                      aria-label="View all changes"
-                      title="View all changes"
+                      variant="icon"
+                      className={`${iconButton} ${viewTint}`}
+                      aria-label="All changes"
+                      title="All changes"
                       onClick={() =>
                         useSelection.getState().viewAll(repo, 'unstaged')
                       }
                     >
-                      <FileDiff className="size-3.5" />
+                      <Layers className="size-4" />
                     </Button>
                     <Button
-                      className={iconButton}
+                      variant="icon"
+                      className={`${iconButton} ml-2 text-added dark:text-added-dark`}
                       disabled={disabled}
                       aria-label="Stage all"
                       title="Stage all"
@@ -130,18 +139,19 @@ export function ChangesSection({
                         })
                       }
                     >
-                      <SquarePlus className="size-3.5" />
+                      <Plus className="size-4" />
                     </Button>
                     <Button
-                      className={iconButton}
+                      variant="icon"
+                      className={`${iconButton} ${discardTint}`}
                       disabled={disabled}
-                      aria-label="Revert all changes"
-                      title="Revert all changes"
+                      aria-label="Discard all changes"
+                      title="Discard all changes"
                       onClick={() =>
                         void revertFiles(repo, paths(unstaged), true)
                       }
                     >
-                      <RotateCcw className="size-3.5" />
+                      <Trash2 className="size-4" />
                     </Button>
                   </>
                 }

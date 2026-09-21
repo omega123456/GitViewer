@@ -6,7 +6,8 @@ import {
   hotkeysCoreFeature,
 } from '@headless-tree/core';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ChevronDown, ChevronRight, File, Folder } from 'lucide-react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
+import { FileIcon } from './FileIcon';
 import { useCompact } from '../../stores/density';
 import { dynamic, focus } from '../shared/styles';
 import { changeNodes, treeRoot, type Node } from './nodes';
@@ -102,18 +103,18 @@ export function RevisionTree({
             >
               {node.directory ? (
                 item.isExpanded() ? (
-                  <ChevronDown className="size-3 shrink-0" />
+                  <ChevronDown className="size-3 shrink-0 text-muted dark:text-muted-dark" />
                 ) : (
-                  <ChevronRight className="size-3 shrink-0" />
+                  <ChevronRight className="size-3 shrink-0 text-muted dark:text-muted-dark" />
                 )
               ) : (
                 <span className="w-3 shrink-0" />
               )}
-              {node.directory ? (
-                <Folder className="size-3 shrink-0" />
-              ) : (
-                <File className="size-3 shrink-0" />
-              )}
+              <FileIcon
+                name={node.name}
+                directory={node.directory}
+                expanded={item.isExpanded()}
+              />
               <span className="truncate">{node.name}</span>
             </button>
           );

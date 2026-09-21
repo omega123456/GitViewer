@@ -10,13 +10,13 @@ export async function revertFiles(
   if (!paths.length) return;
   if (
     await confirm(
-      `${folder ? `Revert all ${paths.length} changed files in ${folder}` : all ? 'Revert all changed files' : `Revert ${paths[0]}`}? Staged and unstaged changes will be lost. New files will be deleted. This cannot be undone by Git.`,
+      `${folder ? `Discard all ${paths.length} changed files in ${folder}` : all ? 'Discard all changed files' : `Discard ${paths[0]}`}? Staged and unstaged changes will be lost. New files will be deleted. This cannot be undone by Git.`,
       {
         title: folder
-          ? 'Revert folder'
+          ? 'Discard folder'
           : all
-            ? 'Revert all changes'
-            : 'Revert file',
+            ? 'Discard all changes'
+            : 'Discard file',
         kind: 'warning',
       },
     )

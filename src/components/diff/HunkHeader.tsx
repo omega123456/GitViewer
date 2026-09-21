@@ -1,4 +1,4 @@
-import { RotateCcw, SquareMinus, SquarePlus } from 'lucide-react';
+import { Minus, Plus, Trash2 } from 'lucide-react';
 import type { Source } from '../../lib/types';
 import { Button } from '../shared/Button';
 export function HunkHeader({
@@ -28,9 +28,9 @@ export function HunkHeader({
               onClick={stage}
             >
               {source === 'staged' ? (
-                <SquareMinus className="size-3.5" />
+                <Minus className="size-3.5" />
               ) : (
-                <SquarePlus className="size-3.5" />
+                <Plus className="size-3.5" />
               )}
             </Button>
           )}
@@ -41,7 +41,7 @@ export function HunkHeader({
               className="hover:text-deleted dark:hover:text-deleted-dark"
               onClick={discard}
             >
-              <RotateCcw className="size-3.5" />
+              <Trash2 className="size-3.5" />
             </Button>
           )}
         </div>

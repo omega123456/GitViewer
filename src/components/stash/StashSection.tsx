@@ -114,7 +114,8 @@ export function StashSection({
       actions={
         <>
           <Button
-            className="size-6 p-0"
+            variant="icon"
+            className="size-6"
             aria-label="Apply stash"
             title="Apply stash"
             disabled={disabled || !selected}
@@ -123,7 +124,8 @@ export function StashSection({
             <ArrowDownToLine className="size-3.5" />
           </Button>
           <Button
-            className="size-6 p-0"
+            variant="icon"
+            className="size-6"
             aria-label="Pop stash"
             title="Pop stash"
             disabled={disabled || !selected}
@@ -132,7 +134,8 @@ export function StashSection({
             <ArrowDownFromLine className="size-3.5" />
           </Button>
           <Button
-            className="size-6 p-0 text-deleted dark:text-deleted-dark"
+            variant="icon"
+            className="size-6 text-deleted dark:text-deleted-dark"
             aria-label="Drop stash"
             title="Drop stash"
             disabled={disabled || !selected}

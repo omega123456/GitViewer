@@ -102,7 +102,7 @@ describe('repository workflows', () => {
       },
     });
     await user.click(
-      screen.getAllByRole('button', { name: 'Revert all in src' })[0],
+      screen.getAllByRole('button', { name: 'Discard all in src' })[0],
     );
     expect(calls).toContainEqual({
       command: 'files_action',
@@ -110,14 +110,14 @@ describe('repository workflows', () => {
     });
     dialog.approved = false;
     await user.click(
-      screen.getByRole('button', { name: 'Revert all changes' }),
+      screen.getByRole('button', { name: 'Discard all changes' }),
     );
     expect(
       calls.filter((call) => call.command === 'files_action'),
     ).toHaveLength(2);
     dialog.approved = true;
     await user.click(
-      screen.getByRole('button', { name: 'Revert all changes' }),
+      screen.getByRole('button', { name: 'Discard all changes' }),
     );
     expect(calls).toContainEqual({
       command: 'files_action',
@@ -127,7 +127,7 @@ describe('repository workflows', () => {
         action: 'revert',
       },
     });
-    await user.click(screen.getByRole('button', { name: 'Revert new.txt' }));
+    await user.click(screen.getByRole('button', { name: 'Discard new.txt' }));
     expect(calls).toContainEqual({
       command: 'files_action',
       args: { repo: repository.id, paths: ['new.txt'], action: 'revert' },
@@ -161,7 +161,7 @@ describe('repository workflows', () => {
       args: { repo: repository.id, paths: ['src/app.ts'], action: 'unstage' },
     });
     await user.click(
-      screen.getByRole('button', { name: 'Revert all staged changes' }),
+      screen.getByRole('button', { name: 'Discard all staged changes' }),
     );
     expect(calls).toContainEqual({
       command: 'files_action',
@@ -172,7 +172,7 @@ describe('repository workflows', () => {
       screen.queryByRole('button', { name: 'Unstage all' }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: 'Revert all staged changes' }),
+      screen.queryByRole('button', { name: 'Discard all staged changes' }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Stage all' })).toBeVisible();
     await user.clear(screen.getByLabelText('Filter files'));
@@ -340,7 +340,7 @@ describe('repository workflows', () => {
       commit.hash,
     );
     await user.click(
-      screen.getByRole('button', { name: 'View all changes in commit' }),
+      screen.getByRole('button', { name: 'All changes in commit' }),
     );
     const stack = await screen.findByRole('region', {
       name: 'All changes in commit',
@@ -810,7 +810,7 @@ describe('all changes pane', () => {
     const user = userEvent.setup();
     mount();
     await user.click(
-      await screen.findByRole('button', { name: 'View all changes' }),
+      await screen.findByRole('button', { name: 'All changes' }),
     );
     const pane = await screen.findByRole('region', { name: 'All changes' });
     await user.click(
@@ -842,7 +842,7 @@ describe('all changes pane', () => {
     await user.click(within(pane).getByRole('button', { name: /app\.ts/ }));
     expect(within(pane).queryByTitle('Stage hunk')).not.toBeInTheDocument();
     await user.click(
-      screen.getByRole('button', { name: 'View all staged changes' }),
+      screen.getByRole('button', { name: 'All staged changes' }),
     );
     await screen.findByRole('region', { name: 'All staged changes' });
     await user.click(

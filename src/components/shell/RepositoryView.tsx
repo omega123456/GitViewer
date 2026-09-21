@@ -9,7 +9,7 @@ import {
   PanelLeft,
   PanelRight,
   RefreshCw,
-  RotateCcw,
+  Trash2,
   RotateCw,
   Sparkles,
   SquareMinus,
@@ -159,7 +159,7 @@ export function RepositoryView({
     },
     {
       id: 'discard-file',
-      icon: <RotateCcw className="size-3.5" />,
+      icon: <Trash2 className="size-3.5" />,
       label: 'Discard selected file',
       key: 'Mod+Shift+d',
       disabled:

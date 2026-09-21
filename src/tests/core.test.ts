@@ -14,6 +14,7 @@ import { matches, runShortcut } from '../lib/keyboard';
 import { highlight } from '../lib/highlight';
 import { fuzzyFilter, fuzzyScore } from '../lib/fuzzy';
 import { diffRows } from '../components/diff/rows';
+import { fileCategory, folderGlyph, type FileCategory } from '../lib/file-type';
 import {
   changeNodes,
   sourceFor,
@@ -143,6 +144,69 @@ describe('presentation state', () => {
     );
     for (const code of ['A', 'D', 'C', 'M', 'R', '?'])
       expect(statusClass(code)).toBeTruthy();
+  });
+  it('classifies every file category by name alone', () => {
+    const cases: [string, FileCategory][] = [
+      ['photo.png', 'image'],
+      ['clip.mkv', 'video'],
+      ['song.flac', 'audio'],
+      ['bundle.tar.gz', 'archive'],
+      ['ubuntu.iso', 'disc'],
+      ['nodes.ts', 'code'],
+      ['index.css', 'web'],
+      ['tauri.conf.json', 'config'],
+      ['README.md', 'text'],
+      ['report.docx', 'office'],
+      ['Inter.woff2', 'font'],
+      ['cache.sqlite', 'database'],
+      ['installer.msi', 'executable'],
+      ['unknown.qqq', 'generic'],
+    ];
+    for (const [name, category] of cases)
+      expect(fileCategory(name, false)).toBe(category);
+    expect(fileCategory('src', true)).toBe('folder');
+    expect(fileCategory('.gitignore', false)).toBe('config');
+    expect(fileCategory('Dockerfile', false)).toBe('config');
+    expect(fileCategory('LICENSE', false)).toBe('generic');
+    expect(fileCategory('.env', false)).toBe('generic');
+    expect(fileCategory('APP.TS', false)).toBe('code');
+  });
+  it('resolves folder glyphs by name and expansion', () => {
+    expect(folderGlyph('downloads', false)).toBe('downloads');
+    expect(folderGlyph('.git', false)).toBe('git');
+    expect(folderGlyph('node_modules', false)).toBe('modules');
+    expect(folderGlyph('src', true)).toBe('open');
+    expect(folderGlyph('src', false)).toBe('closed');
+  });
+  it('merges a directory with its only child directory', () => {
+    const chain = (path: string) => ({
+      ...status.entries[0],
+      path,
+      index: '.',
+      worktree: 'M',
+    });
+    const merged = changeNodes(
+      [chain('a/b/c/one.ts'), chain('a/b/c/two.ts')],
+      'unstaged',
+      '',
+    );
+    expect(merged[treeRoot].children).toEqual(['a']);
+    expect(merged['a'].name).toBe('a/b/c');
+    expect(merged['a'].path).toBe('a/b/c');
+    expect(merged['a'].children).toEqual(['a/b/c/one.ts', 'a/b/c/two.ts']);
+    expect(merged['a/b']).toBeUndefined();
+    expect(merged['a/b/c']).toBeUndefined();
+    const forked = changeNodes(
+      [chain('a/b/c/one.ts'), chain('a/x.ts')],
+      'unstaged',
+      '',
+    );
+    expect(forked['a'].name).toBe('a');
+    expect(forked['a'].children).toEqual(['a/b', 'a/x.ts']);
+    expect(forked['a/b'].name).toBe('b/c');
+    expect(forked['a/b'].path).toBe('a/b/c');
+    const single = changeNodes([chain('a/only.ts')], 'unstaged', '');
+    expect(single['a'].name).toBe('a');
   });
   it('marks directories partial only when a descendant is partly staged', () => {
     const entries = [
