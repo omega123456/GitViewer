@@ -29,7 +29,9 @@ function Pane({
 }) {
   return (
     <figure className="flex min-w-0 flex-col">
-      <div className="flex min-h-0 items-center justify-center">{children}</div>
+      <div className="flex min-h-0 items-center justify-center-safe overflow-x-auto">
+        {children}
+      </div>
       <figcaption className="mt-1.5 flex justify-between text-label text-muted">
         <span>{caption}</span>
         <span className="font-mono">{size.toLocaleString()} B</span>

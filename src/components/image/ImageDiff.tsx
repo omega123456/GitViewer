@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   Columns2,
   Layers,
@@ -8,6 +8,7 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import { useActions } from '../../lib/actions';
+import type { Action } from '../../lib/keyboard';
 import type { Diff, Selection } from '../../lib/types';
 import {
   useImageViews,
@@ -25,28 +26,32 @@ import { imageUrl } from './url';
 const order: ImageMode[] = ['side by side', 'swipe', 'onion skin'];
 export function ImageDiff({
   repo,
+  view = repo,
   selection,
   diff,
 }: {
   repo: string;
+  view?: string;
   selection: Selection;
   diff: Diff;
 }) {
-  const { mode, zoom } = useTabImageView(repo);
+  const { mode, zoom } = useTabImageView(view);
   const update = useImageViews((s) => s.update);
   const [imageError, setImageError] = useState(false);
-  const zoomOut = () =>
-    update(repo, { zoom: Math.max(100, (zoom || 600) - 100) });
-  const zoomIn = () => update(repo, { zoom: (zoom || 600) + 100 });
-  const fit = () => update(repo, { zoom: 0 });
-  useActions(`${repo}:image`, [
+  const stage = useRef<HTMLDivElement>(null);
+  const current = () =>
+    zoom || stage.current?.querySelector('img')?.clientWidth || 600;
+  const zoomOut = () => update(view, { zoom: Math.max(100, current() - 100) });
+  const zoomIn = () => update(view, { zoom: current() + 100 });
+  const fit = () => update(view, { zoom: 0 });
+  const shortcuts: Action[] = [
     {
       id: 'image-mode',
       icon: <Layers className="size-3.5" />,
       label: 'Cycle image comparison mode',
       key: 'Mod+Alt+i',
       run: () =>
-        update(repo, {
+        update(view, {
           mode: order[(order.indexOf(mode) + 1) % order.length],
         }),
     },
@@ -71,7 +76,8 @@ export function ImageDiff({
       key: 'Mod+0',
       run: fit,
     },
-  ]);
+  ];
+  useActions(`${repo}:image`, view === repo ? shortcuts : []);
   const image = (side: 'old' | 'new') =>
     (side === 'old' ? diff.oldSize : diff.newSize) > 0 ? (
       <img
@@ -79,7 +85,7 @@ export function ImageDiff({
         alt={side === 'old' ? 'Before' : 'After'}
         src={imageUrl(repo, selection, side)}
         onError={() => setImageError(true)}
-        className={`max-h-full object-contain ${zoom ? 'w-image max-w-none' : 'max-w-full'}`}
+        className={`max-h-full object-contain ${zoom ? 'w-image max-w-none shrink-0' : 'max-w-full'}`}
         style={dynamic({ '--image-width': `${zoom}px` })}
       />
     ) : (
@@ -100,7 +106,7 @@ export function ImageDiff({
             swipe: <MoveHorizontal className="size-3" />,
             'onion skin': <Layers className="size-3" />,
           }}
-          onChange={(next) => update(repo, { mode: next })}
+          onChange={(next) => update(view, { mode: next })}
         />
       </div>
       {imageError && (
@@ -108,17 +114,20 @@ export function ImageDiff({
           Image could not be decoded. Open it in the system application.
         </p>
       )}
-      <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-auto bg-checker p-6 dark:bg-checker-dark">
+      <div
+        ref={stage}
+        className="relative flex min-h-0 flex-1 items-center justify-center overflow-auto bg-checker p-6 dark:bg-checker-dark"
+      >
         {mode === 'side by side' ? (
           <SideBySide diff={diff} image={image} />
         ) : mode === 'swipe' ? (
-          <SwipeCompare repo={repo} image={image} />
+          <SwipeCompare view={view} image={image} />
         ) : (
-          <OnionSkin repo={repo} image={image} />
+          <OnionSkin view={view} image={image} />
         )}
         <ZoomControls zoomIn={zoomIn} zoomOut={zoomOut} fit={fit} />
       </div>
-      {mode === 'onion skin' && <BlendSlider repo={repo} />}
+      {mode === 'onion skin' && <BlendSlider view={view} />}
     </div>
   );
 }

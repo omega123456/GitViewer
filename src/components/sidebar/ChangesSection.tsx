@@ -3,6 +3,7 @@ import { revertFiles } from '../../lib/revert';
 import { Button } from '../shared/Button';
 import {
   CheckCircle2,
+  FileDiff,
   RotateCcw,
   SearchX,
   SquareMinus,
@@ -10,9 +11,11 @@ import {
 } from 'lucide-react';
 import type { Entry, Status } from '../../lib/types';
 import { useFilter } from '../../stores/filter';
+import { useSelection } from '../../stores/selection';
 import { GroupHeader } from '../shared/Section';
 import { State } from '../states/State';
 import { ChangesTree } from './FileTree';
+import { groupEntries } from './nodes';
 const iconButton = 'size-6 p-0';
 export function ChangesSection({
   repo,
@@ -27,10 +30,8 @@ export function ChangesSection({
   const visible = status.entries.filter((entry) =>
     entry.path.toLowerCase().includes(filter.toLowerCase()),
   );
-  const staged = visible.filter(
-    (entry) => entry.index !== '.' && entry.index !== '?',
-  );
-  const unstaged = visible.filter((entry) => entry.worktree !== '.');
+  const staged = groupEntries(status, 'staged', filter);
+  const unstaged = groupEntries(status, 'unstaged', filter);
   const paths = (entries: Entry[]) => entries.map((entry) => entry.path);
   return (
     <div className="flex min-h-changes-floor flex-1 flex-col">
@@ -51,6 +52,16 @@ export function ChangesSection({
                 count={staged.length}
                 actions={
                   <>
+                    <Button
+                      className={iconButton}
+                      aria-label="View all staged changes"
+                      title="View all staged changes"
+                      onClick={() =>
+                        useSelection.getState().viewAll(repo, 'staged')
+                      }
+                    >
+                      <FileDiff className="size-3.5" />
+                    </Button>
                     <Button
                       className={iconButton}
                       disabled={disabled}
@@ -96,6 +107,16 @@ export function ChangesSection({
                 count={unstaged.length}
                 actions={
                   <>
+                    <Button
+                      className={iconButton}
+                      aria-label="View all changes"
+                      title="View all changes"
+                      onClick={() =>
+                        useSelection.getState().viewAll(repo, 'unstaged')
+                      }
+                    >
+                      <FileDiff className="size-3.5" />
+                    </Button>
                     <Button
                       className={iconButton}
                       disabled={disabled}

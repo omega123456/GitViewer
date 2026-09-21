@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronUp,
@@ -16,14 +16,11 @@ import {
   User,
   WrapText,
 } from 'lucide-react';
-import { confirm } from '@tauri-apps/plugin-dialog';
 import { useActions } from '../../lib/actions';
 import { useBackend, perform } from '../../lib/query';
-import { highlight } from '../../lib/highlight';
 import { useDiffView } from '../../stores/diff-view';
 import { useLayout } from '../../stores/layout';
 import { useSelection } from '../../stores/selection';
-import { useDark } from '../../stores/theme';
 import type { Selection, Settings } from '../../lib/types';
 import { Button } from '../shared/Button';
 import { State } from '../states/State';
@@ -32,12 +29,10 @@ import { ImageDiff } from '../image/ImageDiff';
 import { BlameView } from './BlameView';
 import { DiffSourcePill } from './DiffSourcePill';
 import { DiffToolbar } from './DiffToolbar';
-import {
-  DiffSurface,
-  type DiffSurfaceHandle,
-  type Tokens,
-} from './DiffSurface';
+import { DiffSurface, type DiffSurfaceHandle } from './DiffSurface';
+import { runHunkAction } from './hunks';
 import { diffRows } from './rows';
+import { useTokens } from './tokens';
 export function DiffPane({
   repo,
   selection,
@@ -76,7 +71,6 @@ function SelectedDiff({
   settings: Settings;
   disabled: boolean;
 }) {
-  const dark = useDark();
   const [context, setContext] = useState(3);
   const [overrideLimit, setOverride] = useState(false);
   const status = useBackend('status', { repo });
@@ -106,41 +100,7 @@ function SelectedDiff({
   const lines = data?.hunks.flatMap((hunk) => hunk.lines) ?? [];
   const added = lines.filter((line) => line.kind === 'add').length;
   const removed = lines.filter((line) => line.kind === 'remove').length;
-  const [tokens, setTokens] = useState<Tokens>({});
-  useEffect(() => {
-    let cancelled = false;
-    if (data) {
-      const lines =
-        data.content !== null
-          ? data.content
-              .split('\n')
-              .map((content, index) => ({ content, old: null, new: index + 1 }))
-          : data.hunks.flatMap((hunk) => hunk.lines);
-      void Promise.all(
-        (['old', 'new'] as const).map(async (side) => {
-          const selected = lines.filter((line) => line[side] !== null);
-          const highlighted = await highlight(
-            selected.map((line) => line.content).join('\n'),
-            selection.path,
-            dark,
-          );
-          return selected.map(
-            (line, index) =>
-              [`${side}:${line[side]}`, highlighted[index] ?? []] as const,
-          );
-        }),
-      )
-        .then((result) => {
-          if (!cancelled) setTokens(Object.fromEntries(result.flat()));
-        })
-        .catch(() => {
-          if (!cancelled) setTokens({});
-        });
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [data, selection.path, dark]);
+  const tokens = useTokens(data, selection.path);
   const move = (direction: number) => {
     const indices = rows.flatMap((row, index) =>
       row.hunk !== undefined ? [index] : [],
@@ -151,25 +111,8 @@ function SelectedDiff({
       surface.current?.scrollToRow(indices[next]);
     }
   };
-  const hunkAction = async (hunk: number, action: string) => {
-    if (
-      action === 'discard' &&
-      !(await confirm(
-        'Discard this hunk? These changes cannot be recovered by Git.',
-        { title: 'Discard hunk', kind: 'warning' },
-      ))
-    )
-      return;
-    await perform('hunk_action', {
-      repo,
-      path: selection.path,
-      source: selection.source,
-      hunk,
-      context,
-      patch: data!.patches[hunk],
-      action,
-    });
-  };
+  const hunkAction = (hunk: number, action: string) =>
+    runHunkAction(repo, selection, data!, context, hunk, action);
   const selectedHunk = Math.min(
     currentHunk,
     Math.max(0, (data?.hunks.length ?? 0) - 1),

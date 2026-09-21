@@ -1,4 +1,5 @@
-import type { Entry, Source, TreeEntry } from '../../lib/types';
+import type { Entry, Source, Status, TreeEntry } from '../../lib/types';
+import type { Group } from '../../stores/selection';
 export const treeRoot = '\0';
 export function statusLetter(status: string) {
   return status === '?' ? 'U' : status;
@@ -17,6 +18,15 @@ export function sourceFor(entry?: Entry): Source {
     : entry.index !== '.'
       ? 'staged'
       : 'file';
+}
+export function groupEntries(status: Status, group: Group, filter: string) {
+  return status.entries.filter(
+    (entry) =>
+      entry.path.toLowerCase().includes(filter.toLowerCase()) &&
+      (group === 'staged'
+        ? entry.index !== '.' && entry.index !== '?'
+        : entry.worktree !== '.'),
+  );
 }
 export interface Node extends TreeEntry {
   children: string[];

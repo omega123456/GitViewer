@@ -16,6 +16,7 @@ import { useTabs } from '../stores/tabs';
 import { useLayout } from '../stores/layout';
 import { useSelection } from '../stores/selection';
 import { useDiffView } from '../stores/diff-view';
+import { useImageViews } from '../stores/image-view';
 import { useSettingsNav } from '../stores/settings-nav';
 import { initials } from '../components/shared/Avatar';
 import { checkout } from '../components/shell/BranchPopover';
@@ -755,5 +756,64 @@ describe('keyboard and pointer access', () => {
     expect(divider).toHaveAttribute('aria-valuenow', '99');
     fireEvent.pointerMove(divider, { clientX: -10 });
     expect(divider).toHaveAttribute('aria-valuenow', '0');
+  });
+});
+describe('all changes pane', () => {
+  it('stacks every file of a group, collapses files, and returns on selection', async () => {
+    setup();
+    mockCommand('diff', (args) =>
+      args.path === 'new.txt'
+        ? { ...diff, path: 'new.txt', image: true, hunks: [], patches: [] }
+        : diff,
+    );
+    mockCommand('hunk_action', () => null);
+    const user = userEvent.setup();
+    mount();
+    await user.click(
+      await screen.findByRole('button', { name: 'View all changes' }),
+    );
+    const pane = await screen.findByRole('region', { name: 'All changes' });
+    await user.click(
+      within(
+        await within(pane).findByLabelText('Image comparison mode'),
+      ).getByRole('radio', { name: 'swipe' }),
+    );
+    expect(useImageViews.getState().tabs[`${repository.id}:new.txt`].mode).toBe(
+      'swipe',
+    );
+    expect(useImageViews.getState().tabs[repository.id]).toBeUndefined();
+    act(() => useImageViews.getState().forget(repository.id));
+    expect(
+      useImageViews.getState().tabs[`${repository.id}:new.txt`],
+    ).toBeUndefined();
+    await user.click(await within(pane).findByTitle('Stage hunk'));
+    expect(calls).toContainEqual({
+      command: 'hunk_action',
+      args: {
+        repo: repository.id,
+        path: 'src/app.ts',
+        source: 'unstaged',
+        hunk: 0,
+        context: 3,
+        patch: 'patch',
+        action: 'stage',
+      },
+    });
+    await user.click(within(pane).getByRole('button', { name: /app\.ts/ }));
+    expect(within(pane).queryByTitle('Stage hunk')).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole('button', { name: 'View all staged changes' }),
+    );
+    await screen.findByRole('region', { name: 'All staged changes' });
+    await user.click(
+      within(screen.getByRole('tree', { name: 'Changes' })).getByRole(
+        'treeitem',
+        { name: 'app.ts' },
+      ),
+    );
+    expect(
+      await screen.findByRole('region', { name: 'Diff viewer' }),
+    ).toBeInTheDocument();
+    expect(useSelection.getState().all[repository.id]).toBeUndefined();
   });
 });

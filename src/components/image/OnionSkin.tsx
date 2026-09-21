@@ -2,13 +2,13 @@ import type { ReactNode } from 'react';
 import { useImageViews, useTabImageView } from '../../stores/image-view';
 import { dynamic } from '../shared/styles';
 export function OnionSkin({
-  repo,
+  view,
   image,
 }: {
-  repo: string;
+  view: string;
   image: (side: 'old' | 'new') => ReactNode;
 }) {
-  const { blend } = useTabImageView(repo);
+  const { blend } = useTabImageView(view);
   return (
     <div className="relative flex h-full w-full items-center justify-center">
       {image('old')}
@@ -21,8 +21,8 @@ export function OnionSkin({
     </div>
   );
 }
-export function BlendSlider({ repo }: { repo: string }) {
-  const { blend } = useTabImageView(repo);
+export function BlendSlider({ view }: { view: string }) {
+  const { blend } = useTabImageView(view);
   return (
     <label className="flex shrink-0 items-center gap-3 border-t border-line p-3 text-xs dark:border-line-dark">
       Blend
@@ -34,7 +34,7 @@ export function BlendSlider({ repo }: { repo: string }) {
         onChange={(event) =>
           useImageViews
             .getState()
-            .update(repo, { blend: Number(event.target.value) })
+            .update(view, { blend: Number(event.target.value) })
         }
       />
       <span>{blend}%</span>

@@ -74,7 +74,7 @@ beforeEach(() => {
   client.clear();
   useTabs.setState({ tabs: [], active: '', error: null, busy: 0 });
   useLayout.setState({ tabs: {} });
-  useSelection.setState({ working: {}, history: {}, paths: {} });
+  useSelection.setState({ working: {}, history: {}, all: {}, paths: {} });
   useFilterStore.setState({ text: {} });
   useDiffView.setState({ mode: null });
   useImageViews.setState({ tabs: {} });

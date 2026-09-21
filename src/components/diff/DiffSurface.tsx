@@ -4,6 +4,7 @@ import {
   useRef,
   type ReactNode,
   type Ref,
+  type RefObject,
 } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { markedTokens } from '../../lib/highlight';
@@ -11,10 +12,18 @@ import type { Hunk, DiffLine, Source } from '../../lib/types';
 import { dynamic } from '../shared/styles';
 import { HunkHeader } from './HunkHeader';
 import type { Row } from './rows';
+import type { Tokens } from './tokens';
 export interface DiffSurfaceHandle {
   scrollToRow: (index: number) => void;
 }
-export type Tokens = Record<string, { content: string; color?: string }[]>;
+function offsetWithin(block: HTMLElement | null, scroller: HTMLElement | null) {
+  if (!block || !scroller) return 0;
+  return (
+    block.getBoundingClientRect().top -
+    scroller.getBoundingClientRect().top +
+    scroller.scrollTop
+  );
+}
 export function DiffSurface({
   ref,
   rows,
@@ -27,8 +36,9 @@ export function DiffSurface({
   source,
   disabled,
   hunkAction,
+  scroller,
 }: {
-  ref: Ref<DiffSurfaceHandle>;
+  ref?: Ref<DiffSurfaceHandle>;
   rows: Row[];
   hunks: Hunk[];
   patches: string[];
@@ -39,13 +49,17 @@ export function DiffSurface({
   source: Source;
   disabled: boolean;
   hunkAction: (hunk: number, action: string) => void;
+  scroller?: RefObject<HTMLDivElement | null>;
 }) {
   const primary = useRef<HTMLDivElement>(null);
   const secondary = useRef<HTMLDivElement>(null);
-  const columns = split && !wrap;
+  const columns = split && !wrap && !scroller;
   const virtual = useVirtualizer({
     count: rows.length,
-    getScrollElement: () => primary.current,
+    getScrollElement: () => scroller?.current ?? primary.current,
+    scrollMargin: scroller
+      ? offsetWithin(primary.current, scroller.current)
+      : 0,
     estimateSize: (index) => (rows[index].hunk !== undefined ? 24 : 20),
     overscan: 20,
   });
@@ -130,7 +144,9 @@ export function DiffSurface({
           data-index={row.index}
           key={row.key}
           className="absolute top-0 left-0 w-full translate-y-row"
-          style={dynamic({ '--row-offset': `${row.start}px` })}
+          style={dynamic({
+            '--row-offset': `${row.start - virtual.options.scrollMargin}px`,
+          })}
         >
           {render(rows[row.index], row.index)}
         </div>
@@ -141,7 +157,7 @@ export function DiffSurface({
     return (
       <div
         ref={primary}
-        className="min-h-0 flex-1 overflow-auto font-mono text-diff"
+        className={`font-mono text-diff ${scroller ? 'overflow-x-auto' : 'min-h-0 flex-1 overflow-auto'}`}
       >
         {stack('right', (value) =>
           value.hunk !== undefined ? (

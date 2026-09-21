@@ -29,7 +29,9 @@ export const useImageViews = create<ImageViews>((set) => ({
   forget: (id) =>
     set((s) => ({
       tabs: Object.fromEntries(
-        Object.entries(s.tabs).filter(([key]) => key !== id),
+        Object.entries(s.tabs).filter(
+          ([key]) => key !== id && !key.startsWith(`${id}:`),
+        ),
       ),
     })),
 }));

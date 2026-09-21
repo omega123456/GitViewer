@@ -2,17 +2,17 @@ import type { ReactNode } from 'react';
 import { useImageViews, useTabImageView } from '../../stores/image-view';
 import { dynamic, focus } from '../shared/styles';
 export function SwipeCompare({
-  repo,
+  view,
   image,
 }: {
-  repo: string;
+  view: string;
   image: (side: 'old' | 'new') => ReactNode;
 }) {
-  const { position } = useTabImageView(repo);
+  const { position } = useTabImageView(view);
   const move = (value: number) =>
     useImageViews
       .getState()
-      .update(repo, { position: Math.min(100, Math.max(0, value)) });
+      .update(view, { position: Math.min(100, Math.max(0, value)) });
   return (
     <div className="relative flex h-full w-full items-center justify-center">
       {image('old')}

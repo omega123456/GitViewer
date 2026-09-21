@@ -24,10 +24,15 @@ import type { SettingsResponse } from '../../lib/types';
 import { useGenerate, useGenerateState } from '../../stores/generate';
 import { useMessage, useTabs } from '../../stores/tabs';
 import { useLayout, useTabLayout } from '../../stores/layout';
-import { useCurrentSelection, useSelection } from '../../stores/selection';
+import {
+  useAllChanges,
+  useCurrentSelection,
+  useSelection,
+} from '../../stores/selection';
 import { useFilter } from '../../stores/filter';
 import { dynamic } from '../shared/styles';
 import { State } from '../states/State';
+import { AllChangesPane } from '../diff/AllChangesPane';
 import { DiffPane } from '../diff/DiffPane';
 import { CommitList } from '../history/CommitList';
 import { ChangesSection } from '../sidebar/ChangesSection';
@@ -54,6 +59,7 @@ export function RepositoryView({
   const filter = useFilter(repo);
   const layout = useTabLayout(repo);
   const select = useCurrentSelection(repo, layout.history);
+  const all = useAllChanges(repo);
   const status = query.data;
   const disabled = busy || !status || status.conflicted;
   const selectedEntry = status?.entries.find(
@@ -347,12 +353,22 @@ export function RepositoryView({
           }
         />
         <div className="min-w-0 flex-1">
-          <DiffPane
-            repo={repo}
-            selection={select?.path ? select : undefined}
-            settings={settings}
-            disabled={disabled}
-          />
+          {all && !layout.history ? (
+            <AllChangesPane
+              repo={repo}
+              group={all}
+              status={status}
+              settings={settings}
+              disabled={disabled}
+            />
+          ) : (
+            <DiffPane
+              repo={repo}
+              selection={select?.path ? select : undefined}
+              settings={settings}
+              disabled={disabled}
+            />
+          )}
         </div>
       </div>
       <StatusBar status={status} version={version} />
