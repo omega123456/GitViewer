@@ -1,6 +1,6 @@
 import { TextInput } from '../shared/TextInput';
 import { useState, type ReactNode } from 'react';
-import { File, Search } from 'lucide-react';
+import { Eye, EyeOff, File, Search } from 'lucide-react';
 import { useActionRegistry } from '../../lib/actions';
 import { fuzzyFilter } from '../../lib/fuzzy';
 import { shortcutLabel } from '../../lib/keyboard';
@@ -10,6 +10,7 @@ import { usePalette } from '../../stores/palette';
 import { useSelection } from '../../stores/selection';
 import { sourceFor } from '../sidebar/nodes';
 import { StatusBadge } from '../sidebar/StatusBadge';
+import { Button } from '../shared/Button';
 import { Modal } from '../shared/Modal';
 import { focus } from '../shared/styles';
 const groupNames: Record<string, string> = {
@@ -35,7 +36,14 @@ export function CommandPalette({ repo }: { repo: string }) {
   const mode = usePalette((s) => s.mode);
   const [filter, setFilter] = useState('');
   const [index, setIndex] = useState(0);
-  const files = useBackend('files', { repo }, open && mode === 'files');
+  const preference = usePalette((s) => s.ignored);
+  const settings = useBackend('settings_get', {});
+  const ignored = preference ?? settings.data?.searchIgnoredFiles ?? false;
+  const files = useBackend(
+    'files',
+    { repo, ignored },
+    open && mode === 'files',
+  );
   const status = useBackend('status', { repo }, open && mode === 'files');
   const close = () => {
     setFilter('');
@@ -136,6 +144,19 @@ export function CommandPalette({ repo }: { repo: string }) {
             event.preventDefault();
           }}
         />
+        {mode === 'files' && (
+          <Button
+            aria-label="Include ignored files"
+            aria-pressed={ignored}
+            onClick={() => usePalette.getState().setIgnored(!ignored)}
+          >
+            {ignored ? (
+              <Eye className="size-3.5" />
+            ) : (
+              <EyeOff className="size-3.5" />
+            )}
+          </Button>
+        )}
       </div>
       <div className="max-h-80 overflow-auto py-1">
         {visible.map((group) => (

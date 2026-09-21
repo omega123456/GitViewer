@@ -63,6 +63,22 @@ export function GeneralSection({ settings }: { settings: Settings }) {
           }
         />
       </SettingRow>
+      <SettingRow
+        title="Search ignored files"
+        description="Default for the file search in the command palette"
+      >
+        <input
+          type="checkbox"
+          aria-label="Search ignored files"
+          checked={settings.searchIgnoredFiles}
+          onChange={(event) =>
+            void perform('settings_set', {
+              ...settings,
+              searchIgnoredFiles: event.target.checked,
+            })
+          }
+        />
+      </SettingRow>
     </section>
   );
 }

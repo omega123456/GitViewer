@@ -78,7 +78,7 @@ beforeEach(() => {
   useFilterStore.setState({ text: {} });
   useDiffView.setState({ mode: null });
   useImageViews.setState({ tabs: {} });
-  usePalette.setState({ open: false, settings: false });
+  usePalette.setState({ open: false, settings: false, ignored: null });
   useSettingsNav.setState({ pane: 'general' });
   useGenerate.setState({ repos: {} });
   useTheme.setState({ preference: 'system', system: false });

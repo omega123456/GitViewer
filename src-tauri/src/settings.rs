@@ -31,6 +31,7 @@ pub struct Settings {
     pub diff_mode: String,
     pub update_check_interval: String,
     pub install_update_on_quit: bool,
+    pub search_ignored_files: bool,
     pub ai: Ai,
 }
 impl Default for Settings {
@@ -41,6 +42,7 @@ impl Default for Settings {
             diff_mode: "split".into(),
             update_check_interval: "1d".into(),
             install_update_on_quit: true,
+            search_ignored_files: false,
             ai: Ai::default(),
         }
     }

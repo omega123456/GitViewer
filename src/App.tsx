@@ -11,6 +11,7 @@ const defaults: SettingsResponse = {
   diffMode: 'split',
   updateCheckInterval: '1d',
   installUpdateOnQuit: true,
+  searchIgnoredFiles: false,
   ai: {
     enabled: false,
     baseUrl: '',

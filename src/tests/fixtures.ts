@@ -19,6 +19,7 @@ export const settings: SettingsResponse = {
   diffMode: 'split',
   updateCheckInterval: '1d',
   installUpdateOnQuit: true,
+  searchIgnoredFiles: false,
   ai,
   keyStored: false,
 };

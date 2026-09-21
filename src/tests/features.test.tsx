@@ -409,12 +409,14 @@ describe('repository workflows', () => {
     );
     await user.click(screen.getByRole('radio', { name: 'compact' }));
     await user.click(screen.getByRole('radio', { name: 'unified' }));
+    await user.click(screen.getByLabelText('Search ignored files'));
     await waitFor(() =>
       expect(preferences).toEqual({
         ...settings,
         theme: 'dark',
         density: 'compact',
         diffMode: 'unified',
+        searchIgnoredFiles: true,
       }),
     );
     const rail = screen.getByRole('navigation', { name: 'Settings sections' });
@@ -676,7 +678,11 @@ describe('keyboard and pointer access', () => {
   });
   it('finds files with F2 and opens the chosen one in the diff view', async () => {
     setup();
-    mockCommand('files', () => ['README.md', 'src/app.ts', 'new.txt']);
+    mockCommand('files', ({ ignored }) =>
+      ignored
+        ? ['README.md', 'src/app.ts', 'new.txt', 'dist/bundle.js']
+        : ['README.md', 'src/app.ts', 'new.txt'],
+    );
     const user = userEvent.setup();
     useLayout.getState().update(repository.id, { history: true });
     mount();
@@ -689,11 +695,20 @@ describe('keyboard and pointer access', () => {
     expect(
       await within(palette).findByRole('button', { name: /README\.md/ }),
     ).toBeVisible();
+    expect(
+      within(palette).queryByRole('button', { name: /bundle\.js/ }),
+    ).not.toBeInTheDocument();
+    await user.click(within(palette).getByLabelText('Include ignored files'));
+    expect(
+      await within(palette).findByRole('button', { name: /bundle\.js/ }),
+    ).toBeVisible();
     await user.type(input, 'missing');
     expect(within(palette).getByText('No matching file.')).toBeVisible();
     await user.clear(input);
     await user.type(input, 'sapt');
-    expect(within(palette).getAllByRole('button')).toHaveLength(1);
+    expect(within(palette).getAllByRole('button', { name: /\./ })).toHaveLength(
+      1,
+    );
     fireEvent.keyDown(input, { key: 'ArrowDown' });
     fireEvent.keyDown(input, { key: 'ArrowUp' });
     fireEvent.keyDown(input, { key: 'Enter' });
@@ -717,6 +732,10 @@ describe('keyboard and pointer access', () => {
       await screen.findByRole('dialog', { name: 'Command palette' }),
     ).toBeVisible();
     expect(screen.getByLabelText('Find file')).toBeVisible();
+    expect(screen.getByLabelText('Include ignored files')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
   });
   it('drags both splitters within their announced bounds and collapses trees', async () => {
     setup();

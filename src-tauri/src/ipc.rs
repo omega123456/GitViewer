@@ -192,7 +192,11 @@ pub async fn dispatch<R: tauri::Runtime>(
                 Value::Null
             }
             "tree" => return Ok(serde_json::to_value(tree::list(&mut repo, path).await?)?),
-            "files" => return Ok(serde_json::to_value(tree::files(&repo).await?)?),
+            "files" => {
+                return Ok(serde_json::to_value(
+                    tree::files(&repo, flag(&args, "ignored")).await?,
+                )?);
+            }
             "diff" => {
                 let source = string(&args, "source")?;
                 let result = diff::read(

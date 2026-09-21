@@ -86,6 +86,7 @@ export interface Settings {
   diffMode: 'split' | 'unified';
   updateCheckInterval: '1h' | '5h' | '1d' | '7d' | 'off';
   installUpdateOnQuit: boolean;
+  searchIgnoredFiles: boolean;
   ai: AiSettings;
 }
 export interface SettingsResponse extends Settings {
@@ -192,7 +193,7 @@ export interface Commands {
   status: Command<RepoArgs, Status>;
   refresh: Command<RepoArgs, null>;
   tree: Command<FileArgs, TreeEntry[]>;
-  files: Command<RepoArgs, string[]>;
+  files: Command<RepoArgs & { ignored: boolean }, string[]>;
   diff: Command<
     FileArgs & {
       source: Source;

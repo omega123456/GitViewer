@@ -68,10 +68,12 @@ async fn staging_commit_lazy_tree_and_plain_reads() {
     assert!(files[0].directory);
     assert!(files[0].ignored);
     assert_eq!(tree::list(&mut repo, "ignored").await.unwrap().len(), 1);
-    let all = tree::files(&repo).await.unwrap();
+    let all = tree::files(&repo, false).await.unwrap();
     assert!(all.contains(&".gitignore".to_string()));
     assert!(all.contains(&"file name\t.txt".to_string()));
     assert!(!all.iter().any(|path| path.starts_with("ignored")));
+    let with_ignored = tree::files(&repo, true).await.unwrap();
+    assert!(with_ignored.contains(&"ignored/secret".to_string()));
     let plain = diff::read(&repo, "ignored/secret", "file", "", 3, false)
         .await
         .unwrap();

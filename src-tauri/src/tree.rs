@@ -86,12 +86,12 @@ pub async fn list(repo: &mut Repo, path: &str) -> Result<Vec<TreeEntry>> {
     });
     Ok(entries)
 }
-pub async fn files(repo: &Repo) -> Result<Vec<String>> {
-    let text = git::text(
-        &repo.root,
-        &["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
-    )
-    .await?;
+pub async fn files(repo: &Repo, ignored: bool) -> Result<Vec<String>> {
+    let mut args = vec!["ls-files", "--cached", "--others", "-z"];
+    if !ignored {
+        args.push("--exclude-standard");
+    }
+    let text = git::text(&repo.root, &args).await?;
     Ok(text
         .split('\0')
         .filter(|path| !path.is_empty())
