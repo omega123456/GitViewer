@@ -71,6 +71,7 @@ jobs:
       - name: Build signed application and updater artifacts
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          TAURI_BUNDLER_DMG_IGNORE_CI: 'true'
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "macOS" ]; then
