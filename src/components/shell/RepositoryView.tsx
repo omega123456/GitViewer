@@ -353,10 +353,14 @@ export function RepositoryView({
           }
         />
         <div className="min-w-0 flex-1">
-          {all && !layout.history ? (
+          {all &&
+          (all === 'commit'
+            ? layout.history && select?.revision
+            : !layout.history) ? (
             <AllChangesPane
               repo={repo}
-              group={all}
+              stack={all}
+              commit={select}
               status={status}
               settings={settings}
               disabled={disabled}

@@ -2,13 +2,14 @@ import { create } from 'zustand';
 import type { Selection } from '../lib/types';
 import { tabLayout } from './layout';
 export type Group = 'staged' | 'unstaged';
+export type Stack = Group | 'commit';
 interface Selections {
   working: Record<string, Selection | undefined>;
   history: Record<string, Selection | undefined>;
-  all: Record<string, Group | undefined>;
+  all: Record<string, Stack | undefined>;
   paths: Record<string, string>;
   select: (id: string, selection: Selection) => void;
-  viewAll: (id: string, group: Group) => void;
+  viewAll: (id: string, stack: Stack) => void;
   setPath: (id: string, path: string) => void;
   forget: (id: string) => void;
 }
@@ -18,18 +19,18 @@ export const useSelection = create<Selections>((set) => ({
   all: {},
   paths: {},
   select: (id, selection) =>
-    set((s) =>
-      tabLayout(id).history
-        ? { history: { ...s.history, [id]: selection } }
-        : {
-            working: { ...s.working, [id]: selection },
-            all: { ...s.all, [id]: undefined },
-          },
-    ),
-  viewAll: (id, group) =>
     set((s) => ({
-      working: { ...s.working, [id]: undefined },
-      all: { ...s.all, [id]: group },
+      ...(tabLayout(id).history
+        ? { history: { ...s.history, [id]: selection } }
+        : { working: { ...s.working, [id]: selection } }),
+      all: { ...s.all, [id]: selection.path ? undefined : 'commit' },
+    })),
+  viewAll: (id, stack) =>
+    set((s) => ({
+      ...(stack === 'commit'
+        ? { history: { ...s.history, [id]: { ...s.history[id]!, path: '' } } }
+        : { working: { ...s.working, [id]: undefined } }),
+      all: { ...s.all, [id]: stack },
     })),
   setPath: (id, path) => set((s) => ({ paths: { ...s.paths, [id]: path } })),
   forget: (id) =>

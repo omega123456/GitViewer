@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { CheckCircle2, ChevronDown, ChevronRight } from 'lucide-react';
 import { useBackend } from '../../lib/query';
-import type { Diff, Entry, Selection, Settings, Status } from '../../lib/types';
+import type { Diff, Selection, Settings, Status } from '../../lib/types';
 import { groupEntries } from '../sidebar/nodes';
 import { useDiffView } from '../../stores/diff-view';
 import { useFilter } from '../../stores/filter';
-import type { Group } from '../../stores/selection';
+import type { Stack } from '../../stores/selection';
 import { focus } from '../shared/styles';
 import { State } from '../states/State';
 import { StatusBadge } from '../sidebar/StatusBadge';
@@ -25,21 +25,55 @@ function note(data: Diff | undefined, error: Error | null) {
     return 'No content change.';
   return null;
 }
+const titles = {
+  staged: 'Staged changes',
+  unstaged: 'Changes',
+  commit: 'Commit',
+};
+const labels = {
+  staged: 'All staged changes',
+  unstaged: 'All changes',
+  commit: 'All changes in commit',
+};
 export function AllChangesPane({
   repo,
-  group,
+  stack,
+  commit,
   status,
   settings,
   disabled,
 }: {
   repo: string;
-  group: Group;
+  stack: Stack;
+  commit?: Selection;
   status: Status;
   settings: Settings;
   disabled: boolean;
 }) {
   const filter = useFilter(repo);
-  const entries = groupEntries(status, group, filter);
+  const files = useBackend(
+    'commit_files',
+    { repo, revision: commit?.revision ?? '', source: commit?.source },
+    stack === 'commit',
+  );
+  const entries =
+    stack === 'commit'
+      ? (files.data ?? []).map((path) => ({
+          selection: { ...commit!, path },
+          badge: undefined,
+        }))
+      : groupEntries(status, stack, filter).map((entry) => ({
+          selection: {
+            path: entry.path,
+            source:
+              stack === 'staged'
+                ? ('staged' as const)
+                : entry.index === '?'
+                  ? ('file' as const)
+                  : ('unstaged' as const),
+          },
+          badge: stack === 'staged' ? entry.index : entry.worktree,
+        }));
   const scroller = useRef<HTMLDivElement>(null);
   const [, relayout] = useState(0);
   useEffect(() => {
@@ -50,29 +84,36 @@ export function AllChangesPane({
   return (
     <section
       className="flex h-full min-w-0 flex-col"
-      aria-label={group === 'staged' ? 'All staged changes' : 'All changes'}
+      aria-label={labels[stack]}
     >
       <header className="flex h-tab shrink-0 items-center gap-2 border-b border-line px-3 text-sm dark:border-line-dark">
-        <span className="font-semibold">
-          {group === 'staged' ? 'Staged changes' : 'Changes'}
-        </span>
+        <span className="font-semibold">{titles[stack]}</span>
+        {commit?.revision && (
+          <span className="font-mono text-label text-muted">
+            {commit.revision.slice(0, 7)}
+          </span>
+        )}
         <span className="font-mono text-label text-muted">
           {entries.length}
         </span>
       </header>
       <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto">
         <div>
-          {entries.length === 0 ? (
+          {files.error ? (
+            <State title="Unable to list commit files">
+              {files.error.message}
+            </State>
+          ) : entries.length === 0 ? (
             <State icon={CheckCircle2} title="Nothing here">
               This group is empty.
             </State>
           ) : (
             entries.map((entry) => (
               <FileDiff
-                key={entry.path}
+                key={entry.selection.path}
                 repo={repo}
-                entry={entry}
-                group={group}
+                selection={entry.selection}
+                badge={entry.badge}
                 settings={settings}
                 disabled={disabled}
                 scroller={scroller}
@@ -86,28 +127,23 @@ export function AllChangesPane({
 }
 function FileDiff({
   repo,
-  entry,
-  group,
+  selection,
+  badge,
   settings,
   disabled,
   scroller,
 }: {
   repo: string;
-  entry: Entry;
-  group: Group;
+  selection: Selection;
+  badge?: string;
   settings: Settings;
   disabled: boolean;
   scroller: RefObject<HTMLDivElement | null>;
 }) {
-  const selection: Selection = {
-    path: entry.path,
-    source:
-      group === 'staged' ? 'staged' : entry.index === '?' ? 'file' : 'unstaged',
-  };
   const [open, setOpen] = useState(true);
   const query = useBackend('diff', { repo, ...selection, context });
   const data = query.data;
-  const tokens = useTokens(data, entry.path);
+  const tokens = useTokens(data, selection.path);
   const mode = useDiffView((s) => s.mode) ?? settings.diffMode;
   const split = mode === 'split' && data?.content === null;
   const rows = useMemo(
@@ -117,7 +153,7 @@ function FileDiff({
   const lines = data?.hunks.flatMap((hunk) => hunk.lines) ?? [];
   const added = lines.filter((line) => line.kind === 'add').length;
   const removed = lines.filter((line) => line.kind === 'remove').length;
-  const cut = entry.path.lastIndexOf('/') + 1;
+  const cut = selection.path.lastIndexOf('/') + 1;
   const message = note(data, query.error);
   return (
     <div className="border-b border-line dark:border-line-dark">
@@ -132,9 +168,9 @@ function FileDiff({
         ) : (
           <ChevronRight className="size-3.5 shrink-0 text-muted" />
         )}
-        <span className="truncate" title={entry.path}>
-          <span className="text-muted">{entry.path.slice(0, cut)}</span>
-          <span className="font-semibold">{entry.path.slice(cut)}</span>
+        <span className="truncate" title={selection.path}>
+          <span className="text-muted">{selection.path.slice(0, cut)}</span>
+          <span className="font-semibold">{selection.path.slice(cut)}</span>
         </span>
         <DiffSourcePill selection={selection} />
         {Boolean(added) && (
@@ -147,9 +183,7 @@ function FileDiff({
             −{removed}
           </span>
         )}
-        <StatusBadge
-          status={group === 'staged' ? entry.index : entry.worktree}
-        />
+        {badge && <StatusBadge status={badge} />}
       </button>
       {open &&
         (message ? (
@@ -158,7 +192,7 @@ function FileDiff({
           <div className="flex flex-col">
             <ImageDiff
               repo={repo}
-              view={`${repo}:${entry.path}`}
+              view={`${repo}:${selection.path}`}
               selection={selection}
               diff={data!}
             />

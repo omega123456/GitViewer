@@ -339,7 +339,25 @@ describe('repository workflows', () => {
     expect(useSelection.getState().history[repository.id]?.revision).toBe(
       commit.hash,
     );
+    await user.click(
+      screen.getByRole('button', { name: 'View all changes in commit' }),
+    );
+    const stack = await screen.findByRole('region', {
+      name: 'All changes in commit',
+    });
+    expect(useSelection.getState().history[repository.id]?.path).toBe('');
+    await within(stack).findByText(commit.hash.slice(0, 7));
+    await within(stack).findByRole('button', { name: /app\.ts/ });
+    expect(within(stack).queryByTitle('Stage hunk')).not.toBeInTheDocument();
+    await user.click(
+      within(fileTree).getByRole('treeitem', { name: 'app.ts' }),
+    );
+    await screen.findByRole('region', { name: 'Diff viewer' });
+    expect(useSelection.getState().all[repository.id]).toBeUndefined();
     await user.click(screen.getByRole('button', { name: 'All files' }));
+    await user.click(await screen.findByText('Review commit'));
+    await screen.findByRole('region', { name: 'All changes in commit' });
+    expect(useSelection.getState().all[repository.id]).toBe('commit');
     fireEvent.keyDown(screen.getByLabelText('Resize sidebar'), {
       key: 'ArrowRight',
     });
