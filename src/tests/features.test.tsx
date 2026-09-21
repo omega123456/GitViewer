@@ -182,6 +182,29 @@ describe('repository workflows', () => {
       screen.queryByRole('button', { name: 'Stage all' }),
     ).not.toBeInTheDocument();
   });
+  it('collapses and expands every folder of a group from its header', async () => {
+    setup();
+    const user = userEvent.setup();
+    mount();
+    const tree = await screen.findByRole('tree', { name: 'Changes' });
+    await within(tree).findByRole('treeitem', { name: 'app.ts' });
+    await user.click(
+      screen.getByRole('button', { name: 'Collapse all Changes' }),
+    );
+    expect(
+      within(tree).queryByRole('treeitem', { name: 'app.ts' }),
+    ).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole('button', { name: 'Expand all Changes' }),
+    );
+    expect(
+      await within(tree).findByRole('treeitem', { name: 'app.ts' }),
+    ).toBeVisible();
+    await user.type(screen.getByLabelText('Filter files'), 'new');
+    expect(
+      screen.queryByRole('button', { name: /all Changes$/ }),
+    ).not.toBeInTheDocument();
+  });
   it('creates from another reference, filters groups, switches and confirms deletion', async () => {
     setup();
     mockCommand('branch_create', () => null);
