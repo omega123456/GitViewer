@@ -20,6 +20,7 @@ export const settings: SettingsResponse = {
   updateCheckInterval: '1d',
   installUpdateOnQuit: true,
   searchIgnoredFiles: false,
+  smartCommit: 'ask',
   ai,
   keyStored: false,
 };

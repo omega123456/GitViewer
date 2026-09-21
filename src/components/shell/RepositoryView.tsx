@@ -21,8 +21,9 @@ import { useActions } from '../../lib/actions';
 import { perform, useBackend } from '../../lib/query';
 import type { Action } from '../../lib/keyboard';
 import type { SettingsResponse } from '../../lib/types';
+import { useCommit } from '../../stores/commit';
 import { useGenerate, useGenerateState } from '../../stores/generate';
-import { useMessage, useTabs } from '../../stores/tabs';
+import { type CommitMode, useMessage, useTabs } from '../../stores/tabs';
 import { useLayout, useTabLayout } from '../../stores/layout';
 import {
   useAllChanges,
@@ -111,9 +112,19 @@ export function RepositoryView({
         action: 'discard',
       });
   };
-  const commit = async () => {
-    if ((await perform('commit', { repo, message })) !== undefined)
-      useTabs.getState().setMessage(repo, '');
+  const staged = Boolean(
+    status?.entries.some((entry) => entry.index !== '.' && entry.index !== '?'),
+  );
+  const changes = status?.entries.map((entry) => entry.path) ?? [];
+  const committable =
+    Boolean(message.trim()) &&
+    (staged || (changes.length > 0 && settings.smartCommit !== 'never'));
+  const commit = (mode: CommitMode) => {
+    const store = useCommit.getState();
+    if (staged) return store.run(repo, { message, mode, stage: [] });
+    if (settings.smartCommit === 'always')
+      return store.run(repo, { message, mode, stage: changes });
+    store.ask(repo, mode);
   };
   const actions: Action[] = [
     {
@@ -201,15 +212,18 @@ export function RepositoryView({
     {
       id: 'commit',
       icon: <GitCommitHorizontal className="size-3.5" />,
-      label: 'Commit staged changes',
+      label: 'Commit changes',
       key: 'Mod+Enter',
-      disabled:
-        disabled ||
-        !message.trim() ||
-        !status?.entries.some(
-          (entry) => entry.index !== '.' && entry.index !== '?',
-        ),
-      run: commit,
+      disabled: disabled || !committable,
+      run: () => commit('commit'),
+    },
+    {
+      id: 'commit-push',
+      icon: <Upload className="size-3.5" />,
+      label: 'Commit and push changes',
+      key: 'Mod+Shift+Enter',
+      disabled: disabled || !committable || status?.branch === '(detached)',
+      run: () => commit('commitPush'),
     },
     {
       id: 'generate-message',
@@ -327,11 +341,9 @@ export function RepositoryView({
             repo={repo}
             status={status}
             settings={settings}
-            disabled={
-              actions.find((action) => action.id === 'commit')!.disabled ??
-              false
-            }
-            commit={() => void commit()}
+            disabled={disabled || !committable}
+            pushable={status.branch !== '(detached)'}
+            commit={(mode) => void commit(mode)}
           />
         </aside>
         <ResizeHandle

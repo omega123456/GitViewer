@@ -64,6 +64,19 @@ export function GeneralSection({ settings }: { settings: Settings }) {
         />
       </SettingRow>
       <SettingRow
+        title="Commit with nothing staged"
+        description="Stage everything and commit, or ask first"
+      >
+        <Segment
+          label="Commit with nothing staged"
+          value={settings.smartCommit}
+          options={['ask', 'always', 'never']}
+          onChange={(smartCommit) =>
+            void perform('settings_set', { ...settings, smartCommit })
+          }
+        />
+      </SettingRow>
+      <SettingRow
         title="Search ignored files"
         description="Default for the file search in the command palette"
       >

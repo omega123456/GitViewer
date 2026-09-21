@@ -32,6 +32,7 @@ pub struct Settings {
     pub update_check_interval: String,
     pub install_update_on_quit: bool,
     pub search_ignored_files: bool,
+    pub smart_commit: String,
     pub ai: Ai,
 }
 impl Default for Settings {
@@ -43,6 +44,7 @@ impl Default for Settings {
             update_check_interval: "1d".into(),
             install_update_on_quit: true,
             search_ignored_files: false,
+            smart_commit: "ask".into(),
             ai: Ai::default(),
         }
     }
@@ -69,6 +71,7 @@ pub fn write(path: &Path, settings: Settings) -> Result<Settings> {
         || !["system", "light", "dark"].contains(&settings.theme.as_str())
         || !["compact", "comfortable"].contains(&settings.density.as_str())
         || !["split", "unified"].contains(&settings.diff_mode.as_str())
+        || !["ask", "always", "never"].contains(&settings.smart_commit.as_str())
     {
         return Err(Error::refused("Invalid settings"));
     }

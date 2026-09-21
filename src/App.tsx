@@ -12,6 +12,7 @@ const defaults: SettingsResponse = {
   updateCheckInterval: '1d',
   installUpdateOnQuit: true,
   searchIgnoredFiles: false,
+  smartCommit: 'ask',
   ai: {
     enabled: false,
     baseUrl: '',

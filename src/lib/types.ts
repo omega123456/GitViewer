@@ -87,6 +87,7 @@ export interface Settings {
   updateCheckInterval: '1h' | '5h' | '1d' | '7d' | 'off';
   installUpdateOnQuit: boolean;
   searchIgnoredFiles: boolean;
+  smartCommit: 'ask' | 'always' | 'never';
   ai: AiSettings;
 }
 export interface SettingsResponse extends Settings {

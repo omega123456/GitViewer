@@ -183,9 +183,18 @@ fn settings_roundtrip_and_invalid_values() {
     assert_eq!(defaults.theme, "system");
     assert_eq!(settings::write(&path, defaults.clone()).unwrap(), defaults);
     assert_eq!(settings::read(&path), defaults);
-    let mut invalid = defaults;
+    let mut invalid = defaults.clone();
     invalid.theme = "invalid".into();
     assert!(settings::write(&path, invalid).is_err());
+    let mut always = defaults.clone();
+    always.smart_commit = "always".into();
+    assert_eq!(settings::write(&path, always.clone()).unwrap(), always);
+    let mut unknown = defaults;
+    unknown.smart_commit = "sometimes".into();
+    assert_eq!(
+        settings::write(&path, unknown).unwrap_err().message,
+        "Invalid settings"
+    );
     std::fs::write(&path, "invalid").unwrap();
     assert_eq!(settings::read(&path).density, "comfortable");
 }
@@ -200,6 +209,7 @@ fn settings_carry_ai_defaults_validation_and_a_legacy_file() {
     .unwrap();
     let legacy = settings::read(&path);
     assert_eq!(legacy.theme, "dark");
+    assert_eq!(legacy.smart_commit, "ask");
     assert_eq!(legacy.ai, settings::Ai::default());
     assert!(!legacy.ai.enabled);
     assert_eq!(legacy.ai.prompt, settings::DEFAULT_PROMPT);

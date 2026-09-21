@@ -1,9 +1,11 @@
 import { create } from 'zustand';
 import type { GitError } from '../lib/types';
+export type CommitMode = 'commit' | 'commitPush';
 export interface Tab {
   id: string;
   name: string;
   message: string;
+  commitMode: CommitMode;
 }
 interface Tabs {
   tabs: Tab[];
@@ -14,6 +16,7 @@ interface Tabs {
   close: (id: string) => void;
   activate: (id: string) => void;
   setMessage: (id: string, message: string) => void;
+  setCommitMode: (id: string, commitMode: CommitMode) => void;
   setError: (error: GitError | null) => void;
   setBusy: (delta: number) => void;
 }
@@ -27,7 +30,7 @@ export const useTabs = create<Tabs>((set) => ({
       active: id,
       tabs: s.tabs.some((t) => t.id === id)
         ? s.tabs
-        : [...s.tabs, { id, name, message: '' }],
+        : [...s.tabs, { id, name, message: '', commitMode: 'commit' }],
     })),
   close: (id) =>
     set((s) => ({
@@ -42,9 +45,18 @@ export const useTabs = create<Tabs>((set) => ({
     set((s) => ({
       tabs: s.tabs.map((t) => (t.id === id ? { ...t, message } : t)),
     })),
+  setCommitMode: (id, commitMode) =>
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.id === id ? { ...t, commitMode } : t)),
+    })),
   setError: (error) => set({ error }),
   setBusy: (delta) => set((s) => ({ busy: Math.max(0, s.busy + delta) })),
 }));
 export function useMessage(id: string) {
   return useTabs((s) => s.tabs.find((tab) => tab.id === id)?.message ?? '');
+}
+export function useCommitMode(id: string) {
+  return useTabs(
+    (s) => s.tabs.find((tab) => tab.id === id)?.commitMode ?? 'commit',
+  );
 }

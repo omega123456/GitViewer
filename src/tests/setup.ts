@@ -11,6 +11,7 @@ import { useDiffView } from '../stores/diff-view';
 import { useImageViews } from '../stores/image-view';
 import { usePalette } from '../stores/palette';
 import { useSettingsNav } from '../stores/settings-nav';
+import { useCommit } from '../stores/commit';
 import { useGenerate } from '../stores/generate';
 import { useTheme } from '../stores/theme';
 import { useDensity } from '../stores/density';
@@ -81,6 +82,7 @@ beforeEach(() => {
   usePalette.setState({ open: false, settings: false, ignored: null });
   useSettingsNav.setState({ pane: 'general' });
   useGenerate.setState({ repos: {} });
+  useCommit.setState({ repos: {} });
   useTheme.setState({ preference: 'system', system: false });
   useDensity.setState({ density: 'comfortable' });
 });
