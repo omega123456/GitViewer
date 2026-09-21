@@ -124,7 +124,11 @@ jobs:
           if gh release view "$GITHUB_REF_NAME" --json isDraft > existing-release.json; then
             test "$(jq -r .isDraft existing-release.json)" = true
           else
-            gh release create "$GITHUB_REF_NAME" --verify-tag --draft --title "GitViewer $GITHUB_REF_NAME" --generate-notes
+            if [ -f .github/tauri-release-body.md ]; then
+              gh release create "$GITHUB_REF_NAME" --verify-tag --draft --title "GitViewer $GITHUB_REF_NAME" --notes-file .github/tauri-release-body.md
+            else
+              gh release create "$GITHUB_REF_NAME" --verify-tag --draft --title "GitViewer $GITHUB_REF_NAME" --generate-notes
+            fi
           fi
           gh release view "$GITHUB_REF_NAME" --json body > release-notes.json
           pnpm exec node scripts/release.mjs notes release-assets/latest.json release-notes.json
