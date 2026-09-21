@@ -652,6 +652,50 @@ describe('keyboard and pointer access', () => {
     await action('close-repository');
     expect(await screen.findByText('No repository open')).toBeVisible();
   });
+  it('finds files with F2 and opens the chosen one in the diff view', async () => {
+    setup();
+    mockCommand('files', () => ['README.md', 'src/app.ts', 'new.txt']);
+    const user = userEvent.setup();
+    useLayout.getState().update(repository.id, { history: true });
+    mount();
+    const message = await screen.findByLabelText('Commit message');
+    fireEvent.keyDown(message, { key: 'F2' });
+    const palette = await screen.findByRole('dialog', {
+      name: 'Command palette',
+    });
+    const input = within(palette).getByLabelText('Find file');
+    expect(
+      await within(palette).findByRole('button', { name: /README\.md/ }),
+    ).toBeVisible();
+    await user.type(input, 'missing');
+    expect(within(palette).getByText('No matching file.')).toBeVisible();
+    await user.clear(input);
+    await user.type(input, 'sapt');
+    expect(within(palette).getAllByRole('button')).toHaveLength(1);
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    );
+    expect(useLayout.getState().tabs[repository.id]?.history).toBe(false);
+    expect(useSelection.getState().working[repository.id]).toEqual({
+      path: 'src/app.ts',
+      source: 'unstaged',
+    });
+    fireEvent.keyDown(window, { key: 'p', metaKey: true, shiftKey: true });
+    const commands = await screen.findByRole('dialog', {
+      name: 'Command palette',
+    });
+    expect(within(commands).getByLabelText('Find command')).toHaveValue('');
+    await user.click(
+      within(commands).getByRole('button', { name: /Go to file/ }),
+    );
+    expect(
+      await screen.findByRole('dialog', { name: 'Command palette' }),
+    ).toBeVisible();
+    expect(screen.getByLabelText('Find file')).toBeVisible();
+  });
   it('drags both splitters within their announced bounds and collapses trees', async () => {
     setup();
     const user = userEvent.setup();

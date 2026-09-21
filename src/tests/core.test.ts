@@ -12,6 +12,7 @@ import { useTheme } from '../stores/theme';
 import { useDensity } from '../stores/density';
 import { matches, runShortcut } from '../lib/keyboard';
 import { highlight } from '../lib/highlight';
+import { fuzzyFilter, fuzzyScore } from '../lib/fuzzy';
 import { diffRows } from '../components/diff/rows';
 import {
   changeNodes,
@@ -215,6 +216,12 @@ describe('presentation state', () => {
     });
     runShortcut(event, [action]);
     expect(calls).toBe(1);
+    const functionKey = new KeyboardEvent('keydown', { key: 'F2' });
+    Object.defineProperty(functionKey, 'target', {
+      value: document.createElement('textarea'),
+    });
+    runShortcut(functionKey, [{ ...action, key: 'F2' }]);
+    expect(calls).toBe(2);
     expect(
       matches(
         new KeyboardEvent('keydown', {
@@ -231,6 +238,18 @@ describe('presentation state', () => {
         'Mod+Shift+p',
       ),
     ).toBe(false);
+  });
+  it('ranks fuzzy matches by adjacency, boundaries and length', () => {
+    expect(fuzzyScore('xyz', 'src/app.ts')).toBeNull();
+    expect(fuzzyScore('cp', 'CommandPalette.tsx')).toBeGreaterThan(
+      fuzzyScore('cp', 'scripts/copy.js') ?? 0,
+    );
+    const files = ['src/lib/app-shell.ts', 'src/app.ts', 'README.md'];
+    expect(fuzzyFilter('', files, (f) => f)).toBe(files);
+    expect(fuzzyFilter('sapt', files, (f) => f)).toEqual([
+      'src/app.ts',
+      'src/lib/app-shell.ts',
+    ]);
   });
   it('highlights syntax and safely encodes image references', async () => {
     expect(

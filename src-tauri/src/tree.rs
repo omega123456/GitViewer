@@ -86,3 +86,15 @@ pub async fn list(repo: &mut Repo, path: &str) -> Result<Vec<TreeEntry>> {
     });
     Ok(entries)
 }
+pub async fn files(repo: &Repo) -> Result<Vec<String>> {
+    let text = git::text(
+        &repo.root,
+        &["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+    )
+    .await?;
+    Ok(text
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(Into::into)
+        .collect())
+}

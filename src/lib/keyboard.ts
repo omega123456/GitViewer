@@ -30,7 +30,7 @@ export function runShortcut(event: KeyboardEvent, actions: Action[]) {
     (action) =>
       !action.disabled &&
       matches(event, action.key) &&
-      (!editable || action.key.includes('Mod')),
+      (!editable || action.key.includes('Mod') || /^F\d+$/.test(action.key)),
   );
   if (action) {
     event.preventDefault();

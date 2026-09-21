@@ -42,7 +42,7 @@ async fn typed_commands_events_and_protocol_are_wired() {
         id
     );
     for command in [
-        "status", "refresh", "tree", "branches", "history", "stashes",
+        "status", "refresh", "tree", "files", "branches", "history", "stashes",
     ] {
         call(command, json!({"repo":id})).await.unwrap();
     }

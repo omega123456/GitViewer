@@ -192,6 +192,7 @@ export interface Commands {
   status: Command<RepoArgs, Status>;
   refresh: Command<RepoArgs, null>;
   tree: Command<FileArgs, TreeEntry[]>;
+  files: Command<RepoArgs, string[]>;
   diff: Command<
     FileArgs & {
       source: Source;

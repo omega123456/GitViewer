@@ -1,6 +1,6 @@
 import { preventBrowserShortcut } from '../lib/browser';
 import { useEffect, type ReactNode } from 'react';
-import { Command, FolderOpen, Settings, X } from 'lucide-react';
+import { Command, FileSearch, FolderOpen, Settings, X } from 'lucide-react';
 import { registeredActions, useActions } from '../lib/actions';
 import { runShortcut } from '../lib/keyboard';
 import { useBackend } from '../lib/query';
@@ -27,6 +27,14 @@ export function CommandProvider({ children }: { children: ReactNode }) {
       key: 'Mod+Shift+p',
       disabled: !supported,
       run: () => usePalette.getState().setOpen(true),
+    },
+    {
+      id: 'files',
+      icon: <FileSearch className="size-3.5" />,
+      label: 'Go to file',
+      key: 'F2',
+      disabled: !active,
+      run: () => usePalette.getState().setOpen(true, 'files'),
     },
     {
       id: 'settings',
