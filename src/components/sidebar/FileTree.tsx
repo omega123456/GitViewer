@@ -26,7 +26,7 @@ import { useSelection, useWorkingSelection } from '../../stores/selection';
 import { useFilter } from '../../stores/filter';
 import { useCompact } from '../../stores/density';
 import type { Source, Status, TreeEntry } from '../../lib/types';
-import { dynamic, focus } from '../shared/styles';
+import { dynamic, focus, revealSlot, rowTint } from '../shared/styles';
 import { GroupHeader } from '../shared/Section';
 import { State } from '../states/State';
 import { FileIcon } from './FileIcon';
@@ -43,10 +43,7 @@ import {
 const rowAction = 'size-6';
 const discardTint =
   'text-muted hover:text-deleted dark:text-muted-dark dark:hover:text-deleted-dark';
-const rowTint =
-  'hover:bg-hover focus-within:bg-hover dark:hover:bg-hover-dark dark:focus-within:bg-hover-dark';
-const slot =
-  'pointer-events-none absolute inset-y-0 right-badge-slot flex items-center bg-inherit opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100';
+const slot = `${revealSlot} right-badge-slot`;
 const foldTint =
   'text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark';
 export function ChangesTree({

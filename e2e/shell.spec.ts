@@ -250,6 +250,28 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`stash section ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto('/?scenario=stash');
+    await page
+      .getByRole('button', { name: 'Open repository', exact: true })
+      .last()
+      .click();
+    await page.getByRole('button', { name: /Stashes/ }).click();
+    await page.getByText('WIP on main: parser rewrite').click();
+    await expect(
+      page.getByRole('tree', { name: 'Stash files', exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByLabel('Drop stash@{0}', { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('region', { name: 'Stashes', exact: true }),
+    ).toHaveScreenshot(`stash-section-${theme}.png`);
+  });
+}
+
+for (const theme of ['light', 'dark'] as const) {
   test(`branch comparison ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme });
     await page.goto('/?scenario=compare');

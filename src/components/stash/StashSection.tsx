@@ -2,13 +2,7 @@ import { RevisionTree } from '../sidebar/RevisionTree';
 import { useState } from 'react';
 import { formatDistanceToNowStrict, fromUnixTime } from 'date-fns';
 import { confirm } from '@tauri-apps/plugin-dialog';
-import {
-  Archive,
-  ArrowDownFromLine,
-  ArrowDownToLine,
-  Layers,
-  Trash2,
-} from 'lucide-react';
+import { Archive, Copy, CopyMinus, Layers, Trash2 } from 'lucide-react';
 import { useActions } from '../../lib/actions';
 import { perform, useBackend } from '../../lib/query';
 import type { Action } from '../../lib/keyboard';
@@ -17,7 +11,7 @@ import { useLayout, useTabLayout } from '../../stores/layout';
 import { useSelection, useWorkingSelection } from '../../stores/selection';
 import { Button } from '../shared/Button';
 import { GroupHeader, Section } from '../shared/Section';
-import { dynamic } from '../shared/styles';
+import { dynamic, pinnedSlot, revealSlot, rowTint } from '../shared/styles';
 import { VirtualList } from '../shared/VirtualList';
 import { percentBelow, ResizeHandle } from '../shell/ResizeHandle';
 export function StashSection({
@@ -40,15 +34,19 @@ export function StashSection({
     useLayout.getState().update(repo, { mode: 'working' });
     useSelection.getState().select(repo, { path, source: 'stash', revision });
   };
-  const apply = async (pop: boolean) => {
+  const apply = async (hash: string, pop: boolean) => {
     if (
-      pop &&
-      !(await confirm('Apply and remove this stash?', { title: 'Pop stash' }))
+      !(await confirm(
+        pop
+          ? 'Apply and remove this stash?'
+          : 'Apply this stash and keep it on the stack?',
+        { title: pop ? 'Pop stash' : 'Apply stash' },
+      ))
     )
       return;
     const result = await perform('stash_apply', {
       repo,
-      hash: selected,
+      hash,
       pop,
       smart: false,
     });
@@ -62,38 +60,38 @@ export function StashSection({
     )
       await perform('stash_apply', {
         repo,
-        hash: selected,
+        hash,
         pop,
         smart: true,
       });
   };
-  const drop = async () => {
+  const drop = async (hash: string) => {
     if (
       await confirm('Permanently drop this stash?', {
         title: 'Drop stash',
         kind: 'warning',
       })
     )
-      await perform('stash_drop', { repo, hash: selected });
+      await perform('stash_drop', { repo, hash });
   };
   const actions: Action[] = [
     {
       id: 'apply-stash',
-      icon: <ArrowDownToLine className="size-3.5" />,
+      icon: <Copy className="size-3.5" />,
       label: 'Apply selected stash',
       key: 'Mod+Alt+a',
       disabled:
         disabled || !query.data?.some((stash) => stash.hash === selected),
-      run: () => apply(false),
+      run: () => apply(selected, false),
     },
     {
       id: 'pop-stash',
-      icon: <ArrowDownFromLine className="size-3.5" />,
+      icon: <CopyMinus className="size-3.5" />,
       label: 'Pop selected stash',
       key: 'Mod+Alt+p',
       disabled:
         disabled || !query.data?.some((stash) => stash.hash === selected),
-      run: () => apply(true),
+      run: () => apply(selected, true),
     },
     {
       id: 'drop-stash',
@@ -102,7 +100,7 @@ export function StashSection({
       key: 'Mod+Alt+Backspace',
       disabled:
         disabled || !query.data?.some((stash) => stash.hash === selected),
-      run: drop,
+      run: () => drop(selected),
     },
   ];
   useActions(`${repo}:stashes`, actions);
@@ -139,61 +137,66 @@ export function StashSection({
             useLayout.getState().update(repo, { stashOpen: next })
           }
           icon={<Archive className="size-3" />}
-          actions={
-            <>
-              <Button
-                variant="icon"
-                className="size-6"
-                aria-label="Apply stash"
-                title="Apply stash"
-                disabled={disabled || !selected}
-                onClick={() => void apply(false)}
-              >
-                <ArrowDownToLine className="size-3.5" />
-              </Button>
-              <Button
-                variant="icon"
-                className="size-6"
-                aria-label="Pop stash"
-                title="Pop stash"
-                disabled={disabled || !selected}
-                onClick={() => void apply(true)}
-              >
-                <ArrowDownFromLine className="size-3.5" />
-              </Button>
-              <Button
-                variant="icon"
-                className="size-6 text-deleted dark:text-deleted-dark"
-                aria-label="Drop stash"
-                title="Drop stash"
-                disabled={disabled || !selected}
-                onClick={() => void drop()}
-              >
-                <Trash2 className="size-3.5" />
-              </Button>
-            </>
-          }
         >
           <div className="flex min-h-0 flex-1 flex-col">
             <VirtualList
               label="Stashes"
               items={query.data}
               render={(stash) => (
-                <Button
-                  className={`h-tree-comfortable w-full justify-start truncate text-left ${selected === stash.hash ? 'bg-selected dark:bg-selected-dark' : ''}`}
-                  onClick={() => {
-                    setSelected(stash.hash);
-                    show('', stash.hash);
-                  }}
+                <div
+                  className={`group relative flex w-full items-center ${rowTint} ${selected === stash.hash ? 'bg-selected dark:bg-selected-dark' : ''}`}
                 >
-                  <Archive className="size-3 shrink-0 text-faint dark:text-faint-dark" />
-                  <span className="min-w-0 flex-1 truncate">
-                    {stash.message}
-                  </span>
-                  <span className="shrink-0 font-mono text-label text-muted">
-                    {formatDistanceToNowStrict(fromUnixTime(stash.timestamp))}
-                  </span>
-                </Button>
+                  <Button
+                    className="h-tree-comfortable w-full justify-start truncate text-left"
+                    onClick={() => {
+                      setSelected(stash.hash);
+                      show('', stash.hash);
+                    }}
+                  >
+                    <Archive className="size-3 shrink-0 text-faint dark:text-faint-dark" />
+                    <span className="min-w-0 flex-1 truncate">
+                      {stash.message}
+                    </span>
+                    <span className="shrink-0 font-mono text-label text-muted">
+                      {formatDistanceToNowStrict(fromUnixTime(stash.timestamp))}
+                    </span>
+                  </Button>
+                  <div
+                    className={`${selected === stash.hash ? pinnedSlot : revealSlot} right-1`}
+                  >
+                    <Button
+                      variant="icon"
+                      className="size-6"
+                      aria-label={`Apply ${stash.selector}`}
+                      title={`Apply ${stash.selector}`}
+                      disabled={disabled}
+                      onClick={() => void apply(stash.hash, false)}
+                    >
+                      <Copy className="size-3" />
+                    </Button>
+                    <Button
+                      variant="icon"
+                      className="size-6"
+                      aria-label={`Pop ${stash.selector}`}
+                      title={`Pop ${stash.selector}`}
+                      disabled={disabled}
+                      onClick={() => void apply(stash.hash, true)}
+                    >
+                      <CopyMinus className="size-3" />
+                    </Button>
+                    <span className="w-1.5 shrink-0" />
+                    <Button
+                      variant="icon"
+                      className="size-6 text-deleted dark:text-deleted-dark"
+                      aria-label={`Drop ${stash.selector}`}
+                      title={`Drop ${stash.selector}`}
+                      disabled={disabled}
+                      onClick={() => void drop(stash.hash)}
+                    >
+                      <Trash2 className="size-3" />
+                    </Button>
+                  </div>
+                </div>
               )}
             />
           </div>

@@ -1,4 +1,4 @@
-import { parseISO } from 'date-fns';
+import { getUnixTime, parseISO, subDays, subHours, subWeeks } from 'date-fns';
 import { test as base, expect } from '@playwright/test';
 import {
   diff,
@@ -7,10 +7,31 @@ import {
   status,
   update,
 } from '../src/tests/fixtures';
+const frozen = parseISO('2026-09-07T00:00:00Z');
+const stashes = [
+  {
+    hash: 'a'.repeat(40),
+    selector: 'stash@{0}',
+    message: 'WIP on main: parser rewrite',
+    timestamp: getUnixTime(subHours(frozen, 2)),
+  },
+  {
+    hash: 'b'.repeat(40),
+    selector: 'stash@{1}',
+    message: 'Spike: virtual list overscan',
+    timestamp: getUnixTime(subDays(frozen, 3)),
+  },
+  {
+    hash: 'c'.repeat(40),
+    selector: 'stash@{2}',
+    message: 'WIP on main: token cleanup',
+    timestamp: getUnixTime(subWeeks(frozen, 2)),
+  },
+];
 export const test = base.extend({
   page: async ({ page }, use) => {
     await page.addInitScript(
-      ({ diff, repository, settings, status, update }) => {
+      ({ diff, repository, settings, status, stashes, update }) => {
         Object.defineProperty(window, '__TAURI_EVENT_PLUGIN_INTERNALS__', {
           value: { unregisterListener: () => {} },
         });
@@ -130,7 +151,7 @@ export const test = base.extend({
                   case 'status':
                     return status;
                   case 'stashes':
-                    return [];
+                    return scenario === 'stash' ? stashes : [];
                   case 'history':
                     return {
                       commits:
@@ -253,10 +274,11 @@ export const test = base.extend({
         repository,
         settings: { ...settings, theme: 'system' },
         status,
+        stashes,
         update,
       },
     );
-    await page.clock.setFixedTime(parseISO('2026-09-07T00:00:00Z'));
+    await page.clock.setFixedTime(frozen);
     await use(page);
   },
 });

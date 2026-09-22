@@ -22,6 +22,8 @@ export function Section({
   const expanded = open ?? internal;
   return (
     <div
+      role="region"
+      aria-label={title}
       className={`flex min-h-0 flex-col ${expanded ? 'flex-1' : 'shrink-0'}`}
     >
       <div className="flex h-section shrink-0 items-center gap-1 border-b border-line bg-sub px-2 dark:border-line-dark dark:bg-sub-dark">

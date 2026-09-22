@@ -610,10 +610,14 @@ describe('repository workflows', () => {
         smart: true,
       },
     });
+    const stashMutations = () =>
+      calls.filter((call) => call.command.startsWith('stash_')).length;
     dialog.approved = false;
+    const gated = stashMutations();
+    await action('apply-stash');
     await action('pop-stash');
     await action('drop-stash');
-    expect(calls.some((call) => call.command === 'stash_drop')).toBe(false);
+    expect(stashMutations()).toBe(gated);
     dialog.approved = true;
     await action('pop-stash');
     await action('drop-stash');
@@ -621,6 +625,29 @@ describe('repository workflows', () => {
       command: 'stash_drop',
       args: { repo: repository.id, hash: 'stash-hash' },
     });
+    await user.click(screen.getByLabelText('Apply stash@{0}'));
+    expect(calls).toContainEqual({
+      command: 'stash_apply',
+      args: {
+        repo: repository.id,
+        hash: 'stash-hash',
+        pop: false,
+        smart: true,
+      },
+    });
+    await user.click(screen.getByLabelText('Pop stash@{0}'));
+    expect(calls).toContainEqual({
+      command: 'stash_apply',
+      args: {
+        repo: repository.id,
+        hash: 'stash-hash',
+        pop: true,
+        smart: true,
+      },
+    });
+    const dropped = stashMutations();
+    await user.click(screen.getByLabelText('Drop stash@{0}'));
+    expect(stashMutations()).toBeGreaterThan(dropped);
   });
   it('disables detached-head synchronization and displays failures honestly', async () => {
     setup();
