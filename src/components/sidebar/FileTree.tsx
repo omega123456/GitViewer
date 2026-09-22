@@ -31,7 +31,14 @@ import { GroupHeader } from '../shared/Section';
 import { State } from '../states/State';
 import { FileIcon } from './FileIcon';
 import { StatusBadge } from './StatusBadge';
-import { changeNodes, sourceFor, treeRoot, type Node } from './nodes';
+import {
+  changeNodes,
+  directoryIds,
+  sourceFor,
+  treeRoot,
+  useExpandNewDirectories,
+  type Node,
+} from './nodes';
 const rowAction = 'size-6';
 const discardTint =
   'text-muted hover:text-deleted dark:text-muted-dark dark:hover:text-deleted-dark';
@@ -70,7 +77,7 @@ export function ChangesTree({
   const tree = useTree<Node>({
     rootItemId: treeRoot,
     initialState: {
-      expandedItems: Object.keys(nodes).filter((id) => nodes[id].directory),
+      expandedItems: directoryIds(nodes),
     },
     getItemName: (item) => item.getItemData()?.name ?? '',
     isItemFolder: (item) => item.getItemData()?.directory ?? false,
@@ -96,6 +103,7 @@ export function ChangesTree({
   useEffect(() => {
     tree.rebuildTree();
   }, [tree, status, filter]);
+  useExpandNewDirectories(tree, nodes);
   const parent = useRef<HTMLDivElement>(null);
   const items = tree.getItems();
   const virtual = useVirtualizer({

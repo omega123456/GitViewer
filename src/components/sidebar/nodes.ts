@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react';
+import type { TreeInstance } from '@headless-tree/core';
 import type { Entry, Source, Status, TreeEntry } from '../../lib/types';
 import type { Group } from '../../stores/selection';
 export const treeRoot = '\0';
@@ -103,4 +105,25 @@ function compactChains(map: Record<string, Node>, id: string) {
     }
   }
   for (const child of node.children) compactChains(map, child);
+}
+
+export function directoryIds(nodes: Record<string, Node>) {
+  return Object.keys(nodes).filter((id) => nodes[id].directory);
+}
+
+export function useExpandNewDirectories(
+  tree: TreeInstance<Node>,
+  nodes: Record<string, Node>,
+) {
+  const seen = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const ids = directoryIds(nodes);
+    const previous = seen.current;
+    seen.current = new Set(ids);
+    if (!previous) return;
+    const fresh = ids
+      .filter((id) => id !== treeRoot && !previous.has(id))
+      .sort((left, right) => left.split('/').length - right.split('/').length);
+    for (const id of fresh) tree.getItemInstance(id)?.expand();
+  }, [tree, nodes]);
 }

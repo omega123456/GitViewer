@@ -206,6 +206,30 @@ describe('repository workflows', () => {
       screen.queryByRole('button', { name: /all Changes$/ }),
     ).not.toBeInTheDocument();
   });
+  it('expands a folder that appears after a status refresh', async () => {
+    setup();
+    let current = status;
+    mockCommand('status', () => current);
+    mount();
+    const tree = await screen.findByRole('tree', { name: 'Changes' });
+    await within(tree).findByRole('treeitem', { name: 'app.ts' });
+    current = {
+      ...status,
+      entries: [
+        ...status.entries,
+        {
+          kind: 'untracked',
+          path: 'docs/guide.md',
+          index: '?',
+          worktree: '?',
+        },
+      ],
+    };
+    act(() => emit('repo://status-changed', { repo: repository.id }));
+    expect(
+      await within(tree).findByRole('treeitem', { name: 'guide.md' }),
+    ).toBeVisible();
+  });
   it('creates from another reference, filters groups, switches and confirms deletion', async () => {
     setup();
     mockCommand('branch_create', () => null);

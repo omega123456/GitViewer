@@ -10,7 +10,13 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { FileIcon } from './FileIcon';
 import { useCompact } from '../../stores/density';
 import { dynamic, focus } from '../shared/styles';
-import { changeNodes, treeRoot, type Node } from './nodes';
+import {
+  changeNodes,
+  directoryIds,
+  treeRoot,
+  useExpandNewDirectories,
+  type Node,
+} from './nodes';
 
 export function RevisionTree({
   paths,
@@ -41,7 +47,7 @@ export function RevisionTree({
   const tree = useTree<Node>({
     rootItemId: treeRoot,
     initialState: {
-      expandedItems: Object.keys(nodes).filter((id) => nodes[id].directory),
+      expandedItems: directoryIds(nodes),
     },
     getItemName: (item) => item.getItemData()?.name ?? '',
     isItemFolder: (item) => item.getItemData()?.directory ?? false,
@@ -58,6 +64,7 @@ export function RevisionTree({
   useEffect(() => {
     tree.rebuildTree();
   }, [tree, nodes]);
+  useExpandNewDirectories(tree, nodes);
   const parent = useRef<HTMLDivElement>(null);
   const items = tree.getItems();
   const virtual = useVirtualizer({
