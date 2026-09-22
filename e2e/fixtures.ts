@@ -72,6 +72,33 @@ export const test = base.extend({
           diff.oldDimensions = { width: 320, height: 180 };
           diff.newDimensions = { width: 320, height: 180 };
         }
+        if (scenario === 'markdown') {
+          status.entries = [{ ...status.entries[0], path: 'README.md' }];
+          diff.path = 'README.md';
+          diff.hunks[0].lines = [
+            '# GitViewer',
+            '',
+            'A Tauri 2 desktop git client.',
+            '',
+            '## Install',
+            '',
+            '```bash',
+            'pnpm install',
+            '```',
+            '',
+            '## Commands',
+            '',
+            '- `pnpm dev` runs the app',
+            '- `pnpm typecheck` checks the types',
+          ].map((content, index) => ({
+            kind: 'context',
+            content,
+            old: index + 1,
+            new: index + 1,
+            noNewline: false,
+            marks: [],
+          }));
+        }
         if (scenario === 'long') {
           diff.hunks[0].lines = diff.hunks[0].lines.map((line, index) => ({
             ...line,

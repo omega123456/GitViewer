@@ -4,6 +4,7 @@ import {
   ChevronUp,
   Columns2,
   ExternalLink,
+  Eye,
   EyeOff,
   File,
   FileCog,
@@ -30,6 +31,7 @@ import { BlameView } from './BlameView';
 import { DiffSourcePill } from './DiffSourcePill';
 import { DiffToolbar } from './DiffToolbar';
 import { DiffSurface, type DiffSurfaceHandle } from './DiffSurface';
+import { MarkdownView, isMarkdown } from './Markdown';
 import { runHunkAction } from './hunks';
 import { diffRows } from './rows';
 import { useTokens } from './tokens';
@@ -81,9 +83,11 @@ function SelectedDiff({
   const cut = selection.path.lastIndexOf('/') + 1;
   const directory = selection.path.slice(0, cut);
   const name = selection.path.slice(cut);
+  const markdown = isMarkdown(selection.path);
+  const rendered = markdown && Boolean(selection.rendered);
   const query = useBackend(
     'diff',
-    { repo, ...selection, context, overrideLimit },
+    { repo, ...selection, context: rendered ? 50000 : context, overrideLimit },
     !selection.blame,
   );
   const mode = useDiffView((s) => s.mode) ?? settings.diffMode;
@@ -101,6 +105,29 @@ function SelectedDiff({
   const added = lines.filter((line) => line.kind === 'add').length;
   const removed = lines.filter((line) => line.kind === 'remove').length;
   const tokens = useTokens(data, selection.path);
+  const preview = useMemo(() => {
+    if (!data) return { text: '', deleted: false };
+    if (data.content !== null) return { text: data.content, deleted: false };
+    const all = data.hunks.flatMap((hunk) => hunk.lines);
+    const kept = all.filter((line) => line.kind !== 'remove');
+    const deleted = all.length > 0 && kept.length === 0;
+    return {
+      text: (deleted ? all : kept).map((line) => line.content).join('\n'),
+      deleted,
+    };
+  }, [data]);
+  const toggleRendered = () =>
+    useSelection.getState().select(repo, {
+      ...selection,
+      rendered: !selection.rendered,
+      blame: false,
+    });
+  const toggleBlame = () =>
+    useSelection.getState().select(repo, {
+      ...selection,
+      blame: !selection.blame,
+      rendered: false,
+    });
   const move = (direction: number) => {
     const indices = rows.flatMap((row, index) =>
       row.hunk !== undefined ? [index] : [],
@@ -184,10 +211,15 @@ function SelectedDiff({
       icon: <User className="size-3.5" />,
       label: 'Toggle blame',
       key: 'Mod+Alt+b',
-      run: () =>
-        useSelection
-          .getState()
-          .select(repo, { ...selection, blame: !selection.blame }),
+      run: toggleBlame,
+    },
+    {
+      id: 'rendered',
+      icon: <Eye className="size-3.5" />,
+      label: 'Toggle rendered Markdown',
+      key: 'Mod+Shift+v',
+      run: toggleRendered,
+      disabled: !markdown || data?.tooLarge === true,
     },
     {
       id: 'wrap',
@@ -255,13 +287,21 @@ function SelectedDiff({
             <History className="size-4" />
             <span>History</span>
           </Button>
-          <Button
-            onClick={() =>
-              useSelection
-                .getState()
-                .select(repo, { ...selection, blame: !selection.blame })
-            }
-          >
+          {markdown && (
+            <Button
+              title={
+                rendered ? 'Show the source diff' : 'Show rendered Markdown'
+              }
+              disabled={data?.tooLarge === true}
+              onClick={toggleRendered}
+            >
+              <Eye className="size-4" />
+              <span className="min-w-14">
+                {rendered ? 'Source' : 'Rendered'}
+              </span>
+            </Button>
+          )}
+          <Button onClick={toggleBlame}>
             <User className="size-4" />
             <span className="min-w-9">
               {selection.blame ? 'Diff' : 'Blame'}
@@ -317,6 +357,8 @@ function SelectedDiff({
             ? `Permissions changed from ${data.oldMode ?? 'absent'} to ${data.newMode ?? 'absent'}.`
             : 'Line endings or file metadata changed; there is no textual difference.'}
         </State>
+      ) : rendered ? (
+        <MarkdownView markdown={preview.text} deleted={preview.deleted} />
       ) : (
         <>
           <DiffToolbar

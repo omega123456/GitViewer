@@ -1269,3 +1269,118 @@ describe('all changes pane', () => {
     expect(useSelection.getState().compare[repository.id]).toBeUndefined();
   });
 });
+
+function markdownDiff(lines: { kind: string; content: string }[]) {
+  return {
+    ...diff,
+    path: 'README.md',
+    content: null,
+    hunks: [
+      {
+        header: `@@ -1,${lines.length} +1,${lines.length} @@`,
+        oldStart: 1,
+        oldCount: lines.length,
+        newStart: 1,
+        newCount: lines.length,
+        lines: lines.map((line, index) => ({
+          kind: line.kind,
+          content: line.content,
+          old: line.kind === 'add' ? null : index + 1,
+          new: line.kind === 'remove' ? null : index + 1,
+          noNewline: false,
+          marks: [],
+        })),
+      },
+    ],
+  };
+}
+const blameLines = [
+  {
+    hash: 'a'.repeat(40),
+    author: 'Author',
+    timestamp: 1700000000,
+    line: 1,
+    content: 'first',
+    block: true,
+  },
+];
+describe('rendered Markdown', () => {
+  it('shows the new version as prose, drops the toolbar, and strips scripts', async () => {
+    setup();
+    mockCommand('diff', () =>
+      markdownDiff([
+        { kind: 'context', content: '# Release notes' },
+        { kind: 'remove', content: 'Dropped sentence.' },
+        { kind: 'add', content: 'Kept sentence.' },
+        { kind: 'add', content: '' },
+        { kind: 'add', content: '<script>globalThis.hacked = true;</script>' },
+        { kind: 'add', content: '' },
+        { kind: 'add', content: '```bash' },
+        { kind: 'add', content: 'pnpm install' },
+        { kind: 'add', content: '```' },
+      ]),
+    );
+    useSelection
+      .getState()
+      .select(repository.id, { path: 'README.md', source: 'unstaged' });
+    mount();
+    expect(await screen.findByRole('radio', { name: 'split' })).toBeVisible();
+    await action('rendered');
+    expect(
+      await screen.findByRole('heading', { name: 'Release notes' }),
+    ).toBeVisible();
+    expect(screen.getByText('Kept sentence.')).toBeVisible();
+    expect(screen.queryByText('Dropped sentence.')).toBeNull();
+    expect(screen.queryByRole('radio', { name: 'split' })).toBeNull();
+    const article = screen.getByRole('article');
+    expect(article.querySelector('script')).toBeNull();
+    expect(article.querySelector('code')).toHaveTextContent('pnpm install');
+    await action('rendered');
+    expect(await screen.findByRole('radio', { name: 'split' })).toBeVisible();
+  });
+  it('renders the last version of a deleted file behind a notice', async () => {
+    setup();
+    mockCommand('diff', () =>
+      markdownDiff([{ kind: 'remove', content: '# Removed doc' }]),
+    );
+    useSelection
+      .getState()
+      .select(repository.id, { path: 'README.md', source: 'unstaged' });
+    mount();
+    expect(
+      await screen.findByRole('button', { name: /Rendered/ }),
+    ).toBeVisible();
+    await action('rendered');
+    expect(await screen.findByText(/This file was deleted/)).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Removed doc' })).toBeVisible();
+  });
+  it('offers the control only for Markdown and keeps it exclusive with blame', async () => {
+    setup();
+    mockCommand('blame', () => blameLines);
+    useSelection
+      .getState()
+      .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
+    mount();
+    expect(await screen.findByRole('button', { name: /Blame/ })).toBeVisible();
+    expect(screen.queryByRole('button', { name: /Rendered/ })).toBeNull();
+    mockCommand('diff', () =>
+      markdownDiff([{ kind: 'add', content: '# Doc' }]),
+    );
+    await act(async () => {
+      useSelection.getState().select(repository.id, {
+        path: 'README.md',
+        source: 'unstaged',
+        blame: true,
+      });
+    });
+    await action('rendered');
+    const selected = useSelection.getState().working[repository.id];
+    expect(selected?.rendered).toBe(true);
+    expect(selected?.blame).toBe(false);
+    expect(await screen.findByRole('button', { name: /Source/ })).toBeVisible();
+    await action('blame');
+    expect(useSelection.getState().working[repository.id]?.rendered).toBe(
+      false,
+    );
+  });
+});

@@ -59,6 +59,7 @@ export interface Selection {
   revision?: string;
   base?: string;
   blame?: boolean;
+  rendered?: boolean;
 }
 export interface ChangedFile {
   path: string;

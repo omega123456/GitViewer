@@ -272,6 +272,29 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`rendered markdown ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto('/?scenario=markdown');
+    await page
+      .getByRole('button', { name: 'Open repository', exact: true })
+      .last()
+      .click();
+    await page
+      .getByRole('tree', { name: 'Changes', exact: true })
+      .getByText('README.md')
+      .click();
+    await page.getByRole('button', { name: 'Rendered', exact: true }).click();
+    await expect(
+      page.getByRole('heading', { name: 'GitViewer', exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText('pnpm install')).toBeVisible();
+    await expect(
+      page.getByRole('region', { name: 'Diff viewer', exact: true }),
+    ).toHaveScreenshot(`markdown-rendered-${theme}.png`);
+  });
+}
+
+for (const theme of ['light', 'dark'] as const) {
   test(`branch comparison ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme });
     await page.goto('/?scenario=compare');
