@@ -19,6 +19,8 @@ export function SettingsSurface({ settings }: { settings: SettingsResponse }) {
       title="Settings"
       open={open}
       onOpenChange={(next) => {
+        if (!next && document.activeElement instanceof HTMLElement)
+          document.activeElement.blur();
         usePalette.getState().setSettings(next);
         if (!next) useSettingsNav.getState().select('general');
       }}
@@ -26,9 +28,11 @@ export function SettingsSurface({ settings }: { settings: SettingsResponse }) {
       <div className="flex h-full">
         <SettingsNav />
         <div className="min-w-0 flex-1 overflow-y-auto px-5 pt-9 pb-5">
-          {pane === 'general' && <GeneralSection settings={settings} />}
-          {pane === 'ai' && <AiSection settings={settings} />}
-          {pane === 'updates' && <UpdatesSection settings={settings} />}
+          <div className="mx-auto w-full max-w-settings-content">
+            {pane === 'general' && <GeneralSection settings={settings} />}
+            {pane === 'ai' && <AiSection settings={settings} />}
+            {pane === 'updates' && <UpdatesSection settings={settings} />}
+          </div>
         </div>
       </div>
       <Dialog.Close asChild>

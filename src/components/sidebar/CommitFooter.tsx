@@ -27,9 +27,7 @@ import { Button } from '../shared/Button';
 import { dynamic, field, focus } from '../shared/styles';
 import { ResizeHandle } from '../shell/ResizeHandle';
 export function aiConfigured(settings: SettingsResponse) {
-  return Boolean(
-    settings.ai.enabled && settings.ai.baseUrl && settings.ai.model,
-  );
+  return Boolean(settings.ai.baseUrl && settings.ai.model);
 }
 export function sourceNotice(result: GeneratedMessage) {
   const parts = [

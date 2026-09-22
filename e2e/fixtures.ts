@@ -24,7 +24,6 @@ export const test = base.extend({
           settings.keyStored = true;
           settings.ai = {
             ...settings.ai,
-            enabled: true,
             baseUrl: 'https://api.openai.com/v1',
             model: 'gpt-4o-mini',
           };

@@ -75,7 +75,6 @@ export interface UpdateSnapshot {
   canQuitWithoutUpdating: boolean;
 }
 export interface AiSettings {
-  enabled: boolean;
   baseUrl: string;
   model: string;
   prompt: string;

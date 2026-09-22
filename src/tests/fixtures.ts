@@ -7,7 +7,6 @@ import type {
   Repository,
 } from '../lib/types';
 export const ai: AiSettings = {
-  enabled: false,
   baseUrl: '',
   model: '',
   prompt:

@@ -14,7 +14,6 @@ const defaults: SettingsResponse = {
   searchIgnoredFiles: false,
   smartCommit: 'ask',
   ai: {
-    enabled: false,
     baseUrl: '',
     model: '',
     prompt:

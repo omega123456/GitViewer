@@ -20,7 +20,7 @@ const endpoint = 'https://api.example.com/v1';
 const configured: SettingsResponse = {
   ...settings,
   keyStored: true,
-  ai: { ...ai, enabled: true, baseUrl: endpoint, model: 'gpt-4o-mini' },
+  ai: { ...ai, baseUrl: endpoint, model: 'gpt-4o-mini' },
 };
 function setup(preferences: SettingsResponse) {
   let current = preferences;
@@ -67,12 +67,13 @@ async function run(id: string) {
 
 describe('ai settings pane', () => {
   it('stores a key, reveals the draft on request, and reports a write failure', async () => {
-    setup({ ...settings, ai: { ...ai, enabled: true } });
+    setup({ ...settings, ai: { ...ai } });
     const user = userEvent.setup();
     mount();
     await openAiPane(user);
+    expect(screen.getByText('Not configured')).toBeVisible();
     expect(
-      screen.getByText('Save an endpoint to load the list.'),
+      screen.getByText('Enter an endpoint to load the list.'),
     ).toBeVisible();
     expect(screen.getByLabelText('Model')).toBeDisabled();
     const key = screen.getByLabelText('API key');
@@ -120,35 +121,55 @@ describe('ai settings pane', () => {
     const user = userEvent.setup();
     mount();
     await openAiPane(user);
+    expect(screen.getByText('Configured, not tested')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Test connection' }));
+    expect(await screen.findByText('Connected')).toBeVisible();
     expect(
-      await screen.findByText('Connected — 2 models available'),
+      screen.getByText(
+        '2 models available. The Generate button shows in the commit box.',
+      ),
     ).toHaveAttribute('role', 'status');
     await user.click(screen.getByLabelText('Model'));
     await user.click(await screen.findByRole('option', { name: 'gpt-4o' }));
-    await user.clear(screen.getByLabelText('Prompt'));
-    await user.type(screen.getByLabelText('Prompt'), 'Summarize.');
-    await user.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() =>
       expect(calls).toContainEqual({
         command: 'settings_set',
-        args: {
-          ...configured,
-          ai: {
-            ...configured.ai,
-            model: 'gpt-4o',
-            prompt: 'Summarize.',
-          },
-        },
+        args: { ...configured, ai: { ...configured.ai, model: 'gpt-4o' } },
       }),
     );
-    await user.click(screen.getByLabelText('Generate commit messages'));
+    await user.clear(screen.getByLabelText('Prompt'));
+    await user.type(screen.getByLabelText('Prompt'), 'Summarize.');
+    expect(
+      calls.some(
+        (call) =>
+          call.command === 'settings_set' &&
+          (call.args as SettingsResponse).ai.prompt === 'Summarize.',
+      ),
+    ).toBe(false);
+    await user.tab();
     await waitFor(() =>
       expect(
         calls.some(
           (call) =>
             call.command === 'settings_set' &&
-            (call.args as SettingsResponse).ai.enabled === false,
+            (call.args as SettingsResponse).ai.prompt === 'Summarize.',
+        ),
+      ).toBe(true),
+    );
+  });
+  it('keeps an endpoint typed right before the dialog closes', async () => {
+    setup({ ...settings, ai: { ...ai } });
+    const user = userEvent.setup();
+    mount();
+    await openAiPane(user);
+    await user.type(screen.getByLabelText('Endpoint'), endpoint);
+    await user.keyboard('{Escape}');
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (call) =>
+            call.command === 'settings_set' &&
+            (call.args as SettingsResponse).ai.baseUrl === endpoint,
         ),
       ).toBe(true),
     );
@@ -172,9 +193,8 @@ describe('ai settings pane', () => {
       throw { category: 'network', message: 'The endpoint is unreachable.' };
     });
     await user.click(screen.getByRole('button', { name: 'Test connection' }));
-    expect(
-      await screen.findByText('The endpoint is unreachable.'),
-    ).toBeVisible();
+    expect(await screen.findByText('Connection failed')).toBeVisible();
+    expect(screen.getByText('The endpoint is unreachable.')).toBeVisible();
   });
 });
 

@@ -204,19 +204,15 @@ fn settings_carry_ai_defaults_validation_and_a_legacy_file() {
     let path = dir.path().join("settings.json");
     std::fs::write(
         &path,
-        r#"{"theme":"dark","density":"compact","diffMode":"unified","updateCheckInterval":"7d","installUpdateOnQuit":false}"#,
+        r#"{"theme":"dark","density":"compact","diffMode":"unified","updateCheckInterval":"7d","installUpdateOnQuit":false,"ai":{"enabled":true}}"#,
     )
     .unwrap();
     let legacy = settings::read(&path);
     assert_eq!(legacy.theme, "dark");
     assert_eq!(legacy.smart_commit, "ask");
     assert_eq!(legacy.ai, settings::Ai::default());
-    assert!(!legacy.ai.enabled);
     assert_eq!(legacy.ai.prompt, settings::DEFAULT_PROMPT);
-    let mut enabled = legacy.clone();
-    enabled.ai.enabled = true;
-    assert_eq!(settings::write(&path, enabled.clone()).unwrap(), enabled);
-    let mut configured = enabled.clone();
+    let mut configured = legacy.clone();
     configured.ai.base_url = "https://api.example.invalid/v1".into();
     configured.ai.model = "tiny".into();
     assert_eq!(
@@ -244,7 +240,7 @@ fn settings_response_reports_key_presence_without_the_key() {
     .unwrap();
     assert_eq!(response["keyStored"], true);
     assert_eq!(response["theme"], "system");
-    assert_eq!(response["ai"]["enabled"], false);
+    assert!(response["ai"]["enabled"].is_null());
     assert!(!response.to_string().contains("secret-key-value"));
     ai::set_key("").unwrap();
     assert!(!ai::key_stored());

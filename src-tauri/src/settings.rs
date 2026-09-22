@@ -7,7 +7,6 @@ pub const DEFAULT_PROMPT: &str = "Write a commit message for this diff. One shor
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Ai {
-    pub enabled: bool,
     pub base_url: String,
     pub model: String,
     pub prompt: String,
@@ -15,7 +14,6 @@ pub struct Ai {
 impl Default for Ai {
     fn default() -> Self {
         Self {
-            enabled: false,
             base_url: String::new(),
             model: String::new(),
             prompt: DEFAULT_PROMPT.into(),
