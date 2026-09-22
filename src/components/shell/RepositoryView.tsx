@@ -393,7 +393,7 @@ export function RepositoryView({
         <div className="min-w-0 flex-1">
           {all &&
           (all === 'commit'
-            ? layout.mode === 'history' && select?.revision
+            ? layout.mode !== 'compare' && select?.revision
             : all === 'compare'
               ? layout.mode === 'compare'
               : layout.mode === 'working') ? (

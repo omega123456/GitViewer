@@ -282,6 +282,7 @@ async fn lifecycle_saves_before_install_and_failed_saves_never_install() {
         vec![gitviewer_lib::session::Tab {
             path: "/repo".into(),
             message: "final draft".into(),
+            layout: None,
         }],
         "/repo".into(),
     );

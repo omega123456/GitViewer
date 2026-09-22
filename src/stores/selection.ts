@@ -14,6 +14,12 @@ interface Selections {
   setPath: (id: string, path: string) => void;
   forget: (id: string) => void;
 }
+function commitStack(state: Selections, id: string): Partial<Selections> {
+  const mode = tabLayout(id).mode;
+  return {
+    [mode]: { ...state[mode], [id]: { ...state[mode][id]!, path: '' } },
+  };
+}
 export const useSelection = create<Selections>((set) => ({
   working: {},
   history: {},
@@ -38,7 +44,7 @@ export const useSelection = create<Selections>((set) => ({
   viewAll: (id, stack) =>
     set((s) => ({
       ...(stack === 'commit'
-        ? { history: { ...s.history, [id]: { ...s.history[id]!, path: '' } } }
+        ? commitStack(s, id)
         : stack === 'compare'
           ? { compare: { ...s.compare, [id]: undefined } }
           : { working: { ...s.working, [id]: undefined } }),

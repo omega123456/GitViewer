@@ -2,6 +2,7 @@ import { listen } from '@tauri-apps/api/event';
 import { useEffect, useState, type ReactNode } from 'react';
 import { invoke, normalizeError } from '../lib/ipc';
 import { useTabs } from '../stores/tabs';
+import { tabLayout, useLayout } from '../stores/layout';
 import type { Session } from '../lib/types';
 
 export function SessionProvider({ children }: { children: ReactNode }) {
@@ -9,8 +10,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     let unsubscribe = () => {};
+    let unsubscribeLayout = () => {};
     let unlisten = () => {};
     let stopCancelled = () => {};
+    let settle: ReturnType<typeof setTimeout>;
     const restore = async () => {
       try {
         const session = await invoke('session_get', {});
@@ -23,6 +26,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             if (tab.path === session.active) active = repo.id;
             useTabs.getState().open(repo.id, repo.name);
             useTabs.getState().setMessage(repo.id, tab.message);
+            if (tab.layout) useLayout.getState().update(repo.id, tab.layout);
           } catch (error) {
             useTabs.getState().setError(normalizeError(error));
           }
@@ -43,6 +47,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           tabs: state.tabs.map((tab) => ({
             path: tab.id,
             message: tab.message,
+            layout: tabLayout(tab.id),
           })),
           active: state.active,
         };
@@ -74,10 +79,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         stopCancelled();
         return;
       }
-      unsubscribe = useTabs.subscribe((state, previous) => {
+      const save = () => {
         if (closing) return;
-        if (state.tabs === previous.tabs && state.active === previous.active)
-          return;
         const session = snapshot();
         queue = queue.then(async () => {
           try {
@@ -86,13 +89,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             if (!cancelled) useTabs.getState().setError(normalizeError(error));
           }
         });
+      };
+      unsubscribe = useTabs.subscribe((state, previous) => {
+        if (state.tabs === previous.tabs && state.active === previous.active)
+          return;
+        save();
+      });
+      unsubscribeLayout = useLayout.subscribe(() => {
+        clearTimeout(settle);
+        settle = setTimeout(save, 200);
       });
       setReady(true);
     };
     void restore();
     return () => {
       cancelled = true;
+      clearTimeout(settle);
       unsubscribe();
+      unsubscribeLayout();
       unlisten();
       stopCancelled();
     };

@@ -20,6 +20,8 @@ pub struct Session {
 pub struct Tab {
     pub path: String,
     pub message: String,
+    #[serde(default)]
+    pub layout: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

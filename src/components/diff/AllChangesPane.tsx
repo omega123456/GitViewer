@@ -59,6 +59,7 @@ export function AllChangesPane({
   disabled: boolean;
 }) {
   const filter = useFilter(repo);
+  const stashed = commit?.source === 'stash';
   const files = useBackend(
     'commit_files',
     { repo, revision: commit?.revision ?? '', source: commit?.source },
@@ -116,10 +117,12 @@ export function AllChangesPane({
   return (
     <section
       className="flex h-full min-w-0 flex-col"
-      aria-label={labels[stack]}
+      aria-label={stashed ? 'All changes in stash' : labels[stack]}
     >
       <header className="flex h-tab shrink-0 items-center gap-2 border-b border-line px-3 text-sm dark:border-line-dark">
-        <span className="font-semibold">{titles[stack]}</span>
+        <span className="font-semibold">
+          {stashed ? 'Stash' : titles[stack]}
+        </span>
         {commit?.revision && (
           <span className="font-mono text-label text-muted">
             {commit.revision.slice(0, 7)}

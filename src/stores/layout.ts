@@ -7,6 +7,7 @@ export interface TabLayout {
   filesHeight: number;
   filesOpen: boolean;
   stashHeight: number;
+  stashFilesHeight: number;
   stashOpen: boolean;
   messageHeight: number;
   compareBase: string;
@@ -20,6 +21,7 @@ export const layoutDefaults: TabLayout = {
   filesHeight: 40,
   filesOpen: false,
   stashHeight: 30,
+  stashFilesHeight: 50,
   stashOpen: false,
   messageHeight: 80,
   compareBase: '',

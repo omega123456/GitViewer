@@ -1,3 +1,4 @@
+import type { TabLayout } from '../stores/layout';
 export interface GitError {
   category: string;
   message: string;
@@ -188,7 +189,7 @@ type RepoArgs = { repo: string };
 type FileArgs = RepoArgs & { path: string };
 type Command<A, R> = { args: A; result: R };
 export interface Session {
-  tabs: { path: string; message: string }[];
+  tabs: { path: string; message: string; layout?: TabLayout | null }[];
   active: string;
 }
 export interface Commands {

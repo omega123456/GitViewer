@@ -128,6 +128,7 @@
   --spacing-image: var(--image-width, auto);
   --spacing-files: var(--files-height, 40%);
   --spacing-stash: var(--stash-height, 30%);
+  --spacing-stash-files: var(--stash-files-height, 50%);
   --spacing-message: var(--message-height, 80px);
   --translate-row: var(--row-offset);
   --opacity-blend: var(--blend-opacity);

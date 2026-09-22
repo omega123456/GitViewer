@@ -6,6 +6,7 @@ import {
   Archive,
   ArrowDownFromLine,
   ArrowDownToLine,
+  Layers,
   Trash2,
 } from 'lucide-react';
 import { useActions } from '../../lib/actions';
@@ -27,7 +28,7 @@ export function StashSection({
   disabled: boolean;
 }) {
   const query = useBackend('stashes', { repo });
-  const { stashOpen, stashHeight } = useTabLayout(repo);
+  const { stashOpen, stashHeight, stashFilesHeight } = useTabLayout(repo);
   const selection = useWorkingSelection(repo);
   const [selected, setSelected] = useState('');
   const files = useBackend(
@@ -197,27 +198,60 @@ export function StashSection({
             />
           </div>
           {selected && (
-            <div className="flex min-h-0 flex-1 flex-col border-t border-line dark:border-line-dark">
-              <GroupHeader
-                title="Stash files"
-                count={files.data?.length ?? 0}
+            <>
+              <ResizeHandle
+                label="Resize stash files"
+                orientation="vertical"
+                min={20}
+                max={80}
+                step={2}
+                value={stashFilesHeight}
+                className="h-1.5 shrink-0 cursor-row-resize border-y border-line hover:bg-accent focus-visible:bg-accent dark:border-line-dark"
+                measure={percentBelow}
+                onChange={(next) =>
+                  useLayout.getState().update(repo, { stashFilesHeight: next })
+                }
               />
-              {files.error && <p role="alert">{files.error.message}</p>}
-              {files.data && (
-                <RevisionTree
-                  key={selected}
-                  label="Stash files"
-                  paths={files.data}
-                  selectedPath={
-                    selection?.source === 'stash' &&
-                    selection.revision === selected
-                      ? selection.path
-                      : undefined
+              <div
+                className="flex h-stash-files min-h-0 shrink-0 flex-col"
+                style={dynamic({
+                  '--stash-files-height': `${stashFilesHeight}%`,
+                })}
+              >
+                <GroupHeader
+                  title="Stash files"
+                  count={files.data?.length ?? 0}
+                  actions={
+                    <Button
+                      variant="icon"
+                      className="size-6"
+                      aria-label="All changes in stash"
+                      title="All changes in stash"
+                      onClick={() =>
+                        useSelection.getState().viewAll(repo, 'commit')
+                      }
+                    >
+                      <Layers className="size-4 text-muted dark:text-muted-dark" />
+                    </Button>
                   }
-                  onSelect={(path) => show(path, selected)}
                 />
-              )}
-            </div>
+                {files.error && <p role="alert">{files.error.message}</p>}
+                {files.data && (
+                  <RevisionTree
+                    key={selected}
+                    label="Stash files"
+                    paths={files.data}
+                    selectedPath={
+                      selection?.source === 'stash' &&
+                      selection.revision === selected
+                        ? selection.path
+                        : undefined
+                    }
+                    onSelect={(path) => show(path, selected)}
+                  />
+                )}
+              </div>
+            </>
           )}
         </Section>
       </div>

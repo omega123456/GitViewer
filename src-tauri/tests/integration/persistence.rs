@@ -13,6 +13,7 @@ fn session_round_trip_preserves_geometry_tabs_and_drafts() {
         vec![Tab {
             path: "/repo".into(),
             message: "draft".into(),
+            layout: Some(serde_json::json!({ "width": 420, "stashFilesHeight": 65 })),
         }],
         "/repo".into(),
     );
@@ -198,6 +199,7 @@ async fn close_timeout_preserves_saved_state_and_failed_saves_cancel_exit() {
         vec![Tab {
             path: "/repo".into(),
             message: "last known".into(),
+            layout: None,
         }],
         "/repo".into(),
     );

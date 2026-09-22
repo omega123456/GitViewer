@@ -2,6 +2,7 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { SessionProvider } from '../providers/SessionProvider';
 import { useTabs } from '../stores/tabs';
+import { layoutDefaults, tabLayout, useLayout } from '../stores/layout';
 import { calls, emit, mockCommand } from './harness';
 import { repository } from './fixtures';
 import { TextInput } from '../components/shared/TextInput';
@@ -11,7 +12,11 @@ describe('session persistence', () => {
   it('restores repositories, drafts and the active tab, then saves changes in order', async () => {
     mockCommand('session_get', () => ({
       tabs: [
-        { path: '/a', message: 'draft' },
+        {
+          path: '/a',
+          message: 'draft',
+          layout: { ...layoutDefaults, width: 420 },
+        },
         { path: '/b', message: '' },
       ],
       active: '/a',
@@ -35,6 +40,8 @@ describe('session persistence', () => {
       { id: '/b', message: '' },
     ]);
     expect(useTabs.getState().active).toBe('/a');
+    expect(tabLayout('/a').width).toBe(420);
+    expect(tabLayout('/b')).toEqual(layoutDefaults);
     expect(calls.some(({ command }) => command === 'session_set')).toBe(false);
     act(() => {
       useTabs.getState().setMessage('/a', 'updated');
@@ -47,7 +54,52 @@ describe('session persistence', () => {
     );
     expect(
       calls.filter(({ command }) => command === 'session_set').at(-1)?.args,
-    ).toEqual({ tabs: [{ path: '/a', message: 'updated' }], active: '/a' });
+    ).toEqual({
+      tabs: [
+        {
+          path: '/a',
+          message: 'updated',
+          layout: { ...layoutDefaults, width: 420 },
+        },
+      ],
+      active: '/a',
+    });
+  });
+
+  it('saves the sidebar size once a resize settles', async () => {
+    render(
+      <SessionProvider>
+        <div>Ready</div>
+      </SessionProvider>,
+    );
+    await screen.findByText('Ready');
+    act(() => useTabs.getState().open('/a', 'a'));
+    await waitFor(() =>
+      expect(
+        calls.filter(({ command }) => command === 'session_set'),
+      ).toHaveLength(1),
+    );
+    act(() => {
+      useLayout.getState().update('/a', { width: 500 });
+      useLayout.getState().update('/a', { width: 512 });
+    });
+    await waitFor(() =>
+      expect(
+        calls.filter(({ command }) => command === 'session_set').at(-1)?.args,
+      ).toEqual({
+        tabs: [
+          {
+            path: '/a',
+            message: '',
+            layout: { ...layoutDefaults, width: 512 },
+          },
+        ],
+        active: '/a',
+      }),
+    );
+    expect(
+      calls.filter(({ command }) => command === 'session_set'),
+    ).toHaveLength(2);
   });
 
   it('continues restoring when a repository is unavailable', async () => {
@@ -161,7 +213,9 @@ it('flushes the final draft after pending updates before acknowledging close', a
       {
         command: 'session_close',
         args: {
-          tabs: [{ path: '/a', message: 'last keystroke' }],
+          tabs: [
+            { path: '/a', message: 'last keystroke', layout: layoutDefaults },
+          ],
           active: '/a',
         },
       },
@@ -241,7 +295,7 @@ it('resumes snapshots after native shutdown cancellation', async () => {
     expect(calls).toContainEqual({
       command: 'session_set',
       args: {
-        tabs: [{ path: '/after-cancel', message: '' }],
+        tabs: [{ path: '/after-cancel', message: '', layout: layoutDefaults }],
         active: '/after-cancel',
       },
     }),

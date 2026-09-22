@@ -519,6 +519,9 @@ describe('repository workflows', () => {
     );
     const fileTree = await screen.findByRole('tree', { name: 'Stash files' });
     await within(fileTree).findByRole('treeitem', { name: 'app.ts' });
+    const filesHandle = screen.getByLabelText('Resize stash files');
+    fireEvent.keyDown(filesHandle, { key: 'ArrowDown' });
+    expect(useLayout.getState().tabs[repository.id].stashFilesHeight).toBe(52);
     const folder = within(fileTree).getByRole('treeitem', { name: 'src' });
     await user.click(folder);
     expect(
@@ -531,6 +534,9 @@ describe('repository workflows', () => {
     expect(useSelection.getState().working[repository.id]?.source).toBe(
       'stash',
     );
+    await user.click(screen.getByLabelText('All changes in stash'));
+    expect(useSelection.getState().all[repository.id]).toBe('commit');
+    await screen.findByRole('region', { name: 'All changes in stash' });
     await action('apply-stash');
     expect(calls).toContainEqual({
       command: 'stash_apply',
