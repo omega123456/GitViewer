@@ -64,17 +64,30 @@ vi.stubGlobal(
     disconnect() {}
   },
 );
+type Report = (entries: { isIntersecting: boolean }[]) => void;
+const reports = new Map<Element, Report>();
+export const intersecting = { initially: true };
+export function intersect(target: Element, visible: boolean) {
+  reports.get(target)?.([{ isIntersecting: visible }]);
+}
 vi.stubGlobal(
   'IntersectionObserver',
   class {
-    constructor(
-      private callback: (entries: { isIntersecting: boolean }[]) => void,
-    ) {}
-    observe() {
-      this.callback([{ isIntersecting: true }]);
+    private targets = new Set<Element>();
+    constructor(private callback: Report) {}
+    observe(target: Element) {
+      this.targets.add(target);
+      reports.set(target, this.callback);
+      this.callback([{ isIntersecting: intersecting.initially }]);
     }
-    unobserve() {}
-    disconnect() {}
+    unobserve(target: Element) {
+      this.targets.delete(target);
+      reports.delete(target);
+    }
+    disconnect() {
+      this.targets.forEach((target) => reports.delete(target));
+      this.targets.clear();
+    }
   },
 );
 vi.stubGlobal('matchMedia', () => ({
@@ -84,6 +97,8 @@ vi.stubGlobal('matchMedia', () => ({
 }));
 beforeEach(() => {
   resetHarness();
+  reports.clear();
+  intersecting.initially = true;
   useUpdate.setState({ dismissedVersion: null });
   client.clear();
   useTabs.setState({ tabs: [], active: '', error: null, busy: 0 });

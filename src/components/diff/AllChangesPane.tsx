@@ -21,6 +21,7 @@ import { runHunkAction } from './hunks';
 import { diffRows } from './rows';
 import { useTokens } from './tokens';
 const context = 3;
+const settle = 150;
 function note(data: Diff | undefined, error: Error | null) {
   if (error) return error.message;
   if (!data) return 'Loading…';
@@ -206,15 +207,24 @@ function FileDiff({
   const box = useRef<HTMLDivElement>(null);
   const [near, setNear] = useState(false);
   useEffect(() => {
-    if (near) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let immediate = true;
     const observer = new IntersectionObserver(
-      (entries) =>
-        entries.some((entry) => entry.isIntersecting) && setNear(true),
+      (entries) => {
+        const visible = entries[entries.length - 1].isIntersecting;
+        clearTimeout(timer);
+        if (immediate) setNear(visible);
+        else timer = setTimeout(() => setNear(visible), settle);
+        immediate = false;
+      },
       { root: scroller.current, rootMargin: '400px' },
     );
     observer.observe(box.current!);
-    return () => observer.disconnect();
-  }, [near, scroller]);
+    return () => {
+      clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [scroller]);
   const query = useBackend('diff', { repo, ...selection, context }, near);
   const data = query.data;
   const tokens = useTokens(data, selection.path);

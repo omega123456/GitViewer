@@ -57,6 +57,7 @@ export function DiffSurface({
   const virtual = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scroller?.current ?? primary.current,
+    initialOffset: () => scroller?.current?.scrollTop ?? 0,
     scrollMargin: scroller
       ? offsetWithin(primary.current, scroller.current)
       : 0,

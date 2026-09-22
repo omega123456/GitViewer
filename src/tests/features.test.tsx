@@ -7,7 +7,7 @@ import {
   within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import App from '../App';
 import { Providers } from '../providers';
 import { QueryProvider } from '../providers/QueryProvider';
@@ -24,6 +24,7 @@ import { DiffPane } from '../components/diff/DiffPane';
 import { AllChangesPane } from '../components/diff/AllChangesPane';
 import { ImageDiff } from '../components/image/ImageDiff';
 import { mockCommand, dialog, calls, emit } from './harness';
+import { intersect, intersecting } from './setup';
 import { settings, status, repository, diff } from './fixtures';
 
 const commit = {
@@ -77,6 +78,7 @@ function mount() {
     </Providers>,
   );
 }
+const settled = () => new Promise((resolve) => setTimeout(resolve, 250));
 async function action(id: string) {
   await act(async () => {
     const entry = registeredActions(repository.id).find(
@@ -889,6 +891,80 @@ describe('all changes pane', () => {
     await act(async () => release(['src/app.ts']));
     await within(pane).findByRole('button', { name: /app\.ts/ });
     expect(within(pane).queryByText('Loading changes')).not.toBeInTheDocument();
+  });
+  it('keeps the scroll position when a deferred file diff arrives', async () => {
+    setup();
+    mockCommand('commit_files', () => ['src/app.ts']);
+    let release: (value: typeof diff) => void = () => {};
+    mockCommand(
+      'diff',
+      () => new Promise<typeof diff>((resolve) => (release = resolve)),
+    );
+    render(
+      <QueryProvider>
+        <AllChangesPane
+          repo={repository.id}
+          stack="commit"
+          commit={{ path: '', source: 'commit', revision: commit.hash }}
+          status={status}
+          settings={settings}
+          disabled={false}
+        />
+      </QueryProvider>,
+    );
+    const pane = await screen.findByRole('region', {
+      name: 'All changes in commit',
+    });
+    await waitFor(() =>
+      expect(calls.some((call) => call.command === 'diff')).toBe(true),
+    );
+    const scroller = pane.lastElementChild as HTMLDivElement;
+    scroller.scrollTop = 480;
+    const scrollTo = vi.mocked(scroller.scrollTo);
+    scrollTo.mockClear();
+    await act(async () => release(diff));
+    await waitFor(() => expect(scrollTo).toHaveBeenCalled());
+    expect(scrollTo).toHaveBeenCalledWith(
+      expect.objectContaining({ top: 480 }),
+    );
+    expect(scrollTo).not.toHaveBeenCalledWith(
+      expect.objectContaining({ top: 0 }),
+    );
+  });
+  it('only reads a file the viewport settles on, and stops reading it once it leaves', async () => {
+    setup();
+    intersecting.initially = false;
+    render(
+      <QueryProvider>
+        <AllChangesPane
+          repo={repository.id}
+          stack="commit"
+          commit={{ path: '', source: 'commit', revision: commit.hash }}
+          status={status}
+          settings={settings}
+          disabled={false}
+        />
+      </QueryProvider>,
+    );
+    const pane = await screen.findByRole('region', {
+      name: 'All changes in commit',
+    });
+    const block = (await within(pane).findByRole('button', { name: /app\.ts/ }))
+      .parentElement!;
+    const reads = () => calls.filter((call) => call.command === 'diff').length;
+    expect(reads()).toBe(0);
+    act(() => intersect(block, true));
+    act(() => intersect(block, false));
+    await act(settled);
+    expect(reads()).toBe(0);
+    act(() => intersect(block, true));
+    expect(reads()).toBe(0);
+    await waitFor(() => expect(reads()).toBe(1));
+    act(() => intersect(block, false));
+    await act(settled);
+    act(() => emit('repo://status-changed', { repo: repository.id }));
+    await act(settled);
+    expect(reads()).toBe(1);
   });
   it('stacks every file of a group, collapses files, and returns on selection', async () => {
     setup();
