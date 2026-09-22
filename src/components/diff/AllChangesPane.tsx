@@ -7,7 +7,7 @@ import {
   SameRefState,
   useComparison,
 } from '../sidebar/CompareSection';
-import { groupEntries } from '../sidebar/nodes';
+import { groupEntries, treeOrder } from '../sidebar/nodes';
 import { useDiffView } from '../../stores/diff-view';
 import { useFilter } from '../../stores/filter';
 import type { Stack } from '../../stores/selection';
@@ -95,6 +95,10 @@ export function AllChangesPane({
             },
             badge: stack === 'staged' ? entry.index : entry.worktree,
           }));
+  const byPath = new Map(entries.map((entry) => [entry.selection.path, entry]));
+  const ordered = treeOrder([...byPath.keys()]).map(
+    (path) => byPath.get(path)!,
+  );
   const listing =
     stack === 'commit'
       ? files.isPending
@@ -174,7 +178,7 @@ export function AllChangesPane({
               This group is empty.
             </State>
           ) : (
-            entries.map((entry) => (
+            ordered.map((entry) => (
               <FileDiff
                 key={entry.selection.path}
                 repo={repo}

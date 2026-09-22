@@ -108,6 +108,28 @@ function compactChains(map: Record<string, Node>, id: string) {
   for (const child of node.children) compactChains(map, child);
 }
 
+export function treeOrder(paths: string[]) {
+  const map = changeNodes(
+    paths.map((path) => ({
+      kind: 'ordinary' as const,
+      path,
+      index: 'M',
+      worktree: '.',
+    })),
+    'staged',
+    '',
+  );
+  const ordered: string[] = [];
+  const walk = (id: string) => {
+    const node = map[id];
+    if (!node) return;
+    if (id !== treeRoot && !node.directory) ordered.push(node.path);
+    for (const child of node.children) walk(child);
+  };
+  walk(treeRoot);
+  return ordered;
+}
+
 export function directoryIds(nodes: Record<string, Node>) {
   return Object.keys(nodes).filter((id) => nodes[id].directory);
 }

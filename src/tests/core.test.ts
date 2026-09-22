@@ -19,6 +19,7 @@ import {
   changeNodes,
   sourceFor,
   statusClass,
+  treeOrder,
   treeRoot,
 } from '../components/sidebar/nodes';
 import { imageUrl } from '../components/image/url';
@@ -144,6 +145,13 @@ describe('presentation state', () => {
     );
     for (const code of ['A', 'D', 'C', 'M', 'R', '?'])
       expect(statusClass(code)).toBeTruthy();
+  });
+  it('orders flat paths the way the tree walks them', () => {
+    expect(treeOrder(['src/a.ts', 'docs/b.md', 'src/c.ts'])).toEqual([
+      'src/a.ts',
+      'src/c.ts',
+      'docs/b.md',
+    ]);
   });
   it('classifies every file category by name alone', () => {
     const cases: [string, FileCategory][] = [
