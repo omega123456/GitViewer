@@ -90,22 +90,32 @@ impl Repo {
     }
     pub async fn refresh(&mut self) -> Result<Status> {
         let previous = (self.status.oid.clone(), self.status.branch.clone());
-        self.status = status::parse(
-            &git::run(
-                &self.root,
-                &[
-                    "status",
-                    "--porcelain=v2",
-                    "-z",
-                    "-b",
-                    "--untracked-files=all",
-                ],
-                None,
-            )
-            .await?
-            .accept(&[0])?
-            .bytes,
-        )?;
+        self.stale.store(false, Ordering::SeqCst);
+        let history_stale = self.history_stale.swap(false, Ordering::SeqCst);
+        let read = git::run(
+            &self.root,
+            &[
+                "status",
+                "--porcelain=v2",
+                "-z",
+                "-b",
+                "--untracked-files=all",
+            ],
+            None,
+        )
+        .await
+        .and_then(|output| output.accept(&[0]))
+        .and_then(|output| status::parse(&output.bytes));
+        self.status = match read {
+            Ok(status) => status,
+            Err(error) => {
+                self.stale.store(true, Ordering::SeqCst);
+                if history_stale {
+                    self.history_stale.store(true, Ordering::SeqCst);
+                }
+                return Err(error);
+            }
+        };
         if self.status.conflicted {
             let named = git::run(
                 &self.root,
@@ -123,12 +133,9 @@ impl Repo {
                 );
             }
         }
-        if self.history_stale.swap(false, Ordering::SeqCst)
-            || previous != (self.status.oid.clone(), self.status.branch.clone())
-        {
+        if history_stale || previous != (self.status.oid.clone(), self.status.branch.clone()) {
             self.histories.clear();
         }
-        self.stale.store(false, Ordering::SeqCst);
         Ok(self.status.clone())
     }
     pub async fn snapshot(&mut self) -> Result<Status> {

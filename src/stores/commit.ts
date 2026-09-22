@@ -53,6 +53,8 @@ export const useCommit = create<CommitStore>(() => ({
       if (pushed === undefined) {
         const reason = useTabs.getState().error?.message ?? 'unknown error';
         update(repo, { notice: `Committed. Push failed: ${reason}` });
+      } else {
+        useTabs.getState().setCommitMode(repo, 'commit');
       }
     }
     update(repo, { phase: 'idle' });

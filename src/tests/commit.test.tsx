@@ -216,6 +216,10 @@ describe('commit and push', () => {
     );
     expect(screen.getByLabelText('Commit message')).toHaveValue('');
     expect(screen.queryByText(/Push failed/)).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: 'Commit 1 file to main' }),
+    ).toBeVisible();
+    expect(useTabs.getState().tabs[0]?.commitMode).toBe('commit');
   });
   it('reports a failed push without hiding the commit', async () => {
     setup(staged);
