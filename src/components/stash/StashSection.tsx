@@ -54,7 +54,7 @@ export function StashSection({
       result === undefined &&
       useTabs.getState().error?.category === 'smart_apply' &&
       (await confirm(
-        'Temporarily stash local changes and combine them if the changed paths are disjoint?',
+        'Combine this stash with local changes if the changed paths are disjoint?',
         { title: 'Smart apply' },
       ))
     )

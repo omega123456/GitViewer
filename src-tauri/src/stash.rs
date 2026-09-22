@@ -188,7 +188,6 @@ pub async fn apply(repo: &mut Repo, hash: &str, pop: bool, smart: bool) -> Resul
     if !list(repo).await?.iter().any(|s| s.hash == hash) {
         return Err(Error::refused("Stash no longer exists"));
     }
-    let mut temporary = None;
     if !repo.status.entries.is_empty() {
         if !smart {
             return Err(Error::new(
@@ -221,23 +220,19 @@ pub async fn apply(repo: &mut Repo, hash: &str, pop: bool, smart: bool) -> Resul
                 overlap.join(", ")
             )));
         }
-        precheck(repo, hash).await?;
-        temporary = Some(save(repo, "GitViewer: preserve local changes").await?);
     }
-    let outcome = restore(repo, hash).await;
-    if let Some(temporary) = temporary {
-        restore(repo, &temporary).await.map_err(|e| {
-            Error::new(
-                "unexpected",
-                format!(
-                    "Local changes are preserved in stash {temporary}. {}",
-                    e.message
-                ),
-            )
-        })?;
-        drop(repo, &temporary).await?;
+    let mut args = vec!["stash", "apply"];
+    if precheck(repo, hash).await.is_ok() {
+        args.push("--index");
     }
-    outcome?;
+    args.push(hash);
+    let output = git::run(&repo.root, &args, None).await?.accept(&[0, 1])?;
+    if output.code == 1 {
+        if repo.refresh().await?.conflicted {
+            return Ok(());
+        }
+        return Err(Error::git(output.message()));
+    }
     if pop {
         drop(repo, hash).await?;
     }

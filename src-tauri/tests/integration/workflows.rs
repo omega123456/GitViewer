@@ -187,8 +187,9 @@ async fn branches_history_blame_stashes_and_checkout_rollback() {
     assert!(stash::list(&repo).await.unwrap().is_empty());
     let sha = stash::save(&mut repo, "local experiment").await.unwrap();
     branch::switch(&mut repo, "other").await.unwrap();
-    assert!(stash::apply(&mut repo, &sha, false, false).await.is_err());
-    assert!(repo.refresh().await.unwrap().entries.is_empty());
+    stash::apply(&mut repo, &sha, false, false).await.unwrap();
+    assert!(repo.refresh().await.unwrap().conflicted);
+    command(dir.path(), &["reset", "--hard", "HEAD"]).await;
     assert_eq!(stash::list(&repo).await.unwrap().len(), 1);
     branch::switch(&mut repo, "main").await.unwrap();
     stash::apply(&mut repo, &sha, true, false).await.unwrap();
@@ -1483,4 +1484,46 @@ async fn ai_maps_a_timeout_and_an_unreachable_endpoint_to_the_network_category()
     .unwrap_err();
     assert_eq!(unreachable.category, "network");
     assert_eq!(unreachable.message, "The endpoint could not be reached");
+}
+
+#[tokio::test]
+async fn stash_conflicts_preserve_clean_files_local_changes_and_the_stash() {
+    for staged in [false, true] {
+        for smart in [false, true] {
+            let (dir, handle) = fixture().await;
+            base(&dir, &handle).await;
+            let mut repo = handle.lock().await;
+            record(&dir, &mut repo, "clean.txt", "base\n", "clean base").await;
+            std::fs::write(dir.path().join("file.txt"), "stashed\n").unwrap();
+            std::fs::write(dir.path().join("clean.txt"), "clean stash\n").unwrap();
+            if staged {
+                command(dir.path(), &["add", "."]).await;
+            }
+            let hash = stash::save(&mut repo, "conflicting").await.unwrap();
+            record(&dir, &mut repo, "file.txt", "upstream\n", "upstream").await;
+            if smart {
+                std::fs::write(dir.path().join("local.txt"), "local\n").unwrap();
+                command(dir.path(), &["add", "local.txt"]).await;
+            }
+            stash::apply(&mut repo, &hash, true, smart).await.unwrap();
+            let status = repo.refresh().await.unwrap();
+            assert!(status.conflicted);
+            assert!(status.merging.is_none());
+            let conflict = std::fs::read_to_string(dir.path().join("file.txt")).unwrap();
+            assert!(conflict.contains("<<<<<<<"));
+            assert!(conflict.contains("stashed"));
+            assert!(conflict.contains("upstream"));
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join("clean.txt")).unwrap(),
+                "clean stash\n"
+            );
+            assert_eq!(stash::list(&repo).await.unwrap()[0].hash, hash);
+            if smart {
+                assert_eq!(
+                    command(dir.path(), &["show", ":local.txt"]).await,
+                    "local\n"
+                );
+            }
+        }
+    }
 }
