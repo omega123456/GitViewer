@@ -35,6 +35,7 @@ export const status: Status = {
   ahead: 1,
   behind: 0,
   conflicted: false,
+  merging: null,
   entries: [
     { kind: 'ordinary', path: 'src/app.ts', index: 'M', worktree: 'M' },
     { kind: 'untracked', path: 'new.txt', index: '?', worktree: '?' },

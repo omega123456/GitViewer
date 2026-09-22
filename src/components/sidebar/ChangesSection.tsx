@@ -33,6 +33,7 @@ export function ChangesSection({
   const visible = status.entries.filter((entry) =>
     entry.path.toLowerCase().includes(filter.toLowerCase()),
   );
+  const conflicts = groupEntries(status, 'conflicts', filter);
   const staged = groupEntries(status, 'staged', filter);
   const unstaged = groupEntries(status, 'unstaged', filter);
   const paths = (entries: Entry[]) => entries.map((entry) => entry.path);
@@ -48,6 +49,18 @@ export function ChangesSection({
         </State>
       ) : (
         <>
+          {conflicts.length > 0 && (
+            <ChangesTree
+              repo={repo}
+              status={status}
+              source="conflicts"
+              disabled={disabled}
+              fill={false}
+              title="Conflicts"
+              count={conflicts.length}
+              actions={null}
+            />
+          )}
           {staged.length > 0 && (
             <ChangesTree
               repo={repo}

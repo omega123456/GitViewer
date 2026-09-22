@@ -41,6 +41,10 @@
   --color-remove-word-dark: #5e2427;
   --color-remove-ink: #9b2c2c;
   --color-remove-ink-dark: #f09393;
+  --color-merge: #fdf1dc;
+  --color-merge-dark: #2e2413;
+  --color-merge-ink: #7a4a00;
+  --color-merge-ink-dark: #f0c877;
   --color-modified: #b26b00;
   --color-modified-dark: #e0a93b;
   --color-added: #1f7a45;
@@ -121,6 +125,7 @@
   --spacing-commit: 30px;
   --spacing-dialog: 460px;
   --spacing-sidebar: var(--sidebar-width, 300px);
+  --spacing-branches: var(--branches-width, 320px);
   --spacing-virtual: var(--virtual-height);
   --spacing-diff: var(--diff-width);
   --spacing-indent: var(--tree-indent);

@@ -106,6 +106,23 @@ impl Repo {
             .accept(&[0])?
             .bytes,
         )?;
+        if self.status.conflicted {
+            let named = git::run(
+                &self.root,
+                &["name-rev", "--name-only", "--always", "MERGE_HEAD"],
+                None,
+            )
+            .await?
+            .accept(&[0, 128])?;
+            let name = named.text().trim().to_owned();
+            if named.code == 0 && !name.is_empty() {
+                self.status.merging = Some(
+                    name.strip_prefix("remotes/")
+                        .unwrap_or(name.as_str())
+                        .to_owned(),
+                );
+            }
+        }
         if self.history_stale.swap(false, Ordering::SeqCst)
             || previous != (self.status.oid.clone(), self.status.branch.clone())
         {

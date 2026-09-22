@@ -233,6 +233,23 @@ test('history uses the same diff pane', async ({ page }) => {
 });
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`conflicted merge banner ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto('/?scenario=merge');
+    await page
+      .getByRole('button', { name: 'Open repository', exact: true })
+      .last()
+      .click();
+    await expect(
+      page.getByRole('button', { name: 'Abort merge', exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole('alert')).toHaveScreenshot(
+      `merge-banner-${theme}.png`,
+    );
+  });
+}
+
+for (const theme of ['light', 'dark'] as const) {
   test(`branch comparison ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme });
     await page.goto('/?scenario=compare');

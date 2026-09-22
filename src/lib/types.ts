@@ -31,6 +31,12 @@ export interface Status {
   behind: number | null;
   entries: Entry[];
   conflicted: boolean;
+  merging: string | null;
+}
+export interface MergePreview {
+  outcome: 'upToDate' | 'fastForward' | 'commit' | 'conflict';
+  changed: number;
+  conflicts: string[];
 }
 export interface Repository {
   id: string;
@@ -253,6 +259,9 @@ export interface Commands {
     null
   >;
   branch_delete: Command<RepoArgs & { name: string }, null>;
+  merge_preview: Command<RepoArgs & { name: string }, MergePreview>;
+  branch_merge: Command<RepoArgs & { name: string }, null>;
+  merge_abort: Command<RepoArgs, null>;
   smart_checkout: Command<RepoArgs & { name: string }, null>;
   sync: Command<RepoArgs & { action: string }, null>;
   history: Command<RepoArgs & { path?: string; cursor?: string }, Page>;

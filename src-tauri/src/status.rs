@@ -72,6 +72,8 @@ pub struct Status {
     pub behind: Option<u32>,
     pub entries: Vec<Entry>,
     pub conflicted: bool,
+    #[serde(default)]
+    pub merging: Option<String>,
 }
 
 pub fn parse(bytes: &[u8]) -> Result<Status> {

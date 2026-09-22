@@ -5,6 +5,7 @@ import {
   Download,
   GitCommitHorizontal,
   GitCompare,
+  GitMerge,
   History,
   ListChecks,
   PanelLeft,
@@ -32,6 +33,7 @@ import {
   useSelection,
 } from '../../stores/selection';
 import { useFilter } from '../../stores/filter';
+import { Button } from '../shared/Button';
 import { dynamic } from '../shared/styles';
 import { State } from '../states/State';
 import { AllChangesPane } from '../diff/AllChangesPane';
@@ -69,6 +71,9 @@ export function RepositoryView({
   const all = useAllChanges(repo);
   const status = query.data;
   const disabled = busy || !status || status.conflicted;
+  const conflicts = (status?.entries ?? []).filter(
+    (entry) => entry.kind === 'unmerged',
+  ).length;
   const selectedEntry = status?.entries.find(
     (entry) => entry.path === select?.path,
   );
@@ -327,11 +332,31 @@ export function RepositoryView({
       {status.conflicted && (
         <div
           role="alert"
-          className="bg-remove px-3 py-2 text-xs text-remove-ink dark:bg-remove-dark dark:text-remove-ink-dark"
+          className={`flex items-center gap-2 px-3 py-2 text-xs ${status.merging ? 'bg-merge text-merge-ink dark:bg-merge-dark dark:text-merge-ink-dark' : 'bg-remove text-remove-ink dark:bg-remove-dark dark:text-remove-ink-dark'}`}
         >
-          {status.entries.filter((entry) => entry.kind === 'unmerged').length}{' '}
-          paths have conflicts. Resolve them in a terminal. This repository is
-          read-only.
+          {status.merging ? (
+            <>
+              <GitMerge className="size-3.5 shrink-0" />
+              <span>
+                Merging {status.merging} into {status.branch}. {conflicts}{' '}
+                {conflicts === 1 ? 'path conflicts' : 'paths conflict'} —
+                resolve them in your editor, then finish the merge from a
+                terminal.
+              </span>
+              <Button
+                className="ml-auto border border-current"
+                disabled={busy}
+                onClick={() => void perform('merge_abort', { repo })}
+              >
+                Abort merge
+              </Button>
+            </>
+          ) : (
+            <span>
+              {conflicts} paths have conflicts. Resolve them in a terminal. This
+              repository is read-only.
+            </span>
+          )}
         </div>
       )}
       <div className="flex min-h-0 flex-1">

@@ -177,6 +177,8 @@ pub async fn dispatch<R: tauri::Runtime>(
             | "branch_switch"
             | "branch_create"
             | "branch_delete"
+            | "branch_merge"
+            | "merge_abort"
             | "smart_checkout"
             | "sync"
             | "stash_save"
@@ -275,6 +277,19 @@ pub async fn dispatch<R: tauri::Runtime>(
             }
             "branch_delete" => {
                 branch::delete(&mut repo, string(&args, "name")?).await?;
+                Value::Null
+            }
+            "merge_preview" => {
+                return Ok(serde_json::to_value(
+                    branch::merge_preview(&repo, string(&args, "name")?).await?,
+                )?)
+            }
+            "branch_merge" => {
+                branch::merge(&mut repo, string(&args, "name")?).await?;
+                Value::Null
+            }
+            "merge_abort" => {
+                branch::abort(&mut repo).await?;
                 Value::Null
             }
             "smart_checkout" => {

@@ -155,6 +155,41 @@ describe('application shell', () => {
     });
     expect(screen.getByText('network: Offline')).toBeVisible();
   });
+  it('names both branches of a conflicted merge and aborts it', async () => {
+    setup();
+    mockCommand('status', () => ({
+      ...status,
+      conflicted: true,
+      merging: 'feature',
+      entries: [
+        {
+          kind: 'unmerged' as const,
+          path: 'src/app.ts',
+          stage: 'UU',
+          modes: ['100644', '100644', '100644', '100644'],
+          hashes: ['a', 'b', 'c'],
+          index: 'C',
+          worktree: 'C',
+        },
+      ],
+    }));
+    mockCommand('merge_abort', () => null);
+    const user = userEvent.setup();
+    useTabs.getState().open(repository.id, repository.name);
+    mountApp();
+    expect(
+      await screen.findByText(/Merging feature into main\. 1 path conflicts/),
+    ).toBeVisible();
+    expect(await screen.findByText('Conflicts')).toBeVisible();
+    expect(screen.queryByText('Staged changes')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Abort merge' }));
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        command: 'merge_abort',
+        args: { repo: repository.id },
+      }),
+    );
+  });
 });
 describe('diff and images', () => {
   it('renders source-specific hunks and toggles split and unified modes', async () => {

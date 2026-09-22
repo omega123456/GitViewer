@@ -29,6 +29,21 @@ export const test = base.extend({
           };
         }
         if (scenario === 'compare') status.branch = 'feature';
+        if (scenario === 'merge') {
+          status.conflicted = true;
+          status.merging = 'feature';
+          status.entries = [
+            {
+              kind: 'unmerged',
+              path: 'src/app.ts',
+              stage: 'UU',
+              modes: ['100644', '100644', '100644', '100644'],
+              hashes: ['a', 'b', 'c'],
+              index: 'C',
+              worktree: 'C',
+            },
+          ];
+        }
         if (scenario === 'image') {
           status.entries = [{ ...status.entries[0], path: 'picture.png' }];
           diff.path = 'picture.png';

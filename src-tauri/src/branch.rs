@@ -13,6 +13,13 @@ pub struct Branch {
     pub current: bool,
     pub upstream: String,
 }
+
+#[derive(Debug, Serialize)]
+pub struct MergePreview {
+    pub outcome: String,
+    pub changed: usize,
+    pub conflicts: Vec<String>,
+}
 pub async fn list(repo: &Repo) -> Result<Vec<Branch>> {
     let text = git::text(
         &repo.root,
@@ -187,6 +194,124 @@ pub async fn sync<F: Fn(&str)>(repo: &mut Repo, action: &str, progress: F) -> Re
         }
         _ => return Err(Error::refused("Unknown synchronization action")),
     }
+    Ok(())
+}
+async fn mergeable(repo: &Repo, name: &str) -> Result<()> {
+    if repo.status.branch == "(detached)" {
+        return Err(Error::refused("Switch to a branch before merging"));
+    }
+    let branch = list(repo)
+        .await?
+        .into_iter()
+        .find(|branch| branch.name == name)
+        .ok_or_else(|| Error::refused("Choose an existing branch"))?;
+    if branch.current {
+        return Err(Error::refused("Choose a different branch"));
+    }
+    if git::run(&repo.root, &["merge-base", name, "HEAD"], None)
+        .await?
+        .accept(&[0, 1])?
+        .code
+        == 1
+    {
+        return Err(Error::refused(format!(
+            "{name} shares no history with {}",
+            repo.status.branch
+        )));
+    }
+    Ok(())
+}
+async fn ancestor(repo: &Repo, earlier: &str, later: &str) -> Result<bool> {
+    Ok(git::run(
+        &repo.root,
+        &["merge-base", "--is-ancestor", earlier, later],
+        None,
+    )
+    .await?
+    .accept(&[0, 1])?
+    .code
+        == 0)
+}
+pub async fn merge_preview(repo: &Repo, name: &str) -> Result<MergePreview> {
+    mergeable(repo, name).await?;
+    if ancestor(repo, name, "HEAD").await? {
+        return Ok(MergePreview {
+            outcome: "upToDate".into(),
+            changed: 0,
+            conflicts: Vec::new(),
+        });
+    }
+    let changed = git::text(
+        &repo.root,
+        &["diff", "--name-only", &format!("HEAD...{name}")],
+    )
+    .await?
+    .lines()
+    .count();
+    if ancestor(repo, "HEAD", name).await? {
+        return Ok(MergePreview {
+            outcome: "fastForward".into(),
+            changed,
+            conflicts: Vec::new(),
+        });
+    }
+    let merged = git::run(
+        &repo.root,
+        &["merge-tree", "--write-tree", "--name-only", "HEAD", name],
+        None,
+    )
+    .await?
+    .accept(&[0, 1])?;
+    if merged.code == 0 {
+        return Ok(MergePreview {
+            outcome: "commit".into(),
+            changed,
+            conflicts: Vec::new(),
+        });
+    }
+    let text = merged.text();
+    Ok(MergePreview {
+        outcome: "conflict".into(),
+        changed,
+        conflicts: text
+            .split("\n\n")
+            .next()
+            .unwrap_or_default()
+            .lines()
+            .skip(1)
+            .map(str::to_owned)
+            .collect(),
+    })
+}
+pub async fn merge(repo: &mut Repo, name: &str) -> Result<()> {
+    repo.writable().await?;
+    mergeable(repo, name).await?;
+    let output = git::run(&repo.root, &["merge", "--no-edit", name], None)
+        .await?
+        .accept(&[0, 1])?;
+    if output.code == 1 && !merging(repo).await? {
+        return Err(Error::git(output.message()));
+    }
+    Ok(())
+}
+async fn merging(repo: &Repo) -> Result<bool> {
+    Ok(git::run(
+        &repo.root,
+        &["rev-parse", "-q", "--verify", "MERGE_HEAD"],
+        None,
+    )
+    .await?
+    .accept(&[0, 1])?
+    .code
+        == 0)
+}
+pub async fn abort(repo: &mut Repo) -> Result<()> {
+    if !merging(repo).await? {
+        return Err(Error::refused("No merge is in progress"));
+    }
+    git::run(&repo.root, &["merge", "--abort"], None)
+        .await?
+        .accept(&[0])?;
     Ok(())
 }
 async fn local_exists(repo: &Repo, name: &str) -> Result<bool> {

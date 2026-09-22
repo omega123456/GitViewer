@@ -1,6 +1,6 @@
 use gitviewer_lib::{
     actions, ai, branch, diff, git, history,
-    repo::{Registry, Repository},
+    repo::{Registry, Repo, Repository},
     stash, tree, watch,
 };
 use serde_json::json;
@@ -38,6 +38,11 @@ pub(super) async fn fixture() -> (TempDir, Repository) {
     let info = registry.open(dir.path().to_str().unwrap()).await.unwrap();
     let repo = registry.get(&info.id).await.unwrap();
     (dir, repo)
+}
+pub(super) async fn record(dir: &TempDir, repo: &mut Repo, path: &str, body: &str, message: &str) {
+    std::fs::write(dir.path().join(path), body).unwrap();
+    actions::files(repo, &[path.into()], "stage").await.unwrap();
+    actions::commit(repo, message).await.unwrap();
 }
 pub(super) async fn base(dir: &TempDir, repo: &Repository) {
     std::fs::write(dir.path().join("file.txt"), "one\ntwo\nthree\n").unwrap();
@@ -755,6 +760,75 @@ async fn stash_untracked_contents_and_safe_checkout_preserve_staged_work() {
             .category,
         "smart_apply"
     );
+}
+
+#[tokio::test]
+async fn merge_previews_every_outcome_and_leaves_conflicts_until_the_merge_is_aborted() {
+    let (dir, handle) = fixture().await;
+    base(&dir, &handle).await;
+    let mut repo = handle.lock().await;
+    assert!(branch::merge_preview(&repo, "missing").await.is_err());
+    assert!(branch::merge_preview(&repo, "main").await.is_err());
+    branch::create(&mut repo, "ahead", "HEAD").await.unwrap();
+    branch::switch(&mut repo, "ahead").await.unwrap();
+    record(&dir, &mut repo, "second.txt", "second\n", "Ahead").await;
+    branch::switch(&mut repo, "main").await.unwrap();
+    repo.refresh().await.unwrap();
+    let preview = branch::merge_preview(&repo, "ahead").await.unwrap();
+    assert_eq!(preview.outcome, "fastForward");
+    assert_eq!(preview.changed, 1);
+    assert!(preview.conflicts.is_empty());
+    branch::merge(&mut repo, "ahead").await.unwrap();
+    assert!(!repo.refresh().await.unwrap().conflicted);
+    assert_eq!(
+        branch::merge_preview(&repo, "ahead").await.unwrap().outcome,
+        "upToDate"
+    );
+    branch::create(&mut repo, "side", "HEAD").await.unwrap();
+    branch::switch(&mut repo, "side").await.unwrap();
+    record(&dir, &mut repo, "side.txt", "side\n", "Side").await;
+    branch::switch(&mut repo, "main").await.unwrap();
+    repo.refresh().await.unwrap();
+    record(&dir, &mut repo, "trunk.txt", "trunk\n", "Trunk").await;
+    assert_eq!(
+        branch::merge_preview(&repo, "side").await.unwrap().outcome,
+        "commit"
+    );
+    branch::merge(&mut repo, "side").await.unwrap();
+    assert!(!repo.refresh().await.unwrap().conflicted);
+    branch::create(&mut repo, "clash", "HEAD").await.unwrap();
+    branch::switch(&mut repo, "clash").await.unwrap();
+    record(&dir, &mut repo, "file.txt", "clash\n", "Clash").await;
+    branch::switch(&mut repo, "main").await.unwrap();
+    repo.refresh().await.unwrap();
+    record(&dir, &mut repo, "file.txt", "trunk edit\n", "Trunk edit").await;
+    let preview = branch::merge_preview(&repo, "clash").await.unwrap();
+    assert_eq!(preview.outcome, "conflict");
+    assert_eq!(preview.conflicts, vec!["file.txt".to_string()]);
+    assert!(branch::abort(&mut repo).await.is_err());
+    branch::merge(&mut repo, "clash").await.unwrap();
+    let status = repo.refresh().await.unwrap();
+    assert!(status.conflicted);
+    assert_eq!(status.merging.as_deref(), Some("clash"));
+    assert!(actions::files(&mut repo, &["file.txt".into()], "stage")
+        .await
+        .is_err());
+    assert!(branch::merge(&mut repo, "clash").await.is_err());
+    branch::abort(&mut repo).await.unwrap();
+    let status = repo.refresh().await.unwrap();
+    assert!(!status.conflicted);
+    assert!(status.merging.is_none());
+    std::fs::write(dir.path().join("file.txt"), "uncommitted\n").unwrap();
+    assert!(branch::merge(&mut repo, "clash").await.is_err());
+    command(dir.path(), &["checkout", "--", "file.txt"]).await;
+    command(dir.path(), &["checkout", "--orphan", "lonely"]).await;
+    record(&dir, &mut repo, "lonely.txt", "lonely\n", "Lonely").await;
+    branch::switch(&mut repo, "main").await.unwrap();
+    repo.refresh().await.unwrap();
+    assert!(branch::merge_preview(&repo, "lonely").await.is_err());
+    command(dir.path(), &["checkout", "--detach"]).await;
+    repo.refresh().await.unwrap();
+    assert!(branch::merge_preview(&repo, "clash").await.is_err());
 }
 
 #[tokio::test]

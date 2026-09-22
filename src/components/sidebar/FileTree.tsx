@@ -25,7 +25,7 @@ import { useTabs } from '../../stores/tabs';
 import { useSelection, useWorkingSelection } from '../../stores/selection';
 import { useFilter } from '../../stores/filter';
 import { useCompact } from '../../stores/density';
-import type { Status, TreeEntry } from '../../lib/types';
+import type { Source, Status, TreeEntry } from '../../lib/types';
 import { dynamic, focus } from '../shared/styles';
 import { GroupHeader } from '../shared/Section';
 import { State } from '../states/State';
@@ -38,6 +38,7 @@ import {
   treeRoot,
   useExpandNewDirectories,
   type Node,
+  type Section,
 } from './nodes';
 const rowAction = 'size-6';
 const discardTint =
@@ -60,7 +61,7 @@ export function ChangesTree({
 }: {
   repo: string;
   status: Status;
-  source: 'staged' | 'unstaged';
+  source: Section;
   disabled: boolean;
   fill: boolean;
   title: string;
@@ -70,6 +71,7 @@ export function ChangesTree({
   const filter = useFilter(repo);
   const compact = useCompact();
   const selection = useWorkingSelection(repo);
+  const target: Source = source === 'conflicts' ? 'unstaged' : source;
   const nodes = useMemo(
     () => changeNodes(status.entries, source, filter),
     [status.entries, source, filter],
@@ -90,7 +92,7 @@ export function ChangesTree({
       if (node && !node.directory)
         useSelection.getState().select(repo, {
           path: node.path,
-          source: node.status === '?' ? 'file' : source,
+          source: node.status === '?' ? 'file' : target,
         });
     },
     features: [
@@ -178,13 +180,13 @@ export function ChangesTree({
                     if (!node.directory)
                       useSelection.getState().select(repo, {
                         path: node.path,
-                        source: node.status === '?' ? 'file' : source,
+                        source: node.status === '?' ? 'file' : target,
                       });
                   }}
                   className={`relative flex min-w-0 flex-1 items-center gap-1.5 pr-2 pl-indent text-left text-sm ${compact ? 'h-tree-compact' : 'h-tree-comfortable'} ${focus}`}
                 >
                   {selection?.path === node.path &&
-                    selection.source === source && (
+                    selection.source === target && (
                       <span className="absolute inset-y-0 left-0 w-accent bg-accent" />
                     )}
                   {node.directory ? (

@@ -77,6 +77,16 @@ async fn typed_commands_events_and_protocol_are_wired() {
     call("branch_switch", json!({"repo":id,"name":"main"}))
         .await
         .unwrap();
+    assert_eq!(
+        call("merge_preview", json!({"repo":id,"name":"feature"}))
+            .await
+            .unwrap()["outcome"],
+        "upToDate"
+    );
+    call("branch_merge", json!({"repo":id,"name":"feature"}))
+        .await
+        .unwrap();
+    assert!(call("merge_abort", json!({"repo":id})).await.is_err());
     call("branch_delete", json!({"repo":id,"name":"feature"}))
         .await
         .unwrap();

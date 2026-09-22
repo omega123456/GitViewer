@@ -245,7 +245,12 @@ describe('repository workflows', () => {
     expect(screen.getByText('Remote branches')).toBeVisible();
     await user.type(screen.getByLabelText('Filter branches'), 'feature');
     expect(screen.queryByText('Remote branches')).not.toBeInTheDocument();
-    await user.click(screen.getByTitle('Delete feature'));
+    await user.click(
+      screen.getByRole('button', { name: 'Actions for feature' }),
+    );
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Delete branch' }),
+    );
     await waitFor(() =>
       expect(calls).toContainEqual({
         command: 'branch_delete',
@@ -276,6 +281,64 @@ describe('repository workflows', () => {
       command: 'branch_switch',
       args: { repo: repository.id, name: 'feature' },
     });
+  });
+  it('merges a branch after the preview, skips an up to date branch, and respects cancellation', async () => {
+    setup();
+    mockCommand('merge_preview', () => ({
+      outcome: 'conflict' as const,
+      changed: 12,
+      conflicts: ['a.ts', 'b.ts', 'c.ts', 'd.ts'],
+    }));
+    mockCommand('branch_merge', () => null);
+    const user = userEvent.setup();
+    mount();
+    await screen.findByLabelText('Commit message');
+    const merge = async () => {
+      await action('branches');
+      await user.click(
+        await screen.findByRole('button', { name: 'Actions for feature' }),
+      );
+      await user.click(
+        await screen.findByRole('menuitem', { name: 'Merge into main' }),
+      );
+    };
+    await merge();
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        command: 'branch_merge',
+        args: { repo: repository.id, name: 'feature' },
+      }),
+    );
+    dialog.approved = false;
+    mockCommand('merge_preview', () => ({
+      outcome: 'fastForward' as const,
+      changed: 1,
+      conflicts: [],
+    }));
+    await merge();
+    await waitFor(() =>
+      expect(
+        calls.filter((call) => call.command === 'merge_preview'),
+      ).toHaveLength(2),
+    );
+    expect(
+      calls.filter((call) => call.command === 'branch_merge'),
+    ).toHaveLength(1);
+    dialog.approved = true;
+    mockCommand('merge_preview', () => ({
+      outcome: 'upToDate' as const,
+      changed: 0,
+      conflicts: [],
+    }));
+    await merge();
+    await waitFor(() =>
+      expect(
+        calls.filter((call) => call.command === 'merge_preview'),
+      ).toHaveLength(3),
+    );
+    expect(
+      calls.filter((call) => call.command === 'branch_merge'),
+    ).toHaveLength(1);
   });
   it('runs smart checkout only after a blocking failure and preserves the error on cancellation', async () => {
     setup();

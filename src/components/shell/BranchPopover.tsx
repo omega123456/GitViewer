@@ -1,9 +1,11 @@
 import { TextInput } from '../shared/TextInput';
 import { useState } from 'react';
-import { Popover } from 'radix-ui';
+import { DropdownMenu, Popover } from 'radix-ui';
 import {
   GitBranch,
   GitCompare,
+  GitMerge,
+  MoreHorizontal,
   Plus,
   Search,
   Trash2,
@@ -20,8 +22,10 @@ import { Button } from '../shared/Button';
 import { CheckBox } from '../shared/CheckBox';
 import { Modal } from '../shared/Modal';
 import { VirtualList } from '../shared/VirtualList';
-import { field } from '../shared/styles';
+import { dynamic, field, focus } from '../shared/styles';
 import { openCompare } from '../sidebar/CompareSection';
+import { mergeBranch } from '../../lib/merge';
+const item = `flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs outline-none data-disabled:opacity-40 data-highlighted:bg-hover dark:data-highlighted:bg-hover-dark ${focus}`;
 export async function checkout(repo: string, name: string) {
   useTabs.getState().setBusy(1);
   useTabs.getState().setError(null);
@@ -62,6 +66,10 @@ export function BranchPopover({
     query.data?.filter((branch) =>
       branch.name.toLowerCase().includes(filter.toLowerCase()),
     ) ?? [];
+  const longest = (query.data ?? []).reduce(
+    (widest, branch) => Math.max(widest, branch.name.length),
+    0,
+  );
   const branchRows = [false, true].flatMap((remote) => {
     const group = branches.filter((branch) => branch.remote === remote);
     return group.length
@@ -92,6 +100,14 @@ export function BranchPopover({
       run: () => setCreating(true),
     },
     {
+      id: 'merge-branch',
+      icon: <GitMerge className="size-3.5" />,
+      label: 'Merge a branch',
+      key: 'Mod+Alt+m',
+      disabled,
+      run: () => setOpen(true),
+    },
+    {
       id: 'delete-branch',
       icon: <Trash2 className="size-3.5" />,
       label: 'Choose branch to delete',
@@ -115,7 +131,10 @@ export function BranchPopover({
         <Popover.Portal>
           <Popover.Content
             align="start"
-            className="z-30 flex h-96 w-80 flex-col rounded-md border border-line bg-surface p-2 text-ink shadow-lg dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark"
+            style={dynamic({
+              '--branches-width': `clamp(320px, min(calc(${longest}ch + 150px), var(--radix-popover-content-available-width, 640px)), 640px)`,
+            })}
+            className="z-30 flex h-96 w-branches flex-col rounded-md border border-line bg-surface p-2 text-ink shadow-lg dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark"
           >
             <div className="flex items-center gap-2 border-b border-line pb-2 dark:border-line-dark">
               <Search className="size-3.5 shrink-0 text-faint dark:text-faint-dark" />
@@ -164,24 +183,70 @@ export function BranchPopover({
                     >
                       <GitCompare className="size-3 text-muted dark:text-muted-dark" />
                     </Button>
-                    <Button
-                      title={`Delete ${branch.name}`}
-                      disabled={disabled || branch.current}
-                      onClick={() => {
-                        void confirm(
-                          `Delete ${branch.name}? Unmerged branches will be refused.`,
-                          { title: 'Delete branch', kind: 'warning' },
-                        ).then((approved) => {
-                          if (approved)
-                            void perform('branch_delete', {
-                              repo,
-                              name: branch.name,
-                            });
-                        });
-                      }}
-                    >
-                      <Trash2 className="size-3 text-deleted dark:text-deleted-dark" />
-                    </Button>
+                    <DropdownMenu.Root modal={false}>
+                      <DropdownMenu.Trigger asChild>
+                        <Button aria-label={`Actions for ${branch.name}`}>
+                          <MoreHorizontal className="size-3 text-muted dark:text-muted-dark" />
+                        </Button>
+                      </DropdownMenu.Trigger>
+                      <DropdownMenu.Portal>
+                        <DropdownMenu.Content
+                          align="end"
+                          sideOffset={4}
+                          className="z-40 flex w-52 flex-col rounded-md border border-line bg-surface p-1 text-ink shadow-lg dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark"
+                        >
+                          <DropdownMenu.Item
+                            disabled={disabled || branch.current}
+                            className={item}
+                            onSelect={() => {
+                              setOpen(false);
+                              void mergeBranch(
+                                repo,
+                                branch.name,
+                                status.branch,
+                              );
+                            }}
+                          >
+                            <GitMerge className="size-3" />
+                            Merge into {status.branch}
+                          </DropdownMenu.Item>
+                          <DropdownMenu.Item
+                            disabled={branch.current}
+                            className={item}
+                            onSelect={() => {
+                              setOpen(false);
+                              openCompare(repo, {
+                                compareBase: branch.name,
+                                compareTarget: status.branch,
+                              });
+                            }}
+                          >
+                            <GitCompare className="size-3" />
+                            Compare with {status.branch}
+                          </DropdownMenu.Item>
+                          <DropdownMenu.Separator className="my-1 h-px bg-line dark:bg-line-dark" />
+                          <DropdownMenu.Item
+                            disabled={disabled || branch.current}
+                            className={`${item} text-deleted dark:text-deleted-dark`}
+                            onSelect={() => {
+                              void confirm(
+                                `Delete ${branch.name}? Unmerged branches will be refused.`,
+                                { title: 'Delete branch', kind: 'warning' },
+                              ).then((approved) => {
+                                if (approved)
+                                  void perform('branch_delete', {
+                                    repo,
+                                    name: branch.name,
+                                  });
+                              });
+                            }}
+                          >
+                            <Trash2 className="size-3" />
+                            Delete branch
+                          </DropdownMenu.Item>
+                        </DropdownMenu.Content>
+                      </DropdownMenu.Portal>
+                    </DropdownMenu.Root>
                   </div>
                 ) : (
                   <h3 className="flex h-group items-center px-2 text-label font-semibold tracking-wider text-faint uppercase dark:text-faint-dark">

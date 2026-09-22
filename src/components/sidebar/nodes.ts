@@ -21,13 +21,19 @@ export function sourceFor(entry?: Entry): Source {
       ? 'staged'
       : 'file';
 }
-export function groupEntries(status: Status, group: Group, filter: string) {
+export type Section = Group | 'conflicts';
+export function inSection(entry: Entry, section: Section) {
+  if (section === 'conflicts') return entry.kind === 'unmerged';
+  if (entry.kind === 'unmerged') return false;
+  return section === 'staged'
+    ? entry.index !== '.' && entry.index !== '?'
+    : entry.worktree !== '.';
+}
+export function groupEntries(status: Status, group: Section, filter: string) {
   return status.entries.filter(
     (entry) =>
       entry.path.toLowerCase().includes(filter.toLowerCase()) &&
-      (group === 'staged'
-        ? entry.index !== '.' && entry.index !== '?'
-        : entry.worktree !== '.'),
+      inSection(entry, group),
   );
 }
 export interface Node extends TreeEntry {
@@ -35,11 +41,7 @@ export interface Node extends TreeEntry {
   paths: string[];
   partial: boolean;
 }
-export function changeNodes(
-  entries: Entry[],
-  source: 'staged' | 'unstaged',
-  filter: string,
-) {
+export function changeNodes(entries: Entry[], source: Section, filter: string) {
   const map: Record<string, Node> = Object.create(null);
   map[treeRoot] = {
     path: '',
@@ -52,11 +54,7 @@ export function changeNodes(
     partial: false,
   };
   const selected = entries
-    .filter((entry) =>
-      source === 'staged'
-        ? entry.index !== '.' && entry.index !== '?'
-        : entry.worktree !== '.',
-    )
+    .filter((entry) => inSection(entry, source))
     .filter((entry) => entry.path.toLowerCase().includes(filter.toLowerCase()));
   for (const entry of selected) {
     const parts = entry.path.split('/');
@@ -83,7 +81,10 @@ export function changeNodes(
       }
       map[path].paths.push(entry.path);
       map[path].partial ||=
-        entry.index !== '.' && entry.index !== '?' && entry.worktree !== '.';
+        source !== 'conflicts' &&
+        entry.index !== '.' &&
+        entry.index !== '?' &&
+        entry.worktree !== '.';
       parent = path;
     });
   }

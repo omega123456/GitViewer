@@ -59,6 +59,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 vi.mock('@tauri-apps/plugin-dialog', () => ({
   open: async () => dialog.path,
   confirm: async () => dialog.approved,
+  message: async () => undefined,
 }));
 
 vi.mock('@tauri-apps/plugin-os', () => ({ platform: () => host.platform }));
