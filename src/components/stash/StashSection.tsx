@@ -179,7 +179,7 @@ export function StashSection({
               items={query.data}
               render={(stash) => (
                 <Button
-                  className={`h-tree-comfortable w-full justify-start truncate ${selected === stash.hash ? 'bg-selected dark:bg-selected-dark' : ''}`}
+                  className={`h-tree-comfortable w-full justify-start truncate text-left ${selected === stash.hash ? 'bg-selected dark:bg-selected-dark' : ''}`}
                   onClick={() => {
                     setSelected(stash.hash);
                     show('', stash.hash);
