@@ -8,7 +8,7 @@ export function diffRows(diff: Diff, split: boolean): Row[] {
   if (diff.content !== null)
     return diff.content.split('\n').map((content, index) => ({
       right: {
-        kind: 'context',
+        kind: diff.added ? 'add' : 'context',
         content,
         old: null,
         new: index + 1,

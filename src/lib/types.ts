@@ -148,6 +148,7 @@ export interface Diff {
   hunks: Hunk[];
   patches: string[];
   content: string | null;
+  added: boolean;
   image: boolean;
   oldSize: number;
   newSize: number;

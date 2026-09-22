@@ -60,6 +60,7 @@ export const diff: Diff = {
   oldDimensions: null,
   newDimensions: null,
   content: null,
+  added: false,
   patches: ['patch'],
   hunks: [
     {

@@ -42,6 +42,7 @@ pub struct Diff {
     pub too_large: bool,
     pub hunks: Vec<Hunk>,
     pub content: Option<String>,
+    pub added: bool,
     pub image: bool,
     pub old_size: usize,
     pub new_size: usize,
@@ -536,6 +537,13 @@ pub async fn read(
                 result.too_large = true;
             } else {
                 result.content = Some(content.into_owned());
+                result.added = source == "stash"
+                    || !git::text(
+                        &repo.root,
+                        &["ls-files", "--others", "--exclude-standard", "--", path],
+                    )
+                    .await?
+                    .is_empty();
             }
         }
         return Ok(result);

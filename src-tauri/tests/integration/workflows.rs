@@ -83,6 +83,7 @@ async fn staging_commit_lazy_tree_and_plain_reads() {
         .await
         .unwrap();
     assert_eq!(plain.content.as_deref(), Some("local"));
+    assert!(!plain.added);
     actions::files(&mut repo, &["file name\t.txt".into()], "stage")
         .await
         .unwrap();
@@ -725,6 +726,7 @@ async fn stash_untracked_contents_and_safe_checkout_preserve_staged_work() {
         .await
         .unwrap();
     assert_eq!(result.content.as_deref(), Some("untracked content"));
+    assert!(result.added);
     assert!(
         diff::read(&repo, "file.txt", "stash", &hash, "", 3, false)
             .await
@@ -1024,6 +1026,7 @@ async fn plain_text_line_limit_and_image_ceiling_apply_before_rendering() {
     let expanded = diff::read(&repo, "many.txt", "file", "", "", 3, true)
         .await
         .unwrap();
+    assert!(expanded.added);
     assert_eq!(expanded.content.unwrap().lines().count(), 50001);
     let image = std::fs::File::create(dir.path().join("large.png")).unwrap();
     image.set_len(20 * 1024 * 1024 + 1).unwrap();

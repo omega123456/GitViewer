@@ -346,6 +346,10 @@ describe('presentation state', () => {
       2,
     );
     expect(
+      diffRows({ ...diff, content: 'first', added: true }, false)[0].right
+        ?.kind,
+    ).toBe('add');
+    expect(
       diffRows(
         {
           ...diff,
