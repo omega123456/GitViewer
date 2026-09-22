@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import { CheckCircle2, ChevronDown, ChevronRight } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import { useBackend } from '../../lib/query';
 import type { Diff, Selection, Settings, Status } from '../../lib/types';
 import { groupEntries } from '../sidebar/nodes';
@@ -74,6 +74,7 @@ export function AllChangesPane({
           },
           badge: stack === 'staged' ? entry.index : entry.worktree,
         }));
+  const listing = stack === 'commit' && files.isPending;
   const scroller = useRef<HTMLDivElement>(null);
   const [, relayout] = useState(0);
   useEffect(() => {
@@ -93,15 +94,23 @@ export function AllChangesPane({
             {commit.revision.slice(0, 7)}
           </span>
         )}
-        <span className="font-mono text-label text-muted">
-          {entries.length}
-        </span>
+        {listing ? (
+          <Loader2 className="size-3.5 shrink-0 animate-spin text-muted" />
+        ) : (
+          <span className="font-mono text-label text-muted">
+            {entries.length}
+          </span>
+        )}
       </header>
       <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto">
         <div>
           {files.error ? (
             <State title="Unable to list commit files">
               {files.error.message}
+            </State>
+          ) : listing ? (
+            <State icon={Loader2} title="Loading changes">
+              Reading the files in this commit.
             </State>
           ) : entries.length === 0 ? (
             <State icon={CheckCircle2} title="Nothing here">
@@ -141,7 +150,19 @@ function FileDiff({
   scroller: RefObject<HTMLDivElement | null>;
 }) {
   const [open, setOpen] = useState(true);
-  const query = useBackend('diff', { repo, ...selection, context });
+  const box = useRef<HTMLDivElement>(null);
+  const [near, setNear] = useState(false);
+  useEffect(() => {
+    if (near) return;
+    const observer = new IntersectionObserver(
+      (entries) =>
+        entries.some((entry) => entry.isIntersecting) && setNear(true),
+      { root: scroller.current, rootMargin: '400px' },
+    );
+    observer.observe(box.current!);
+    return () => observer.disconnect();
+  }, [near, scroller]);
+  const query = useBackend('diff', { repo, ...selection, context }, near);
   const data = query.data;
   const tokens = useTokens(data, selection.path);
   const mode = useDiffView((s) => s.mode) ?? settings.diffMode;
@@ -156,7 +177,7 @@ function FileDiff({
   const cut = selection.path.lastIndexOf('/') + 1;
   const message = note(data, query.error);
   return (
-    <div className="border-b border-line dark:border-line-dark">
+    <div ref={box} className="border-b border-line dark:border-line-dark">
       <button
         type="button"
         aria-expanded={open}
@@ -187,7 +208,11 @@ function FileDiff({
       </button>
       {open &&
         (message ? (
-          <p className="px-3 py-2 text-xs text-muted">{message}</p>
+          <p
+            className={`px-3 py-2 text-xs text-muted ${data ? '' : 'min-h-32'}`}
+          >
+            {message}
+          </p>
         ) : data!.image ? (
           <div className="flex flex-col">
             <ImageDiff

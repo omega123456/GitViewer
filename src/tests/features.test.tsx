@@ -21,6 +21,7 @@ import { useSettingsNav } from '../stores/settings-nav';
 import { initials } from '../components/shared/Avatar';
 import { checkout } from '../components/shell/BranchPopover';
 import { DiffPane } from '../components/diff/DiffPane';
+import { AllChangesPane } from '../components/diff/AllChangesPane';
 import { ImageDiff } from '../components/image/ImageDiff';
 import { mockCommand, dialog, calls, emit } from './harness';
 import { settings, status, repository, diff } from './fixtures';
@@ -837,6 +838,34 @@ describe('keyboard and pointer access', () => {
   });
 });
 describe('all changes pane', () => {
+  it('shows a loading state until the commit file list arrives', async () => {
+    setup();
+    let release: (paths: string[]) => void = () => {};
+    mockCommand(
+      'commit_files',
+      () => new Promise<string[]>((resolve) => (release = resolve)),
+    );
+    render(
+      <QueryProvider>
+        <AllChangesPane
+          repo={repository.id}
+          stack="commit"
+          commit={{ path: '', source: 'commit', revision: commit.hash }}
+          status={status}
+          settings={settings}
+          disabled={false}
+        />
+      </QueryProvider>,
+    );
+    const pane = await screen.findByRole('region', {
+      name: 'All changes in commit',
+    });
+    expect(within(pane).getByText('Loading changes')).toBeInTheDocument();
+    expect(within(pane).queryByText('Nothing here')).not.toBeInTheDocument();
+    await act(async () => release(['src/app.ts']));
+    await within(pane).findByRole('button', { name: /app\.ts/ });
+    expect(within(pane).queryByText('Loading changes')).not.toBeInTheDocument();
+  });
   it('stacks every file of a group, collapses files, and returns on selection', async () => {
     setup();
     mockCommand('diff', (args) =>

@@ -64,6 +64,19 @@ vi.stubGlobal(
     disconnect() {}
   },
 );
+vi.stubGlobal(
+  'IntersectionObserver',
+  class {
+    constructor(
+      private callback: (entries: { isIntersecting: boolean }[]) => void,
+    ) {}
+    observe() {
+      this.callback([{ isIntersecting: true }]);
+    }
+    unobserve() {}
+    disconnect() {}
+  },
+);
 vi.stubGlobal('matchMedia', () => ({
   matches: false,
   addEventListener: vi.fn(),
