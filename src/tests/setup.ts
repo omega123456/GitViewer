@@ -4,6 +4,8 @@ import { afterEach, beforeEach, vi } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import { client } from '../lib/query';
 import { useTabs } from '../stores/tabs';
+import { useErrors } from '../stores/errors';
+import { useDecision } from '../stores/decision';
 import { useLayout } from '../stores/layout';
 import { useSelection } from '../stores/selection';
 import { useFilterStore } from '../stores/filter';
@@ -101,7 +103,9 @@ beforeEach(() => {
   intersecting.initially = true;
   useUpdate.setState({ dismissedVersion: null });
   client.clear();
-  useTabs.setState({ tabs: [], active: '', error: null, busy: 0 });
+  useTabs.setState({ tabs: [], active: '', busy: 0 });
+  useErrors.setState({ scopes: {} });
+  useDecision.setState({ pending: {} });
   useLayout.setState({ tabs: {} });
   useSelection.setState({
     working: {},

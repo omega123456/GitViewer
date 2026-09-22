@@ -17,6 +17,7 @@ import {
 } from '../../stores/image-view';
 import { Segment } from '../shared/Segment';
 import { dynamic } from '../shared/styles';
+import { ErrorRow } from '../states/Errors';
 import { ImageMeta } from './ImageMeta';
 import { OnionSkin, BlendSlider } from './OnionSkin';
 import { SideBySide } from './SideBySide';
@@ -112,9 +113,10 @@ export function ImageDiff({
         />
       </div>
       {imageError && (
-        <p role="alert" className="p-3 text-deleted dark:text-deleted-dark">
-          Image could not be decoded. Open it in the system application.
-        </p>
+        <ErrorRow
+          label="Image could not be decoded. Open it in the system application."
+          error={{ message: selection.path }}
+        />
       )}
       <div
         ref={stage}

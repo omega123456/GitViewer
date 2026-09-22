@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes } from 'react';
+import type { ComponentProps } from 'react';
 import { focus, focusInset } from './styles';
 const variants = {
   default: `rounded px-2 py-1 hover:bg-hover dark:hover:bg-hover-dark ${focus}`,
@@ -11,7 +11,7 @@ export function Button({
   variant = 'default',
   children,
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & {
+}: ComponentProps<'button'> & {
   variant?: keyof typeof variants;
 }) {
   return (

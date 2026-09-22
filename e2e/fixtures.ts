@@ -287,6 +287,18 @@ export const test = base.extend({
                     return diff;
                   case 'refresh':
                     return null;
+                  case 'sync':
+                    throw {
+                      category: 'refused',
+                      message:
+                        "To github.com:acme/fixture.git\n ! [rejected]        main -> main (fetch first)\nerror: failed to push some refs to 'github.com:acme/fixture.git'\nhint: Updates were rejected because the remote contains work that you do\nhint: not have locally.",
+                    };
+                  case 'branch_switch':
+                    throw {
+                      category: 'refused',
+                      message:
+                        'error: Your local changes to the following files would be overwritten by checkout:\n\tsrc/app.ts\n\tREADME.md\nPlease commit your changes or stash them before you switch branches.\nAborting',
+                    };
                   default:
                     throw new Error(`Unmocked e2e command: ${payload.command}`);
                 }

@@ -2,6 +2,7 @@ import { QueryClient, useQuery } from '@tanstack/react-query';
 import { listen } from '@tauri-apps/api/event';
 import { invoke, normalizeError } from './ipc';
 import type { Commands, Events } from './types';
+import { appScope, useErrors } from '../stores/errors';
 import { useTabs } from '../stores/tabs';
 export const client = new QueryClient({
   defaultOptions: {
@@ -25,20 +26,33 @@ export function useBackend<K extends keyof Commands>(
     enabled,
   });
 }
-export async function perform<K extends keyof Commands>(
+export async function attempt<K extends keyof Commands>(
   command: K,
   args: Commands[K]['args'],
 ) {
   const store = useTabs.getState();
   store.setBusy(1);
-  store.setError(null);
   try {
     return await invoke(command, args);
-  } catch (error) {
-    store.setError(normalizeError(error));
-    return undefined;
   } finally {
     store.setBusy(-1);
+  }
+}
+export async function perform<K extends keyof Commands>(
+  command: K,
+  args: Commands[K]['args'],
+): Promise<Commands[K]['result'] | undefined> {
+  const scope = 'repo' in args ? args.repo : appScope;
+  try {
+    const result = await attempt(command, args);
+    useErrors.getState().resolve(scope, command);
+    return result;
+  } catch (error) {
+    useErrors.getState().report(scope, normalizeError(error), {
+      command,
+      retry: () => perform(command, args),
+    });
+    return undefined;
   }
 }
 export function handleEvent<K extends keyof Events>(

@@ -9,10 +9,10 @@ export function MissingGit({
   error: { message: string } | null;
 }) {
   return (
-    <main className="h-screen border-2 border-deleted bg-surface text-ink dark:border-deleted-dark dark:bg-surface-dark dark:text-ink-dark">
+    <main className="h-screen bg-surface text-ink dark:bg-surface-dark dark:text-ink-dark">
       <State
         icon={AlertTriangle}
-        tone="deleted"
+        tone="error"
         title={
           environment?.found ? 'Git needs an update' : 'Git is not installed'
         }

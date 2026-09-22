@@ -24,6 +24,7 @@ import { useLayout } from '../../stores/layout';
 import { useSelection } from '../../stores/selection';
 import type { Selection, Settings } from '../../lib/types';
 import { Button } from '../shared/Button';
+import { ErrorState } from '../states/Errors';
 import { State } from '../states/State';
 import { StatusBadge } from '../sidebar/StatusBadge';
 import { ImageDiff } from '../image/ImageDiff';
@@ -315,7 +316,11 @@ function SelectedDiff({
       {selection.blame ? (
         <BlameView repo={repo} selection={selection} />
       ) : query.error ? (
-        <State title="Unable to read this file">{query.error.message}</State>
+        <ErrorState
+          title="Could not load this file"
+          error={query.error}
+          retry={() => void query.refetch()}
+        />
       ) : !data ? (
         <State title="Loading file…" />
       ) : data.tooLarge ? (

@@ -1,18 +1,18 @@
 import { create } from 'zustand';
 import { perform } from '../lib/query';
+import { useErrors } from './errors';
 import { type CommitMode, useTabs } from './tabs';
 export type CommitPhase = 'idle' | 'committing' | 'pushing';
 export interface CommitState {
   phase: CommitPhase;
   prompt: CommitMode | null;
-  notice: string | null;
 }
 export interface CommitRequest {
   message: string;
   mode: CommitMode;
   stage: string[];
 }
-const idle: CommitState = { phase: 'idle', prompt: null, notice: null };
+const idle: CommitState = { phase: 'idle', prompt: null };
 interface CommitStore {
   repos: Record<string, CommitState>;
   ask: (repo: string, mode: CommitMode) => void;
@@ -29,10 +29,10 @@ function update(repo: string, patch: Partial<CommitState>) {
 }
 export const useCommit = create<CommitStore>(() => ({
   repos: {},
-  ask: (repo, mode) => update(repo, { prompt: mode, notice: null }),
+  ask: (repo, mode) => update(repo, { prompt: mode }),
   dismiss: (repo) => update(repo, { prompt: null }),
   run: async (repo, { message, mode, stage }) => {
-    update(repo, { phase: 'committing', prompt: null, notice: null });
+    update(repo, { phase: 'committing', prompt: null });
     const staged =
       stage.length === 0 ||
       (await perform('files_action', {
@@ -51,8 +51,11 @@ export const useCommit = create<CommitStore>(() => ({
       update(repo, { phase: 'pushing' });
       const pushed = await perform('sync', { repo, action: 'push' });
       if (pushed === undefined) {
-        const reason = useTabs.getState().error?.message ?? 'unknown error';
-        update(repo, { notice: `Committed. Push failed: ${reason}` });
+        useErrors.getState().relabel(repo, 'sync', {
+          title: 'Push failed',
+          lead: 'Your commit is saved.',
+          retryLabel: 'Push again',
+        });
       } else {
         useTabs.getState().setCommitMode(repo, 'commit');
       }

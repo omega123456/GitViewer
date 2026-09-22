@@ -6,9 +6,9 @@ import { useDark } from '../../stores/theme';
 import { SettingsSurface } from '../settings/SettingsSurface';
 import { FirstRun } from '../states/FirstRun';
 import { CommandPalette } from './CommandPalette';
-import { ErrorBanner } from './ErrorBanner';
 import { RepoTabStrip } from './RepoTabStrip';
 import { RepositoryView } from './RepositoryView';
+import { Toaster } from './Toaster';
 export function AppShell({
   settings,
   version,
@@ -24,10 +24,9 @@ export function AppShell({
     <main
       data-theme={dark ? 'dark' : 'light'}
       data-density={compact ? 'compact' : 'comfortable'}
-      className="flex h-screen flex-col overflow-hidden bg-surface font-sans text-ink dark:bg-surface-dark dark:text-ink-dark"
+      className="relative flex h-screen flex-col overflow-hidden bg-surface font-sans text-ink dark:bg-surface-dark dark:text-ink-dark"
     >
       <RepoTabStrip />
-      <ErrorBanner />
       <UpdateBanner />
       {tabs.length === 0 ? (
         <FirstRun />
@@ -49,6 +48,7 @@ export function AppShell({
       )}
       <SettingsSurface settings={settings} />
       <CommandPalette repo={active} />
+      <Toaster />
     </main>
   );
 }

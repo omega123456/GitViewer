@@ -6,6 +6,7 @@ import type { Selection } from '../../lib/types';
 import { Avatar } from '../shared/Avatar';
 import { Button } from '../shared/Button';
 import { VirtualList } from '../shared/VirtualList';
+import { ErrorState } from '../states/Errors';
 import { State } from '../states/State';
 export function BlameView({
   repo,
@@ -16,7 +17,11 @@ export function BlameView({
 }) {
   const query = useBackend('blame', { repo, path: selection.path });
   return query.error ? (
-    <State title="Unable to read blame">{query.error.message}</State>
+    <ErrorState
+      title="Could not load blame"
+      error={query.error}
+      retry={() => void query.refetch()}
+    />
   ) : (
     <div className="flex min-h-0 flex-1 flex-col font-mono text-diff">
       <VirtualList

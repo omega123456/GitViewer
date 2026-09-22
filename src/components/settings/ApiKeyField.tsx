@@ -6,6 +6,7 @@ import type { SettingsResponse } from '../../lib/types';
 import { Button } from '../shared/Button';
 import { TextInput } from '../shared/TextInput';
 import { field } from '../shared/styles';
+import { FieldError } from '../states/Errors';
 import { SettingRow } from './GeneralSection';
 export function ApiKeyField({ settings }: { settings: SettingsResponse }) {
   const [draft, setDraft] = useState('');
@@ -49,6 +50,7 @@ export function ApiKeyField({ settings }: { settings: SettingsResponse }) {
         <div className="flex items-center gap-2">
           <TextInput
             aria-label="API key"
+            aria-invalid={Boolean(error)}
             type={visible ? 'text' : 'password'}
             value={draft}
             className={field}
@@ -90,14 +92,7 @@ export function ApiKeyField({ settings }: { settings: SettingsResponse }) {
           <Button onClick={() => setConfirming(true)}>Clear</Button>
         </div>
       )}
-      {error && (
-        <p
-          role="alert"
-          className="text-label text-remove-ink dark:text-remove-ink-dark"
-        >
-          {error}
-        </p>
-      )}
+      {error && <FieldError>{error}</FieldError>}
     </SettingRow>
   );
 }

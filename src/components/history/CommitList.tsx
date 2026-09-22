@@ -14,6 +14,7 @@ import { Avatar } from '../shared/Avatar';
 import { Button } from '../shared/Button';
 import { GroupHeader } from '../shared/Section';
 import { VirtualList } from '../shared/VirtualList';
+import { ErrorRow, ErrorState } from '../states/Errors';
 import { State } from '../states/State';
 import { LaneGraph } from './LaneGraph';
 const refColours = [
@@ -70,7 +71,11 @@ export function CommitList({ repo }: { repo: string }) {
         </div>
       )}
       {query.error ? (
-        <State title="Unable to load history">{query.error.message}</State>
+        <ErrorState
+          title="Could not load history"
+          error={query.error}
+          retry={() => void query.refetch()}
+        />
       ) : (
         <VirtualList
           label="Commit history"
@@ -150,7 +155,13 @@ export function CommitList({ repo }: { repo: string }) {
               </Button>
             }
           />
-          {files.error && <p role="alert">{files.error.message}</p>}
+          {files.error && (
+            <ErrorRow
+              label="Could not load the commit files"
+              error={files.error}
+              retry={() => void files.refetch()}
+            />
+          )}
           {files.data && (
             <RevisionTree
               key={selection.revision}

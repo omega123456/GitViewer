@@ -3,6 +3,7 @@ import { perform, useBackend } from '../../lib/query';
 import type { Settings, UpdateSnapshot } from '../../lib/types';
 import { Button } from '../shared/Button';
 import { focus } from '../shared/styles';
+import { FieldError } from '../states/Errors';
 
 export function updateStatus(state: UpdateSnapshot) {
   if (state.availability === 'development')
@@ -38,7 +39,9 @@ export function UpdatesSection({ settings }: { settings: Settings }) {
   return (
     <section aria-label="Updates" className="flex flex-col gap-3 text-xs">
       <h2 className="text-sm font-semibold">Updates</h2>
-      {query.error && <p role="alert">Couldn’t load update status.</p>}
+      {query.error && (
+        <FieldError>Could not load the update status.</FieldError>
+      )}
       {!state && !query.error && <p>Loading update status…</p>}
       {state && (
         <>

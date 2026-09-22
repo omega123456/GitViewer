@@ -14,6 +14,7 @@ import { Button } from '../shared/Button';
 import { CheckBox } from '../shared/CheckBox';
 import { TextInput } from '../shared/TextInput';
 import { field } from '../shared/styles';
+import { ErrorState } from '../states/Errors';
 import { State } from '../states/State';
 import { RevisionTree } from './RevisionTree';
 export function openCompare(repo: string, patch: Partial<TabLayout> = {}) {
@@ -72,12 +73,13 @@ export function CompareError({
   mergeBase: boolean;
 }) {
   return (
-    <State
-      title="Unable to compare branches"
+    <ErrorState
+      title="Could not compare branches"
+      error={{ message }}
       action={
         mergeBase && (
           <Button
-            className="border border-line dark:border-line-dark"
+            className="border border-line bg-surface dark:border-line-dark dark:bg-surface-dark"
             onClick={() =>
               useLayout.getState().update(repo, { mergeBase: false })
             }
@@ -86,9 +88,7 @@ export function CompareError({
           </Button>
         )
       }
-    >
-      {message}
-    </State>
+    />
   );
 }
 export function SameRefState() {
@@ -142,7 +142,7 @@ export function CompareSection({
           id={id}
           list={references}
           aria-invalid={Boolean(files.error) && !known(value)}
-          className={`${field} pr-6 font-mono text-meta aria-invalid:border-deleted dark:aria-invalid:border-deleted-dark`}
+          className={`${field} pr-6 font-mono text-meta`}
           value={value}
           onChange={(event) => update({ [key]: event.target.value })}
         />

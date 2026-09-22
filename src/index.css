@@ -46,6 +46,10 @@
   --color-merge-dark: #2e2413;
   --color-merge-ink: #7a4a00;
   --color-merge-ink-dark: #f0c877;
+  --color-error: #fdeee8;
+  --color-error-dark: #2c1a16;
+  --color-error-ink: #b42318;
+  --color-error-ink-dark: #ff9d85;
   --color-modified: #b26b00;
   --color-modified-dark: #e0a93b;
   --color-added: #1f7a45;
@@ -125,6 +129,7 @@
   --spacing-staged-cap: 50%;
   --spacing-commit: 30px;
   --spacing-dialog: 460px;
+  --spacing-toast: 360px;
   --spacing-sidebar: var(--sidebar-width, 300px);
   --spacing-branches: var(--branches-width, 320px);
   --spacing-virtual: var(--virtual-height);
@@ -137,6 +142,13 @@
   --spacing-stash-files: var(--stash-files-height, 50%);
   --spacing-message: var(--message-height, 80px);
   --translate-row: var(--row-offset);
+  --animate-rise: rise 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+  }
   --opacity-blend: var(--blend-opacity);
   --background-image-checker: url('/checker.svg');
   --background-image-checker-dark: url('/checker-dark.svg');

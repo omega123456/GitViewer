@@ -1,6 +1,7 @@
 import { generated, update } from './fixtures';
 import { vi } from 'vitest';
 import type { Commands, Events } from '../lib/types';
+import { useErrors } from '../stores/errors';
 type Handler = (args: never) => unknown;
 const handlers = new Map<string, Handler>();
 const listeners = new Map<string, Set<(event: { payload: unknown }) => void>>();
@@ -30,6 +31,9 @@ export function resetHarness() {
   host.platform = 'macos';
   dialog.path = null;
   dialog.approved = true;
+}
+export function lastError(scope: string) {
+  return useErrors.getState().scopes[scope]?.slice(-1)[0]?.error;
 }
 export function emit<K extends keyof Events>(name: K, payload: Events[K]) {
   listeners.get(name)?.forEach((listener) => listener({ payload }));

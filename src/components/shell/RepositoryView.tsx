@@ -35,6 +35,7 @@ import {
 import { useFilter } from '../../stores/filter';
 import { Button } from '../shared/Button';
 import { dynamic } from '../shared/styles';
+import { ErrorState } from '../states/Errors';
 import { State } from '../states/State';
 import { AllChangesPane } from '../diff/AllChangesPane';
 import { DiffPane } from '../diff/DiffPane';
@@ -318,7 +319,11 @@ export function RepositoryView({
   useActions(`${repo}:repository`, actions);
   if (query.error)
     return (
-      <State title="Unable to read repository">{query.error.message}</State>
+      <ErrorState
+        title="Could not read the repository"
+        error={query.error}
+        retry={() => void query.refetch()}
+      />
     );
   if (!status) return <State title="Loading repository…" />;
   return (

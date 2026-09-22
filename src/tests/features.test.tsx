@@ -23,7 +23,7 @@ import { checkout } from '../components/shell/BranchPopover';
 import { DiffPane } from '../components/diff/DiffPane';
 import { AllChangesPane } from '../components/diff/AllChangesPane';
 import { ImageDiff } from '../components/image/ImageDiff';
-import { mockCommand, dialog, calls, emit } from './harness';
+import { mockCommand, dialog, calls, emit, lastError } from './harness';
 import { intersect, intersecting } from './setup';
 import { settings, status, repository, diff } from './fixtures';
 
@@ -340,24 +340,49 @@ describe('repository workflows', () => {
       calls.filter((call) => call.command === 'branch_merge'),
     ).toHaveLength(1);
   });
-  it('runs smart checkout only after a blocking failure and preserves the error on cancellation', async () => {
+  it('asks in place before smart checkout and preserves the error on cancellation', async () => {
     setup();
     mockCommand('branch_switch', () => {
       throw {
         category: 'refused',
-        message: 'file.txt would be overwritten by checkout',
+        message:
+          'error: Your local changes to the following files would be overwritten by checkout:\n\tfile.txt\nAborting',
       };
     });
     mockCommand('smart_checkout', () => null);
-    await checkout(repository.id, 'feature');
+    const user = userEvent.setup();
+    mount();
+    await screen.findByLabelText('Commit message');
+    const switched = checkout(repository.id, 'feature');
+    const card = await screen.findByRole('dialog', {
+      name: 'Switch to feature?',
+    });
+    expect(within(card).getByText('file.txt')).toBeVisible();
+    expect(
+      within(card).getByRole('button', { name: 'Stash and switch' }),
+    ).toHaveFocus();
+    await user.click(
+      within(card).getByRole('button', { name: 'Stash and switch' }),
+    );
+    await act(() => switched);
     expect(calls.some((call) => call.command === 'smart_checkout')).toBe(true);
     expect(useTabs.getState().busy).toBe(0);
-    dialog.approved = false;
-    await checkout(repository.id, 'feature');
-    expect(useTabs.getState().error?.message).toContain('file.txt');
+    const cancelled = checkout(repository.id, 'feature');
+    await screen.findByRole('dialog', { name: 'Switch to feature?' });
+    await user.keyboard('{Escape}');
+    await act(() => cancelled);
+    expect(lastError(repository.id)?.message).toContain('file.txt');
     expect(
       calls.filter((call) => call.command === 'smart_checkout'),
     ).toHaveLength(1);
+    mockCommand('branch_switch', () => {
+      throw { category: 'refused', message: 'error: unknown branch' };
+    });
+    await act(() => checkout(repository.id, 'missing'));
+    expect(lastError(repository.id)?.message).toBe('error: unknown branch');
+    mockCommand('branch_switch', () => null);
+    await act(() => checkout(repository.id, 'feature'));
+    expect(lastError(repository.id)).toBeUndefined();
   });
   it('runs registered repository navigation, synchronization, and file actions', async () => {
     setup();
@@ -600,16 +625,19 @@ describe('repository workflows', () => {
     await user.click(screen.getByLabelText('All changes in stash'));
     expect(useSelection.getState().all[repository.id]).toBe('commit');
     await screen.findByRole('region', { name: 'All changes in stash' });
-    await action('apply-stash');
-    expect(calls).toContainEqual({
+    const smartApply = (pop: boolean) => ({
       command: 'stash_apply',
-      args: {
-        repo: repository.id,
-        hash: 'stash-hash',
-        pop: false,
-        smart: true,
-      },
+      args: { repo: repository.id, hash: 'stash-hash', pop, smart: true },
     });
+    const decide = async (label: string) => {
+      const card = await screen.findByRole('dialog', {
+        name: 'Combine with your changes?',
+      });
+      await user.click(within(card).getByRole('button', { name: label }));
+    };
+    await user.click(screen.getByLabelText('Apply stash@{0}'));
+    await decide('Apply and combine');
+    await waitFor(() => expect(calls).toContainEqual(smartApply(false)));
     const stashMutations = () =>
       calls.filter((call) => call.command.startsWith('stash_')).length;
     dialog.approved = false;
@@ -619,32 +647,25 @@ describe('repository workflows', () => {
     await action('drop-stash');
     expect(stashMutations()).toBe(gated);
     dialog.approved = true;
-    await action('pop-stash');
     await action('drop-stash');
     expect(calls).toContainEqual({
       command: 'stash_drop',
       args: { repo: repository.id, hash: 'stash-hash' },
     });
-    await user.click(screen.getByLabelText('Apply stash@{0}'));
-    expect(calls).toContainEqual({
-      command: 'stash_apply',
-      args: {
-        repo: repository.id,
-        hash: 'stash-hash',
-        pop: false,
-        smart: true,
-      },
-    });
     await user.click(screen.getByLabelText('Pop stash@{0}'));
-    expect(calls).toContainEqual({
-      command: 'stash_apply',
-      args: {
-        repo: repository.id,
-        hash: 'stash-hash',
-        pop: true,
-        smart: true,
-      },
+    await decide('Cancel');
+    expect(calls).not.toContainEqual(smartApply(true));
+    await user.click(screen.getByLabelText('Pop stash@{0}'));
+    await decide('Pop and combine');
+    await waitFor(() => expect(calls).toContainEqual(smartApply(true)));
+    mockCommand('stash_apply', () => {
+      throw { category: 'refused', message: 'error: conflict' };
     });
+    await action('apply-stash');
+    expect(lastError(repository.id)?.message).toBe('error: conflict');
+    mockCommand('stash_apply', () => null);
+    await action('apply-stash');
+    expect(lastError(repository.id)).toBeUndefined();
     const dropped = stashMutations();
     await user.click(screen.getByLabelText('Drop stash@{0}'));
     expect(stashMutations()).toBeGreaterThan(dropped);
@@ -661,11 +682,14 @@ describe('repository workflows', () => {
       throw { category: 'authentication', message: 'Credentials rejected' };
     });
     await action('fetch');
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      'authentication: Credentials rejected',
-    );
+    expect(
+      await screen.findByText('Sign-in to the remote failed'),
+    ).toBeVisible();
+    expect(screen.getByText('Credentials rejected')).toBeVisible();
     await user.click(screen.getByLabelText('Dismiss error'));
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Sign-in to the remote failed'),
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -730,6 +754,39 @@ describe('diff interaction', () => {
     await action('image-fit');
     expect(screen.getByAltText('Before')).toHaveClass('max-w-full');
   });
+  it('shows a failed region in place and retries it', async () => {
+    let failing = true;
+    mockCommand('diff', () => {
+      if (failing)
+        throw {
+          category: 'refused',
+          message: "fatal: path 'src/app.ts' does not exist in 'HEAD~3'",
+        };
+      return diff;
+    });
+    const user = userEvent.setup();
+    render(
+      <QueryProvider>
+        <DiffPane
+          repo={repository.id}
+          selection={{ path: 'src/app.ts', source: 'unstaged' }}
+          settings={settings}
+          disabled={false}
+        />
+      </QueryProvider>,
+    );
+    expect(await screen.findByText('Could not load this file')).toBeVisible();
+    expect(
+      screen.getByText("Path 'src/app.ts' does not exist in 'HEAD~3'"),
+    ).toBeVisible();
+    failing = false;
+    await user.click(screen.getByRole('button', { name: /Retry/ }));
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Could not load this file'),
+      ).not.toBeInTheDocument(),
+    );
+  });
   it('keeps the image mode and swipe position through a re-selection', async () => {
     mockCommand('diff', () => ({ ...diff, image: true }));
     const user = userEvent.setup();
@@ -750,9 +807,7 @@ describe('diff interaction', () => {
     fireEvent.pointerMove(divider, { clientX: 600 });
     expect(divider).toHaveAttribute('aria-valuenow', '75');
     fireEvent.error(screen.getByAltText('Before'));
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      'Image could not be decoded',
-    );
+    expect(screen.getByText(/Image could not be decoded/)).toBeVisible();
     rerender(pane('after.png'));
     expect(
       await screen.findByRole('slider', { name: 'Swipe divider' }),
@@ -761,7 +816,9 @@ describe('diff interaction', () => {
       'aria-checked',
       'true',
     );
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Image could not be decoded/),
+    ).not.toBeInTheDocument();
   });
   it('opens oversized images externally without offering an in-app override', async () => {
     setup();
@@ -800,7 +857,7 @@ describe('diff interaction', () => {
     );
     expect(screen.getByText(/20×30 → 25×40/)).toBeVisible();
     fireEvent.error(screen.getByAltText('After'));
-    expect(screen.getByRole('alert')).toHaveTextContent(
+    expect(screen.getByRole('status')).toHaveTextContent(
       'Image could not be decoded',
     );
     expect(

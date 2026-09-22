@@ -177,7 +177,8 @@ describe('commit with nothing staged', () => {
     await user.click(
       screen.getByRole('button', { name: 'Stage all & commit' }),
     );
-    expect(await screen.findByText('git: index locked')).toBeVisible();
+    expect(await screen.findByText('Something went wrong')).toBeVisible();
+    expect(screen.getByText('Index locked')).toBeVisible();
     expect(commands()).not.toContain('commit');
     expect(screen.getByLabelText('Commit message')).toHaveValue('Ship it');
   });
@@ -229,11 +230,22 @@ describe('commit and push', () => {
     mount();
     await screen.findByRole('button', { name: 'Commit 1 file to main' });
     await run('commit-push');
+    expect(await screen.findByText('Push failed')).toBeVisible();
     expect(
-      await screen.findByText('Committed. Push failed: remote unreachable'),
+      screen.getByText('Your commit is saved. Remote unreachable'),
     ).toBeVisible();
     expect(screen.getByLabelText('Commit message')).toHaveValue('');
     expect(commands()).toContain('commit');
+    mockCommand('sync', () => null);
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: /Push again/ }));
+    await waitFor(() =>
+      expect(commands().filter((command) => command === 'sync')).toHaveLength(
+        2,
+      ),
+    );
+    expect(screen.queryByText('Push failed')).not.toBeInTheDocument();
   });
   it('carries the shortcut mode through the staging prompt', async () => {
     setup(unstaged);

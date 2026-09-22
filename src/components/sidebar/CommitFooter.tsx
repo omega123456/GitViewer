@@ -26,6 +26,7 @@ import {
 import { Button } from '../shared/Button';
 import { dynamic, field, focus } from '../shared/styles';
 import { ResizeHandle } from '../shell/ResizeHandle';
+import { FieldError } from '../states/Errors';
 export function aiConfigured(settings: SettingsResponse) {
   return Boolean(settings.ai.baseUrl && settings.ai.model);
 }
@@ -146,14 +147,7 @@ export function CommitFooter({
             }
           />
         </div>
-        {generate.error && (
-          <p
-            role="alert"
-            className="text-label text-remove-ink dark:text-remove-ink-dark"
-          >
-            {generate.error}
-          </p>
-        )}
+        {generate.error && <FieldError>{generate.error}</FieldError>}
         {notice && (
           <p className="text-label text-muted dark:text-muted-dark">{notice}</p>
         )}
@@ -195,14 +189,6 @@ export function CommitFooter({
               </Button>
             </div>
           </div>
-        )}
-        {flow.notice && (
-          <p
-            role="alert"
-            className="text-label text-remove-ink dark:text-remove-ink-dark"
-          >
-            {flow.notice}
-          </p>
         )}
         {status.branch === '(detached)' && (
           <p className="text-label text-modified">

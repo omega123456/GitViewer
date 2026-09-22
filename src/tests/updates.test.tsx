@@ -151,7 +151,7 @@ it('handles loading, missing configuration, and IPC errors', async () => {
     </QueryProvider>,
   );
   expect(screen.getByText('Loading update status…')).toBeVisible();
-  await screen.findByText('Couldn’t load update status.');
+  await screen.findByText('Could not load the update status.');
   mockCommand('update_get', () => ({
     ...update,
     availability: 'unconfigured',

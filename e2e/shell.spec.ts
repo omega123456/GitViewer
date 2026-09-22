@@ -250,6 +250,32 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`error card and decision card ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto('/');
+    await page
+      .getByRole('button', { name: 'Open repository', exact: true })
+      .last()
+      .click();
+    await page.getByRole('button', { name: /^push/ }).click();
+    const card = page.locator('li', { hasText: 'Push rejected' });
+    await expect(card.getByRole('button', { name: 'Pull' })).toBeVisible();
+    await card.getByRole('button', { name: 'Show details' }).click();
+    await expect(
+      card.getByText('! [rejected]', { exact: false }),
+    ).toBeVisible();
+    await expect(card).toHaveScreenshot(`error-card-${theme}.png`);
+    await page.getByRole('button', { name: 'main', exact: true }).click();
+    await page.getByRole('button', { name: /^feature/ }).click();
+    const decision = page.getByRole('dialog', { name: 'Switch to feature?' });
+    await expect(
+      decision.getByRole('button', { name: 'Stash and switch' }),
+    ).toBeFocused();
+    await expect(decision).toHaveScreenshot(`decision-card-${theme}.png`);
+  });
+}
+
+for (const theme of ['light', 'dark'] as const) {
   test(`stash section ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme });
     await page.goto('/?scenario=stash');

@@ -21,7 +21,7 @@ import {
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { client, perform, queryKey } from '../../lib/query';
 import { invoke, normalizeError } from '../../lib/ipc';
-import { useTabs } from '../../stores/tabs';
+import { useErrors } from '../../stores/errors';
 import { useSelection, useWorkingSelection } from '../../stores/selection';
 import { useFilter } from '../../stores/filter';
 import { useCompact } from '../../stores/density';
@@ -308,7 +308,9 @@ export function FilesTree({ repo, status }: { repo: string; status: Status }) {
         try {
           return await load(id);
         } catch (error) {
-          useTabs.getState().setError(normalizeError(error));
+          useErrors
+            .getState()
+            .report(repo, normalizeError(error), { command: 'tree' });
           return [];
         }
       },

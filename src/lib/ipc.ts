@@ -1,4 +1,5 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
+import { appScope, useErrors } from '../stores/errors';
 import type { Commands, GitError } from './types';
 export async function invoke<K extends keyof Commands>(
   command: K,
@@ -21,4 +22,7 @@ export function normalizeError(error: unknown): GitError {
     };
   }
   return { category: 'unexpected', message: String(error) };
+}
+export function reportAppError(error: unknown) {
+  useErrors.getState().report(appScope, normalizeError(error));
 }

@@ -8,6 +8,7 @@ import { Select } from '../shared/Select';
 import { TextArea } from '../shared/TextArea';
 import { TextInput } from '../shared/TextInput';
 import { field } from '../shared/styles';
+import { FieldError } from '../states/Errors';
 import { ApiKeyField } from './ApiKeyField';
 import { SettingRow } from './GeneralSection';
 
@@ -35,8 +36,8 @@ const states = {
   failed: {
     icon: CircleX,
     label: 'Connection failed',
-    tone: 'text-remove-ink dark:text-remove-ink-dark',
-    dot: 'bg-remove-ink dark:bg-remove-ink-dark',
+    tone: 'text-error-ink dark:text-error-ink-dark',
+    dot: 'bg-error-ink dark:bg-error-ink-dark',
   },
 };
 
@@ -157,12 +158,9 @@ export function AiSection({ settings }: { settings: SettingsResponse }) {
           </p>
         )}
         {listable && !models.isPending && !options.length && (
-          <p
-            role="alert"
-            className="text-label text-remove-ink dark:text-remove-ink-dark"
-          >
+          <FieldError>
             This endpoint does not list models. Use one that does.
-          </p>
+          </FieldError>
         )}
       </SettingRow>
       <SettingRow

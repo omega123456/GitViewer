@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { SessionProvider } from '../providers/SessionProvider';
 import { useTabs } from '../stores/tabs';
 import { layoutDefaults, tabLayout, useLayout } from '../stores/layout';
-import { calls, emit, mockCommand } from './harness';
+import { calls, emit, lastError, mockCommand } from './harness';
 import { repository } from './fixtures';
 import { TextInput } from '../components/shared/TextInput';
 import { TextArea } from '../components/shared/TextArea';
@@ -121,9 +121,7 @@ describe('session persistence', () => {
     );
     await screen.findByText('Ready');
     expect(useTabs.getState().active).toBe('/ok');
-    expect(useTabs.getState().error?.message).toContain(
-      'Repository unavailable',
-    );
+    expect(lastError('app')?.message).toContain('Repository unavailable');
   });
 
   it('shows load and save errors without blocking the application', async () => {
@@ -139,11 +137,9 @@ describe('session persistence', () => {
       </SessionProvider>,
     );
     await screen.findByText('Ready');
-    expect(useTabs.getState().error?.message).toBe('Load failed');
+    expect(lastError('app')?.message).toBe('Load failed');
     act(() => useTabs.getState().open('/a', 'a'));
-    await waitFor(() =>
-      expect(useTabs.getState().error?.message).toBe('Save failed'),
-    );
+    await waitFor(() => expect(lastError('app')?.message).toBe('Save failed'));
   });
 });
 
@@ -234,9 +230,7 @@ it('allows editing and another close attempt after a save failure', async () => 
   );
   await screen.findByText('Ready');
   act(() => emit('session://save-requested', null));
-  await waitFor(() =>
-    expect(useTabs.getState().error?.message).toBe('Disk full'),
-  );
+  await waitFor(() => expect(lastError('app')?.message).toBe('Disk full'));
   act(() => useTabs.getState().open('/a', 'a'));
   await waitFor(() =>
     expect(calls.some(({ command }) => command === 'session_set')).toBe(true),

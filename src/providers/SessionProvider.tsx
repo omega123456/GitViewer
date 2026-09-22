@@ -1,6 +1,6 @@
 import { listen } from '@tauri-apps/api/event';
 import { useEffect, useState, type ReactNode } from 'react';
-import { invoke, normalizeError } from '../lib/ipc';
+import { invoke, reportAppError } from '../lib/ipc';
 import { useTabs } from '../stores/tabs';
 import { tabLayout, useLayout } from '../stores/layout';
 import type { Session } from '../lib/types';
@@ -28,7 +28,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             useTabs.getState().setMessage(repo.id, tab.message);
             if (tab.layout) useLayout.getState().update(repo.id, tab.layout);
           } catch (error) {
-            useTabs.getState().setError(normalizeError(error));
+            reportAppError(error);
           }
         }
         if (cancelled) return;
@@ -36,7 +36,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           useTabs.getState().activate(active);
         }
       } catch (error) {
-        if (!cancelled) useTabs.getState().setError(normalizeError(error));
+        if (!cancelled) reportAppError(error);
       }
       if (cancelled) return;
       let queue = Promise.resolve();
@@ -55,7 +55,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       stopCancelled = await listen('session://close-cancelled', () => {
         closing = false;
       }).catch((error) => {
-        if (!cancelled) useTabs.getState().setError(normalizeError(error));
+        if (!cancelled) reportAppError(error);
         return () => {};
       });
       unlisten = await listen('session://save-requested', () => {
@@ -67,11 +67,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             await invoke('session_close', session);
           } catch (error) {
             closing = false;
-            if (!cancelled) useTabs.getState().setError(normalizeError(error));
+            if (!cancelled) reportAppError(error);
           }
         });
       }).catch((error) => {
-        if (!cancelled) useTabs.getState().setError(normalizeError(error));
+        if (!cancelled) reportAppError(error);
         return () => {};
       });
       if (cancelled) {
@@ -86,7 +86,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           try {
             await invoke('session_set', session);
           } catch (error) {
-            if (!cancelled) useTabs.getState().setError(normalizeError(error));
+            if (!cancelled) reportAppError(error);
           }
         });
       };

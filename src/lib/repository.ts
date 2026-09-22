@@ -1,5 +1,5 @@
 import { open, confirm } from '@tauri-apps/plugin-dialog';
-import { normalizeError } from './ipc';
+import { reportAppError } from './ipc';
 import { perform } from './query';
 import { useTabs, type Tab } from '../stores/tabs';
 export async function openRepository() {
@@ -14,7 +14,7 @@ export async function openRepository() {
       if (repo) useTabs.getState().open(repo.id, repo.name);
     }
   } catch (error) {
-    useTabs.getState().setError(normalizeError(error));
+    reportAppError(error);
   }
 }
 export async function closeRepository(tab: Tab) {

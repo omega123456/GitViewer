@@ -12,6 +12,7 @@ import { useDiffView } from '../../stores/diff-view';
 import { useFilter } from '../../stores/filter';
 import type { Stack } from '../../stores/selection';
 import { focus } from '../shared/styles';
+import { ErrorState } from '../states/Errors';
 import { State } from '../states/State';
 import { StatusBadge } from '../sidebar/StatusBadge';
 import { ImageDiff } from '../image/ImageDiff';
@@ -96,8 +97,8 @@ export function AllChangesPane({
             badge: stack === 'staged' ? entry.index : entry.worktree,
           }));
   const byPath = new Map(entries.map((entry) => [entry.selection.path, entry]));
-  const ordered = treeOrder([...byPath.keys()]).map(
-    (path) => byPath.get(path)!,
+  const ordered = treeOrder([...byPath.keys()]).map((path) =>
+    byPath.get(path)!,
   );
   const listing =
     stack === 'commit'
@@ -168,7 +169,11 @@ export function AllChangesPane({
               mergeBase={comparison.mergeBase}
             />
           ) : error ? (
-            <State title="Unable to list changes">{error.message}</State>
+            <ErrorState
+              title="Could not list the changes"
+              error={error}
+              retry={() => void files.refetch()}
+            />
           ) : listing ? (
             <State icon={Loader2} title="Loading changes">
               Reading the changed files.

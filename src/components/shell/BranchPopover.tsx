@@ -14,12 +14,16 @@ import {
 } from 'lucide-react';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { useActions } from '../../lib/actions';
-import { useBackend, perform } from '../../lib/query';
-import { invoke, normalizeError } from '../../lib/ipc';
-import { useTabs } from '../../stores/tabs';
+import { attempt, useBackend, perform } from '../../lib/query';
+import { normalizeError } from '../../lib/ipc';
+import { overwrittenPaths } from '../../lib/failure';
+import { ask } from '../../stores/decision';
+import { useErrors } from '../../stores/errors';
 import type { Status } from '../../lib/types';
 import { Button } from '../shared/Button';
 import { CheckBox } from '../shared/CheckBox';
+import { Decision } from '../shared/Decision';
+import { ErrorRow } from '../states/Errors';
 import { Modal } from '../shared/Modal';
 import { VirtualList } from '../shared/VirtualList';
 import { dynamic, field, focus } from '../shared/styles';
@@ -27,23 +31,28 @@ import { openCompare } from '../sidebar/CompareSection';
 import { mergeBranch } from '../../lib/merge';
 const item = `flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs outline-none data-disabled:opacity-40 data-highlighted:bg-hover dark:data-highlighted:bg-hover-dark ${focus}`;
 export async function checkout(repo: string, name: string) {
-  useTabs.getState().setBusy(1);
-  useTabs.getState().setError(null);
   try {
-    await invoke('branch_switch', { repo, name });
+    await attempt('branch_switch', { repo, name });
+    useErrors.getState().resolve(repo, 'branch_switch');
   } catch (error) {
     const failure = normalizeError(error);
+    const paths = overwrittenPaths(failure.message);
     if (
       failure.message.includes('would be overwritten') &&
-      (await confirm(
-        `${failure.message}\n\nStash your changes, switch, and restore them? GitViewer will return to the original branch if restoration would conflict.`,
-        { title: 'Smart checkout', kind: 'warning' },
-      ))
+      (await ask(repo, {
+        slot: 'branch',
+        title: `Switch to ${name}?`,
+        body: paths.length
+          ? 'Your changes to these files would be overwritten:'
+          : 'Your local changes would be overwritten.',
+        paths,
+        note: 'GitViewer stashes them, switches, and restores them. If they conflict, it returns to the original branch.',
+        confirm: 'Stash and switch',
+      }))
     )
       await perform('smart_checkout', { repo, name });
-    else useTabs.getState().setError(failure);
-  } finally {
-    useTabs.getState().setBusy(-1);
+    else
+      useErrors.getState().report(repo, failure, { command: 'branch_switch' });
   }
 }
 export function BranchPopover({
@@ -119,15 +128,18 @@ export function BranchPopover({
   return (
     <>
       <Popover.Root open={open} onOpenChange={setOpen}>
-        <Popover.Trigger asChild>
-          <Button className="border border-line bg-surface dark:border-line-dark dark:bg-surface-dark">
-            <GitBranch className="size-4" />
-            {status.branch === '(detached)'
-              ? `${status.oid.slice(0, 7)} · detached`
-              : status.branch || 'Branch'}
-            <ChevronDown className="size-3" />
-          </Button>
-        </Popover.Trigger>
+        <span className="relative flex">
+          <Popover.Trigger asChild>
+            <Button className="border border-line bg-surface dark:border-line-dark dark:bg-surface-dark">
+              <GitBranch className="size-4" />
+              {status.branch === '(detached)'
+                ? `${status.oid.slice(0, 7)} · detached`
+                : status.branch || 'Branch'}
+              <ChevronDown className="size-3" />
+            </Button>
+          </Popover.Trigger>
+          <Decision repo={repo} slot="branch" className="inset-0" />
+        </span>
         <Popover.Portal>
           <Popover.Content
             align="start"
@@ -146,7 +158,13 @@ export function BranchPopover({
                 onChange={(event) => setFilter(event.target.value)}
               />
             </div>
-            {query.error && <p role="alert">{query.error.message}</p>}
+            {query.error && (
+              <ErrorRow
+                label="Could not load branches"
+                error={query.error}
+                retry={() => void query.refetch()}
+              />
+            )}
             <VirtualList
               label="Branches"
               items={branchRows}

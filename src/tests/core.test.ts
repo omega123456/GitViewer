@@ -23,7 +23,10 @@ import {
   treeRoot,
 } from '../components/sidebar/nodes';
 import { imageUrl } from '../components/image/url';
-import { emit, mockCommand } from './harness';
+import { emit, lastError, mockCommand } from './harness';
+import { describe as describeFailure, overwrittenPaths } from '../lib/failure';
+import { useErrors } from '../stores/errors';
+import { answer, ask, useDecision } from '../stores/decision';
 import { diff, status } from './fixtures';
 describe('IPC and events', () => {
   it('rejects unmocked commands honestly', async () => {
@@ -44,7 +47,89 @@ describe('IPC and events', () => {
     });
     expect(await perform('refresh', { repo: 'r' })).toBeUndefined();
     expect(useTabs.getState().busy).toBe(0);
-    expect(useTabs.getState().error?.category).toBe('refused');
+    expect(lastError('r')?.category).toBe('refused');
+    expect(lastError('app')).toBeUndefined();
+    mockCommand('update_check', () => {
+      throw { category: 'network', message: 'Offline' };
+    });
+    await perform('update_check', {});
+    expect(lastError('app')?.category).toBe('network');
+    mockCommand('refresh', () => null);
+    await useErrors.getState().scopes.r[0].retry?.();
+    expect(useErrors.getState().scopes.r).toEqual([]);
+  });
+  it('keeps the newest three failures per scope and relabels by command', () => {
+    const { report, dismiss, resolve, relabel } = useErrors.getState();
+    for (const message of ['one', 'two', 'three', 'four'])
+      report('r', { category: 'refused', message }, { command: message });
+    const messages = () =>
+      useErrors.getState().scopes.r.map((failure) => failure.error.message);
+    expect(messages()).toEqual(['two', 'three', 'four']);
+    const before = useErrors.getState().scopes;
+    resolve('r', 'absent');
+    expect(useErrors.getState().scopes).toBe(before);
+    resolve('r', 'two');
+    expect(messages()).toEqual(['three', 'four']);
+    relabel('r', 'four', { title: 'Push failed' });
+    expect(
+      useErrors.getState().scopes.r.map((failure) => failure.title),
+    ).toEqual([undefined, 'Push failed']);
+    dismiss('r', useErrors.getState().scopes.r[0].id);
+    expect(messages()).toEqual(['four']);
+  });
+  it('describes failures with plain headlines and recoveries', () => {
+    expect(
+      describeFailure({
+        category: 'refused',
+        message:
+          "To origin\n ! [rejected] main -> main (fetch first)\nerror: failed to push some refs to 'origin'",
+      }),
+    ).toMatchObject({ title: 'Push rejected', recovery: 'pull' });
+    expect(
+      describeFailure({
+        category: 'network',
+        message: "fatal: unable to access 'x': Could not resolve host",
+      }),
+    ).toEqual({
+      title: 'Could not reach the remote',
+      summary: "Unable to access 'x': Could not resolve host",
+      kind: 'network',
+      recovery: 'retry',
+    });
+    expect(
+      describeFailure({ category: 'authentication', message: 'denied' }),
+    ).toMatchObject({
+      title: 'Sign-in to the remote failed',
+      kind: 'authentication',
+    });
+    expect(
+      describeFailure({ category: 'unexpected', message: '' }),
+    ).toMatchObject({
+      title: 'Something went wrong',
+      summary: '',
+      kind: 'alert',
+      recovery: null,
+    });
+    expect(
+      overwrittenPaths(
+        'error: Your local changes would be overwritten by checkout:\n\tsrc/app.ts\n\tREADME.md\nAborting',
+      ),
+    ).toEqual(['src/app.ts', 'README.md']);
+  });
+  it('replaces an unanswered decision with the newest question', async () => {
+    const decision = {
+      slot: 'branch',
+      title: 'T',
+      body: 'B',
+      confirm: 'Go',
+    } as const;
+    const first = ask('r', decision);
+    const second = ask('r', decision);
+    expect(await first).toBe(false);
+    answer('r', true);
+    expect(await second).toBe(true);
+    answer('r', true);
+    expect(useDecision.getState().pending).toEqual({});
   });
   it('invalidates only the event repository and preferences', async () => {
     client.setQueryData(['one', 'status'], status);

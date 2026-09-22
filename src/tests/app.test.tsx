@@ -11,6 +11,7 @@ import App from '../App';
 import { Providers } from '../providers';
 import { QueryProvider } from '../providers/QueryProvider';
 import { useTabs } from '../stores/tabs';
+import { useErrors } from '../stores/errors';
 import { useDiffView } from '../stores/diff-view';
 import { mockCommand, dialog, calls, emit } from './harness';
 import { settings, status, repository, diff } from './fixtures';
@@ -151,9 +152,66 @@ describe('application shell', () => {
       screen.getByRole('button', { name: /Commit \d+ files? to/ }),
     ).toBeDisabled();
     await act(async () => {
-      useTabs.getState().setError({ category: 'network', message: 'Offline' });
+      useErrors
+        .getState()
+        .report('app', { category: 'network', message: 'Offline' });
     });
-    expect(screen.getByText('network: Offline')).toBeVisible();
+    expect(await screen.findByText('Could not reach the remote')).toBeVisible();
+    expect(screen.getByText('Offline')).toBeVisible();
+    expect(screen.queryByText(/^network/)).not.toBeInTheDocument();
+  });
+  it('stacks failures per tab as floating cards with details and recovery', async () => {
+    setup();
+    mockCommand('sync', () => null);
+    let retried = false;
+    useTabs.getState().open('/second', 'Second');
+    useTabs.getState().open(repository.id, repository.name);
+    const user = userEvent.setup();
+    mountApp();
+    await screen.findByLabelText('Commit message');
+    act(() => {
+      const { report } = useErrors.getState();
+      report('/second', { category: 'refused', message: 'hidden failure' });
+      report(repository.id, {
+        category: 'refused',
+        message:
+          "To origin\n ! [rejected] main -> main (fetch first)\nerror: failed to push some refs to 'origin'",
+      });
+      report(
+        repository.id,
+        { category: 'network', message: 'fatal: offline' },
+        {
+          retry: async () => {
+            retried = true;
+          },
+        },
+      );
+    });
+    expect(await screen.findByText('Could not reach the remote')).toBeVisible();
+    expect(screen.getByText('Push rejected')).toBeVisible();
+    expect(screen.queryByText('Hidden failure')).not.toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Errors waiting' })).toBeVisible();
+    const details = screen.getAllByRole('button', { name: 'Show details' });
+    await user.click(details[details.length - 1]);
+    expect(screen.getByText('fatal: offline')).toBeVisible();
+    await user.click(screen.getByLabelText('Copy error output'));
+    expect(await screen.findByLabelText('Copied')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Hide details' }));
+    await user.click(screen.getByRole('button', { name: /Retry/ }));
+    expect(retried).toBe(true);
+    expect(
+      screen.queryByText('Could not reach the remote'),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Pull' }));
+    expect(calls).toContainEqual({
+      command: 'sync',
+      args: { repo: repository.id, action: 'pull' },
+    });
+    expect(screen.queryByText('Push rejected')).not.toBeInTheDocument();
+    act(() => useTabs.getState().activate('/second'));
+    expect(await screen.findByText('Hidden failure')).toBeVisible();
+    await user.click(screen.getByLabelText('Dismiss error'));
+    expect(useErrors.getState().scopes['/second']).toEqual([]);
   });
   it('names both branches of a conflicted merge and aborts it', async () => {
     setup();

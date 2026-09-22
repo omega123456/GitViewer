@@ -4,12 +4,16 @@ import { formatDistanceToNowStrict, fromUnixTime } from 'date-fns';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { Archive, Copy, CopyMinus, Layers, Trash2 } from 'lucide-react';
 import { useActions } from '../../lib/actions';
-import { perform, useBackend } from '../../lib/query';
+import { attempt, perform, useBackend } from '../../lib/query';
+import { normalizeError } from '../../lib/ipc';
 import type { Action } from '../../lib/keyboard';
-import { useTabs } from '../../stores/tabs';
+import { ask } from '../../stores/decision';
+import { useErrors } from '../../stores/errors';
 import { useLayout, useTabLayout } from '../../stores/layout';
 import { useSelection, useWorkingSelection } from '../../stores/selection';
 import { Button } from '../shared/Button';
+import { Decision } from '../shared/Decision';
+import { ErrorRow } from '../states/Errors';
 import { GroupHeader, Section } from '../shared/Section';
 import { dynamic, pinnedSlot, revealSlot, rowTint } from '../shared/styles';
 import { VirtualList } from '../shared/VirtualList';
@@ -44,26 +48,23 @@ export function StashSection({
       ))
     )
       return;
-    const result = await perform('stash_apply', {
-      repo,
-      hash,
-      pop,
-      smart: false,
-    });
-    if (
-      result === undefined &&
-      useTabs.getState().error?.category === 'smart_apply' &&
-      (await confirm(
-        'Combine this stash with local changes if the changed paths are disjoint?',
-        { title: 'Smart apply' },
-      ))
-    )
-      await perform('stash_apply', {
-        repo,
-        hash,
-        pop,
-        smart: true,
-      });
+    try {
+      await attempt('stash_apply', { repo, hash, pop, smart: false });
+      useErrors.getState().resolve(repo, 'stash_apply');
+    } catch (error) {
+      const failure = normalizeError(error);
+      if (failure.category !== 'smart_apply')
+        useErrors.getState().report(repo, failure, { command: 'stash_apply' });
+      else if (
+        await ask(repo, {
+          slot: 'stash',
+          title: 'Combine with your changes?',
+          body: 'Your working tree has changes. GitViewer can apply the stash on top of them when they touch different files.',
+          confirm: pop ? 'Pop and combine' : 'Apply and combine',
+        })
+      )
+        await perform('stash_apply', { repo, hash, pop, smart: true });
+    }
   };
   const drop = async (hash: string) => {
     if (
@@ -104,7 +105,14 @@ export function StashSection({
     },
   ];
   useActions(`${repo}:stashes`, actions);
-  if (query.error) return <p role="alert">{query.error.message}</p>;
+  if (query.error)
+    return (
+      <ErrorRow
+        label="Could not load stashes"
+        error={query.error}
+        retry={() => void query.refetch()}
+      />
+    );
   if (!query.data?.length) return null;
   return (
     <>
@@ -125,10 +133,17 @@ export function StashSection({
       )}
       <div
         className={
-          stashOpen ? 'flex h-stash min-h-0 flex-col' : 'flex flex-col'
+          stashOpen
+            ? 'relative flex h-stash min-h-0 flex-col'
+            : 'relative flex flex-col'
         }
         style={dynamic({ '--stash-height': `${stashHeight}%` })}
       >
+        <Decision
+          repo={repo}
+          slot="stash"
+          className="inset-x-0 top-0 h-section"
+        />
         <Section
           title="Stashes"
           count={query.data.length}
@@ -238,7 +253,13 @@ export function StashSection({
                     </Button>
                   }
                 />
-                {files.error && <p role="alert">{files.error.message}</p>}
+                {files.error && (
+                  <ErrorRow
+                    label="Could not load the stash files"
+                    error={files.error}
+                    retry={() => void files.refetch()}
+                  />
+                )}
                 {files.data && (
                   <RevisionTree
                     key={selected}
