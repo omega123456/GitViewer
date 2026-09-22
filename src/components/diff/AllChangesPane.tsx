@@ -2,6 +2,11 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { CheckCircle2, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import { useBackend } from '../../lib/query';
 import type { Diff, Selection, Settings, Status } from '../../lib/types';
+import {
+  CompareError,
+  SameRefState,
+  useComparison,
+} from '../sidebar/CompareSection';
 import { groupEntries } from '../sidebar/nodes';
 import { useDiffView } from '../../stores/diff-view';
 import { useFilter } from '../../stores/filter';
@@ -29,11 +34,13 @@ const titles = {
   staged: 'Staged changes',
   unstaged: 'Changes',
   commit: 'Commit',
+  compare: 'Branch comparison',
 };
 const labels = {
   staged: 'All staged changes',
   unstaged: 'All changes',
   commit: 'All changes in commit',
+  compare: 'All changes between branches',
 };
 export function AllChangesPane({
   repo,
@@ -56,25 +63,48 @@ export function AllChangesPane({
     { repo, revision: commit?.revision ?? '', source: commit?.source },
     stack === 'commit',
   );
+  const comparison = useComparison(repo, status, stack === 'compare');
+  const compared = comparison.data;
   const entries =
     stack === 'commit'
       ? (files.data ?? []).map((path) => ({
           selection: { ...commit!, path },
           badge: undefined,
         }))
-      : groupEntries(status, stack, filter).map((entry) => ({
-          selection: {
-            path: entry.path,
-            source:
-              stack === 'staged'
-                ? ('staged' as const)
-                : entry.index === '?'
-                  ? ('file' as const)
-                  : ('unstaged' as const),
-          },
-          badge: stack === 'staged' ? entry.index : entry.worktree,
-        }));
-  const listing = stack === 'commit' && files.isPending;
+      : stack === 'compare'
+        ? (compared?.files ?? []).map((file) => ({
+            selection: {
+              path: file.path,
+              source: 'compare' as const,
+              base: compared!.base,
+              revision: compared!.target,
+            },
+            badge: file.status,
+          }))
+        : groupEntries(status, stack, filter).map((entry) => ({
+            selection: {
+              path: entry.path,
+              source:
+                stack === 'staged'
+                  ? ('staged' as const)
+                  : entry.index === '?'
+                    ? ('file' as const)
+                    : ('unstaged' as const),
+            },
+            badge: stack === 'staged' ? entry.index : entry.worktree,
+          }));
+  const listing =
+    stack === 'commit'
+      ? files.isPending
+      : stack === 'compare' && !compared && comparison.files.isPending;
+  const error = stack === 'compare' ? comparison.error : files.error;
+  const totals = (compared?.files ?? []).reduce(
+    (sum, file) => ({
+      additions: sum.additions + file.additions,
+      deletions: sum.deletions + file.deletions,
+    }),
+    { additions: 0, deletions: 0 },
+  );
   const scroller = useRef<HTMLDivElement>(null);
   const [, relayout] = useState(0);
   useEffect(() => {
@@ -94,7 +124,24 @@ export function AllChangesPane({
             {commit.revision.slice(0, 7)}
           </span>
         )}
-        {listing ? (
+        {stack === 'compare' && (
+          <span className="truncate font-mono text-label">
+            {comparison.base}{' '}
+            <span className="text-faint dark:text-faint-dark">→</span>{' '}
+            {comparison.target}
+          </span>
+        )}
+        {stack === 'compare' && !listing ? (
+          <span className="ml-auto shrink-0 font-mono text-label text-muted">
+            {entries.length} files ·{' '}
+            <span className="text-added dark:text-added-dark">
+              +{totals.additions}
+            </span>{' '}
+            <span className="text-deleted dark:text-deleted-dark">
+              −{totals.deletions}
+            </span>
+          </span>
+        ) : listing ? (
           <Loader2 className="size-3.5 shrink-0 animate-spin text-muted" />
         ) : (
           <span className="font-mono text-label text-muted">
@@ -104,13 +151,19 @@ export function AllChangesPane({
       </header>
       <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto">
         <div>
-          {files.error ? (
-            <State title="Unable to list commit files">
-              {files.error.message}
-            </State>
+          {stack === 'compare' && comparison.same ? (
+            <SameRefState />
+          ) : error && stack === 'compare' ? (
+            <CompareError
+              repo={repo}
+              message={error.message}
+              mergeBase={comparison.mergeBase}
+            />
+          ) : error ? (
+            <State title="Unable to list changes">{error.message}</State>
           ) : listing ? (
             <State icon={Loader2} title="Loading changes">
-              Reading the files in this commit.
+              Reading the changed files.
             </State>
           ) : entries.length === 0 ? (
             <State icon={CheckCircle2} title="Nothing here">

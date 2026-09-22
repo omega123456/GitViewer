@@ -23,6 +23,7 @@ pub async fn serve<R: tauri::Runtime>(
         path,
         get("source"),
         get("revision"),
+        get("base"),
         get("side") == "old",
     )
     .await?
@@ -39,6 +40,7 @@ pub async fn serve<R: tauri::Runtime>(
         path,
         get("source"),
         get("revision"),
+        get("base"),
         get("side") == "old",
     )
     .await?;

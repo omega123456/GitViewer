@@ -5,6 +5,7 @@ export const sourceLabels = {
   file: 'Working tree · read only',
   commit: 'parent → commit',
   stash: 'base → stash',
+  compare: 'base → compare',
 };
 export function DiffSourcePill({ selection }: { selection: Selection }) {
   return (

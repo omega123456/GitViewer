@@ -82,7 +82,7 @@ describe('presentation state', () => {
     tabs.open('one', 'One');
     tabs.setMessage('one', 'draft');
     useSelection.getState().select('one', { path: 'a', source: 'staged' });
-    useLayout.getState().update('one', { history: true });
+    useLayout.getState().update('one', { mode: 'history' });
     useSelection.getState().select('one', { path: 'b', source: 'commit' });
     expect(useSelection.getState().working.one?.path).toBe('a');
     expect(useSelection.getState().history.one?.path).toBe('b');

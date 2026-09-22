@@ -349,6 +349,6 @@ function SelectedDiff({
   );
 }
 function openFileHistory(repo: string, path: string) {
-  useLayout.getState().update(repo, { history: true });
+  useLayout.getState().update(repo, { mode: 'history' });
   useSelection.getState().setPath(repo, path);
 }

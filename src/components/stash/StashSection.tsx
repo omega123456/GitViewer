@@ -36,7 +36,7 @@ export function StashSection({
     Boolean(selected),
   );
   const show = (path: string, revision: string) => {
-    useLayout.getState().update(repo, { history: false });
+    useLayout.getState().update(repo, { mode: 'working' });
     useSelection.getState().select(repo, { path, source: 'stash', revision });
   };
   const apply = async (pop: boolean) => {

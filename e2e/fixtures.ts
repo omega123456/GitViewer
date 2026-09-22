@@ -28,6 +28,7 @@ export const test = base.extend({
             model: 'gpt-4o-mini',
           };
         }
+        if (scenario === 'compare') status.branch = 'feature';
         if (scenario === 'image') {
           status.entries = [{ ...status.entries[0], path: 'picture.png' }];
           diff.path = 'picture.png';
@@ -162,6 +163,36 @@ export const test = base.extend({
                     };
                   case 'commit_files':
                     return ['src/app.ts'];
+                  case 'branches':
+                    return [
+                      {
+                        name: 'main',
+                        remote: false,
+                        current: true,
+                        upstream: '',
+                      },
+                      {
+                        name: 'feature',
+                        remote: false,
+                        current: false,
+                        upstream: '',
+                      },
+                    ];
+                  case 'default_branch':
+                    return 'main';
+                  case 'compare_files':
+                    return {
+                      base: 'b'.repeat(40),
+                      target: 't'.repeat(40),
+                      files: [
+                        {
+                          path: 'src/app.ts',
+                          status: 'M',
+                          additions: 1,
+                          deletions: 1,
+                        },
+                      ],
+                    };
                   case 'tree':
                     return payload.args.path
                       ? [

@@ -741,7 +741,7 @@ describe('keyboard and pointer access', () => {
         : ['README.md', 'src/app.ts', 'new.txt'],
     );
     const user = userEvent.setup();
-    useLayout.getState().update(repository.id, { history: true });
+    useLayout.getState().update(repository.id, { mode: 'history' });
     mount();
     const message = await screen.findByLabelText('Commit message');
     fireEvent.keyDown(message, { key: 'F2' });
@@ -772,7 +772,7 @@ describe('keyboard and pointer access', () => {
     await waitFor(() =>
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
     );
-    expect(useLayout.getState().tabs[repository.id]?.history).toBe(false);
+    expect(useLayout.getState().tabs[repository.id]?.mode).toBe('working');
     expect(useSelection.getState().working[repository.id]).toEqual({
       path: 'src/app.ts',
       source: 'unstaged',
@@ -946,5 +946,155 @@ describe('all changes pane', () => {
       await screen.findByRole('region', { name: 'Diff viewer' }),
     ).toBeInTheDocument();
     expect(useSelection.getState().all[repository.id]).toBeUndefined();
+  });
+  it('compares two branches from the sidebar, swaps them, and reads diffs against the resolved base', async () => {
+    setup();
+    mockCommand('default_branch', () => 'main');
+    mockCommand('branches', () => [
+      ...branches,
+      { name: 'island', current: false, remote: false, upstream: '' },
+    ]);
+    mockCommand('compare_files', ({ base, mergeBase }) =>
+      (base === 'island' && mergeBase) || base === 'isl'
+        ? Promise.reject(
+            new Error(
+              base === 'isl'
+                ? 'Needed a single revision'
+                : 'These branches have no common commit. Turn off "Since branches diverged" to compare them directly.',
+            ),
+          )
+        : {
+            base: 'b'.repeat(40),
+            target: 't'.repeat(40),
+            files: [
+              { path: 'src/app.ts', status: 'M', additions: 4, deletions: 1 },
+              { path: 'new.txt', status: 'A', additions: 2, deletions: 0 },
+            ],
+          },
+    );
+    const user = userEvent.setup();
+    useLayout.getState().update(repository.id, { compareTarget: 'feature' });
+    mount();
+    await screen.findByLabelText('Commit message');
+    await user.click(screen.getByRole('radio', { name: 'compare' }));
+    const stack = await screen.findByRole('region', {
+      name: 'All changes between branches',
+    });
+    await within(stack).findByRole('button', { name: /app\.ts/ });
+    const header = within(stack).getByRole('banner');
+    expect(header).toHaveTextContent('2 files · +6 −1');
+    expect(await screen.findByLabelText('Base')).toHaveValue('main');
+    expect(screen.getByLabelText('Compare')).toHaveValue('feature');
+    expect(calls).toContainEqual({
+      command: 'compare_files',
+      args: {
+        repo: repository.id,
+        base: 'main',
+        target: 'feature',
+        mergeBase: true,
+      },
+    });
+    await user.click(screen.getByLabelText('Swap base and compare branches'));
+    expect(screen.getByLabelText('Base')).toHaveValue('feature');
+    expect(screen.getByLabelText('Compare')).toHaveValue('main');
+    await user.click(screen.getByLabelText('Since branches diverged'));
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        command: 'compare_files',
+        args: {
+          repo: repository.id,
+          base: 'feature',
+          target: 'main',
+          mergeBase: false,
+        },
+      }),
+    );
+    const list = await screen.findByRole('tree', { name: 'Changed files' });
+    const row = await within(list).findByRole('treeitem', { name: /app\.ts/ });
+    expect(within(row).getByText('M')).toBeVisible();
+    expect(
+      within(
+        within(list).getByRole('treeitem', { name: /new\.txt/ }),
+      ).getByText('A'),
+    ).toBeVisible();
+    expect(within(list).getByRole('treeitem', { name: 'src' })).toBeVisible();
+    await user.click(row);
+    await screen.findByRole('region', { name: 'Diff viewer' });
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        command: 'diff',
+        args: {
+          repo: repository.id,
+          path: 'src/app.ts',
+          source: 'compare',
+          base: 'b'.repeat(40),
+          revision: 't'.repeat(40),
+          context: 3,
+          overrideLimit: false,
+        },
+      }),
+    );
+    expect(screen.queryByTitle('Stage hunk')).not.toBeInTheDocument();
+    await user.click(screen.getByLabelText('All changes between branches'));
+    await screen.findByRole('region', { name: 'All changes between branches' });
+    fireEvent.change(screen.getByLabelText('Base'), {
+      target: { value: 'main' },
+    });
+    expect(await screen.findAllByText('Nothing to compare')).toHaveLength(2);
+    expect(
+      calls.filter(
+        (call) =>
+          call.command === 'compare_files' &&
+          (call.args as { base: string; target: string }).base === 'main' &&
+          (call.args as { base: string; target: string }).target === 'main',
+      ),
+    ).toHaveLength(0);
+    fireEvent.change(screen.getByLabelText('Base'), {
+      target: { value: 'isl' },
+    });
+    await waitFor(() =>
+      expect(screen.getByLabelText('Base')).toHaveAttribute(
+        'aria-invalid',
+        'true',
+      ),
+    );
+    expect(screen.getByLabelText('Compare')).not.toHaveAttribute(
+      'aria-invalid',
+      'true',
+    );
+    expect(screen.queryByText(/Needed a single/)).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole('tree', { name: 'Changed files' })).getByRole(
+        'treeitem',
+        { name: /app\.ts/ },
+      ),
+    ).toBeVisible();
+    await user.click(screen.getByLabelText('Since branches diverged'));
+    fireEvent.change(screen.getByLabelText('Base'), {
+      target: { value: 'island' },
+    });
+    expect(await screen.findAllByText(/no common commit/)).toHaveLength(2);
+    await user.click(
+      screen.getAllByRole('button', { name: 'Use the direct diff instead' })[0],
+    );
+    expect(useLayout.getState().tabs[repository.id].mergeBase).toBe(false);
+    await within(
+      await screen.findByRole('tree', { name: 'Changed files' }),
+    ).findByRole('treeitem', { name: /app\.ts/ });
+    await user.click(screen.getByRole('radio', { name: 'working tree' }));
+    await user.click(screen.getByRole('radio', { name: 'compare' }));
+    expect(screen.getByLabelText('Base')).toHaveValue('island');
+    await action('branches');
+    await user.click(await screen.findByTitle('Compare with feature'));
+    expect(screen.getByLabelText('Base')).toHaveValue('feature');
+    expect(screen.getByLabelText('Compare')).toHaveValue('main');
+    await action('swap-compare');
+    expect(screen.getByLabelText('Base')).toHaveValue('main');
+    await action('history');
+    await action('compare');
+    expect(useLayout.getState().tabs[repository.id].mode).toBe('compare');
+    act(() => useTabs.getState().close(repository.id));
+    expect(useLayout.getState().tabs[repository.id]).toBeUndefined();
+    expect(useSelection.getState().compare[repository.id]).toBeUndefined();
   });
 });

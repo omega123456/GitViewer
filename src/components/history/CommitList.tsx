@@ -27,18 +27,18 @@ const refColours = [
   'text-lane-8 dark:text-lane-8-dark',
 ];
 export function CommitList({ repo }: { repo: string }) {
-  const { history } = useTabLayout(repo);
+  const { mode } = useTabLayout(repo);
   const path = useHistoryPath(repo);
   const status = useBackend('status', { repo });
   const query = useInfiniteQuery({
     queryKey: [repo, 'history', path],
     initialPageParam: '',
-    enabled: history,
+    enabled: mode === 'history',
     queryFn: ({ pageParam }) =>
       invoke('history', { repo, path, cursor: pageParam }),
     getNextPageParam: (page) => page.cursor ?? undefined,
   });
-  const selection = useCurrentSelection(repo, true);
+  const selection = useCurrentSelection(repo, 'history');
   const files = useBackend(
     'commit_files',
     {

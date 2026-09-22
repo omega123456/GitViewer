@@ -33,7 +33,9 @@ export function Segment<T extends string>({
           className={`inline-flex items-center justify-center gap-1.5 rounded px-2 py-1 text-xs ${stretch ? 'flex-1' : ''} ${value === option ? 'bg-surface shadow-sm dark:bg-surface-dark' : 'text-muted'} ${focus}`}
         >
           {icons?.[option]}
-          <span className="inline-block first-letter:uppercase">{option}</span>
+          <span className="inline-block whitespace-nowrap first-letter:uppercase">
+            {option}
+          </span>
         </ToggleGroup.Item>
       ))}
     </ToggleGroup.Root>

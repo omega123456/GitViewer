@@ -77,7 +77,7 @@ export function CommandPalette({ repo }: { repo: string }) {
                     />
                   ),
                   run: () => {
-                    useLayout.getState().update(repo, { history: false });
+                    useLayout.getState().update(repo, { mode: 'working' });
                     useSelection
                       .getState()
                       .select(repo, { path, source: sourceFor(entry) });

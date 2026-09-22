@@ -42,10 +42,23 @@ async fn typed_commands_events_and_protocol_are_wired() {
         id
     );
     for command in [
-        "status", "refresh", "tree", "files", "branches", "history", "stashes",
+        "status",
+        "refresh",
+        "tree",
+        "files",
+        "branches",
+        "default_branch",
+        "history",
+        "stashes",
     ] {
         call(command, json!({"repo":id})).await.unwrap();
     }
+    call(
+        "compare_files",
+        json!({"repo":id,"base":"HEAD","target":"HEAD","mergeBase":true}),
+    )
+    .await
+    .unwrap();
     call("diff", json!({"repo":id,"path":"file.txt","source":"file"}))
         .await
         .unwrap();

@@ -204,6 +204,7 @@ pub async fn dispatch<R: tauri::Runtime>(
                     path,
                     source,
                     revision,
+                    optional(&args, "base"),
                     args.get("context").and_then(Value::as_u64).unwrap_or(3) as u32,
                     flag(&args, "overrideLimit"),
                 )
@@ -247,6 +248,20 @@ pub async fn dispatch<R: tauri::Runtime>(
                 Value::Null
             }
             "branches" => return Ok(serde_json::to_value(branch::list(&repo).await?)?),
+            "default_branch" => {
+                return Ok(serde_json::to_value(branch::default_branch(&repo).await?)?)
+            }
+            "compare_files" => {
+                return Ok(serde_json::to_value(
+                    diff::compare(
+                        &repo,
+                        string(&args, "base")?,
+                        string(&args, "target")?,
+                        flag(&args, "mergeBase"),
+                    )
+                    .await?,
+                )?)
+            }
             "branch_switch" => {
                 branch::switch(&mut repo, string(&args, "name")?).await?;
                 Value::Null

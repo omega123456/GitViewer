@@ -189,3 +189,37 @@ pub async fn sync<F: Fn(&str)>(repo: &mut Repo, action: &str, progress: F) -> Re
     }
     Ok(())
 }
+async fn local_exists(repo: &Repo, name: &str) -> Result<bool> {
+    Ok(git::run(
+        &repo.root,
+        &["rev-parse", "--verify", &format!("refs/heads/{name}")],
+        None,
+    )
+    .await?
+    .code
+        == 0)
+}
+pub async fn default_branch(repo: &Repo) -> Result<String> {
+    let head = git::run(
+        &repo.root,
+        &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        None,
+    )
+    .await?;
+    if head.code == 0 {
+        let remote = head.text().trim().to_owned();
+        let local = remote
+            .split_once('/')
+            .map_or(remote.as_str(), |(_, name)| name);
+        if local_exists(repo, local).await? {
+            return Ok(local.into());
+        }
+        return Ok(remote);
+    }
+    for name in ["main", "master"] {
+        if local_exists(repo, name).await? {
+            return Ok(name.into());
+        }
+    }
+    Ok(repo.status.branch.clone())
+}

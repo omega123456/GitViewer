@@ -1,6 +1,7 @@
 import { create } from 'zustand';
+export type SidebarMode = 'working' | 'history' | 'compare';
 export interface TabLayout {
-  history: boolean;
+  mode: SidebarMode;
   width: number;
   historyWidth: number;
   filesHeight: number;
@@ -8,9 +9,12 @@ export interface TabLayout {
   stashHeight: number;
   stashOpen: boolean;
   messageHeight: number;
+  compareBase: string;
+  compareTarget: string;
+  mergeBase: boolean;
 }
 export const layoutDefaults: TabLayout = {
-  history: false,
+  mode: 'working',
   width: 300,
   historyWidth: 440,
   filesHeight: 40,
@@ -18,6 +22,9 @@ export const layoutDefaults: TabLayout = {
   stashHeight: 30,
   stashOpen: false,
   messageHeight: 80,
+  compareBase: '',
+  compareTarget: '',
+  mergeBase: true,
 };
 interface Layout {
   tabs: Record<string, TabLayout>;

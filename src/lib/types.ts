@@ -44,12 +44,25 @@ export interface TreeEntry {
   ignored: boolean;
   status: string;
 }
-export type Source = 'staged' | 'unstaged' | 'file' | 'commit' | 'stash';
+export type Source =
+  'staged' | 'unstaged' | 'file' | 'commit' | 'stash' | 'compare';
 export interface Selection {
   path: string;
   source: Source;
   revision?: string;
+  base?: string;
   blame?: boolean;
+}
+export interface ChangedFile {
+  path: string;
+  status: string;
+  additions: number;
+  deletions: number;
+}
+export interface Comparison {
+  base: string;
+  target: string;
+  files: ChangedFile[];
 }
 export interface UpdateSnapshot {
   currentVersion: string;
@@ -198,6 +211,7 @@ export interface Commands {
     FileArgs & {
       source: Source;
       revision?: string;
+      base?: string;
       context?: number;
       overrideLimit?: boolean;
     },
@@ -227,6 +241,11 @@ export interface Commands {
   ai_key_set: Command<{ key: string }, null>;
   ai_generate: Command<RepoArgs, GeneratedMessage>;
   branches: Command<RepoArgs, Branch[]>;
+  default_branch: Command<RepoArgs, string>;
+  compare_files: Command<
+    RepoArgs & { base: string; target: string; mergeBase: boolean },
+    Comparison
+  >;
   branch_switch: Command<RepoArgs & { name: string }, null>;
   branch_create: Command<
     RepoArgs & { name: string; base: string; checkout: boolean },

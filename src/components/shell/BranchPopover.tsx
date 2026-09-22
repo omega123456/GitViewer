@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Popover } from 'radix-ui';
 import {
   GitBranch,
+  GitCompare,
   Plus,
   Search,
   Trash2,
@@ -20,6 +21,7 @@ import { CheckBox } from '../shared/CheckBox';
 import { Modal } from '../shared/Modal';
 import { VirtualList } from '../shared/VirtualList';
 import { field } from '../shared/styles';
+import { openCompare } from '../sidebar/CompareSection';
 export async function checkout(repo: string, name: string) {
   useTabs.getState().setBusy(1);
   useTabs.getState().setError(null);
@@ -148,6 +150,19 @@ export function BranchPopover({
                       <span className="ml-auto text-label text-muted">
                         {branch.remote ? 'remote' : 'local'}
                       </span>
+                    </Button>
+                    <Button
+                      title={`Compare with ${branch.name}`}
+                      disabled={branch.current}
+                      onClick={() => {
+                        setOpen(false);
+                        openCompare(repo, {
+                          compareBase: branch.name,
+                          compareTarget: status.branch,
+                        });
+                      }}
+                    >
+                      <GitCompare className="size-3 text-muted dark:text-muted-dark" />
                     </Button>
                     <Button
                       title={`Delete ${branch.name}`}

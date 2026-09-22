@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Download,
   GitCommitHorizontal,
+  GitCompare,
   History,
   ListChecks,
   PanelLeft,
@@ -37,6 +38,11 @@ import { AllChangesPane } from '../diff/AllChangesPane';
 import { DiffPane } from '../diff/DiffPane';
 import { CommitList } from '../history/CommitList';
 import { ChangesSection } from '../sidebar/ChangesSection';
+import {
+  baseFieldId,
+  CompareSection,
+  openCompare,
+} from '../sidebar/CompareSection';
 import { aiConfigured, CommitFooter } from '../sidebar/CommitFooter';
 import { FilesSection } from '../sidebar/FilesSection';
 import { SidebarModeToggle } from '../sidebar/SidebarModeToggle';
@@ -59,14 +65,15 @@ export function RepositoryView({
   const message = useMessage(repo);
   const filter = useFilter(repo);
   const layout = useTabLayout(repo);
-  const select = useCurrentSelection(repo, layout.history);
+  const select = useCurrentSelection(repo, layout.mode);
   const all = useAllChanges(repo);
   const status = query.data;
   const disabled = busy || !status || status.conflicted;
   const selectedEntry = status?.entries.find(
     (entry) => entry.path === select?.path,
   );
-  const sidebarWidth = layout.history ? layout.historyWidth : layout.width;
+  const sidebarWidth =
+    layout.mode === 'working' ? layout.width : layout.historyWidth;
   const moveFile = (direction: number) => {
     const files =
       status?.entries
@@ -93,7 +100,7 @@ export function RepositoryView({
     const current = files.findIndex(
       (entry) => entry.path === select?.path && entry.source === select.source,
     );
-    useLayout.getState().update(repo, { history: false });
+    useLayout.getState().update(repo, { mode: 'working' });
     useSelection
       .getState()
       .select(repo, files[(current + direction + files.length) % files.length]);
@@ -141,7 +148,7 @@ export function RepositoryView({
       key: 's',
       disabled:
         disabled ||
-        layout.history ||
+        layout.mode !== 'working' ||
         !selectedEntry ||
         selectedEntry.worktree === '.',
       run: () =>
@@ -158,7 +165,7 @@ export function RepositoryView({
       key: 'u',
       disabled:
         disabled ||
-        layout.history ||
+        layout.mode !== 'working' ||
         !selectedEntry ||
         ['.', '?'].includes(selectedEntry.index),
       run: () =>
@@ -175,7 +182,7 @@ export function RepositoryView({
       key: 'Mod+Shift+d',
       disabled:
         disabled ||
-        layout.history ||
+        layout.mode !== 'working' ||
         !selectedEntry ||
         ['.', '?'].includes(selectedEntry.worktree),
       run: discard,
@@ -263,7 +270,21 @@ export function RepositoryView({
       label: 'Toggle history',
       key: 'Mod+h',
       run: () =>
-        useLayout.getState().update(repo, { history: !layout.history }),
+        useLayout.getState().update(repo, {
+          mode: layout.mode === 'history' ? 'working' : 'history',
+        }),
+    },
+    {
+      id: 'compare',
+      icon: <GitCompare className="size-3.5" />,
+      label: 'Compare branches',
+      key: 'Mod+Shift+c',
+      run: () => {
+        openCompare(repo);
+        requestAnimationFrame(() =>
+          document.getElementById(baseFieldId(repo))?.focus(),
+        );
+      },
     },
     {
       id: 'stash',
@@ -321,9 +342,9 @@ export function RepositoryView({
           <SidebarModeToggle repo={repo} />
           <div
             className={
-              layout.history
-                ? 'hidden'
-                : 'flex min-h-0 flex-1 flex-col overflow-y-auto'
+              layout.mode === 'working'
+                ? 'flex min-h-0 flex-1 flex-col overflow-y-auto'
+                : 'hidden'
             }
           >
             <ChangesSection repo={repo} status={status} disabled={disabled} />
@@ -332,11 +353,16 @@ export function RepositoryView({
           </div>
           <div
             className={
-              layout.history ? 'flex min-h-0 flex-1 flex-col' : 'hidden'
+              layout.mode === 'history'
+                ? 'flex min-h-0 flex-1 flex-col'
+                : 'hidden'
             }
           >
             <CommitList repo={repo} />
           </div>
+          {layout.mode === 'compare' && (
+            <CompareSection repo={repo} status={status} />
+          )}
           <CommitFooter
             repo={repo}
             status={status}
@@ -360,15 +386,17 @@ export function RepositoryView({
               .getState()
               .update(
                 repo,
-                layout.history ? { historyWidth: width } : { width },
+                layout.mode === 'working' ? { width } : { historyWidth: width },
               )
           }
         />
         <div className="min-w-0 flex-1">
           {all &&
           (all === 'commit'
-            ? layout.history && select?.revision
-            : !layout.history) ? (
+            ? layout.mode === 'history' && select?.revision
+            : all === 'compare'
+              ? layout.mode === 'compare'
+              : layout.mode === 'working') ? (
             <AllChangesPane
               repo={repo}
               stack={all}

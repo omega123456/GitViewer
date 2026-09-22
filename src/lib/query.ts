@@ -57,7 +57,12 @@ export function handleEvent<K extends keyof Events>(
       queryKey: [payload.repo],
       predicate: (query) =>
         name === 'repo://head-changed' ||
-        !['history', 'commit_files'].includes(String(query.queryKey[1])),
+        ![
+          'history',
+          'commit_files',
+          'compare_files',
+          'default_branch',
+        ].includes(String(query.queryKey[1])),
     });
   }
 }

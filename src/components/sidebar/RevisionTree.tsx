@@ -8,6 +8,7 @@ import {
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { FileIcon } from './FileIcon';
+import { StatusBadge } from './StatusBadge';
 import { useCompact } from '../../stores/density';
 import { dynamic, focus } from '../shared/styles';
 import {
@@ -20,11 +21,13 @@ import {
 
 export function RevisionTree({
   paths,
+  statuses,
   label,
   selectedPath,
   onSelect,
 }: {
   paths: string[];
+  statuses?: Record<string, string>;
   label: string;
   selectedPath?: string;
   onSelect: (path: string) => void;
@@ -36,13 +39,13 @@ export function RevisionTree({
         paths.map((path) => ({
           kind: 'ordinary',
           path,
-          index: 'M',
+          index: statuses?.[path] ?? 'M',
           worktree: '.',
         })),
         'staged',
         '',
       ),
-    [paths],
+    [paths, statuses],
   );
   const tree = useTree<Node>({
     rootItemId: treeRoot,
@@ -123,6 +126,9 @@ export function RevisionTree({
                 expanded={item.isExpanded()}
               />
               <span className="truncate">{node.name}</span>
+              {statuses && !node.directory && (
+                <StatusBadge status={node.status} />
+              )}
             </button>
           );
         })}

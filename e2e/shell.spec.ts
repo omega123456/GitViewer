@@ -211,3 +211,30 @@ test('history uses the same diff pane', async ({ page }) => {
   );
   await expect(page).toHaveScreenshot('history.png');
 });
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`branch comparison ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto('/?scenario=compare');
+    await page
+      .getByRole('button', { name: 'Open repository', exact: true })
+      .last()
+      .click();
+    await page.getByRole('radio', { name: 'compare', exact: true }).click();
+    await expect(page.getByLabel('Base', { exact: true })).toHaveValue('main');
+    await expect(page.getByLabel('Compare', { exact: true })).toHaveValue(
+      'feature',
+    );
+    await expect(page.getByText('1 files ·')).toBeVisible();
+    await expect(page.getByText(/base → compare/)).toBeVisible();
+    await expect(page).toHaveScreenshot(`compare-${theme}.png`);
+    await page
+      .getByRole('tree', { name: 'Changed files', exact: true })
+      .getByRole('treeitem', { name: /app\.ts/ })
+      .click();
+    await expect(
+      page.getByRole('region', { name: 'Diff viewer', exact: true }),
+    ).toBeVisible();
+    await expect(page.getByTitle('Stage hunk')).toHaveCount(0);
+  });
+}

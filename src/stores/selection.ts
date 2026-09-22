@@ -1,11 +1,12 @@
 import { create } from 'zustand';
 import type { Selection } from '../lib/types';
-import { tabLayout } from './layout';
+import { tabLayout, type SidebarMode } from './layout';
 export type Group = 'staged' | 'unstaged';
-export type Stack = Group | 'commit';
+export type Stack = Group | 'commit' | 'compare';
 interface Selections {
   working: Record<string, Selection | undefined>;
   history: Record<string, Selection | undefined>;
+  compare: Record<string, Selection | undefined>;
   all: Record<string, Stack | undefined>;
   paths: Record<string, string>;
   select: (id: string, selection: Selection) => void;
@@ -16,20 +17,31 @@ interface Selections {
 export const useSelection = create<Selections>((set) => ({
   working: {},
   history: {},
+  compare: {},
   all: {},
   paths: {},
   select: (id, selection) =>
-    set((s) => ({
-      ...(tabLayout(id).history
-        ? { history: { ...s.history, [id]: selection } }
-        : { working: { ...s.working, [id]: selection } }),
-      all: { ...s.all, [id]: selection.path ? undefined : 'commit' },
-    })),
+    set((s) => {
+      const mode = tabLayout(id).mode;
+      return {
+        [mode]: { ...s[mode], [id]: selection },
+        all: {
+          ...s.all,
+          [id]: selection.path
+            ? undefined
+            : mode === 'compare'
+              ? 'compare'
+              : 'commit',
+        },
+      };
+    }),
   viewAll: (id, stack) =>
     set((s) => ({
       ...(stack === 'commit'
         ? { history: { ...s.history, [id]: { ...s.history[id]!, path: '' } } }
-        : { working: { ...s.working, [id]: undefined } }),
+        : stack === 'compare'
+          ? { compare: { ...s.compare, [id]: undefined } }
+          : { working: { ...s.working, [id]: undefined } }),
       all: { ...s.all, [id]: stack },
     })),
   setPath: (id, path) => set((s) => ({ paths: { ...s.paths, [id]: path } })),
@@ -37,12 +49,13 @@ export const useSelection = create<Selections>((set) => ({
     set((s) => ({
       working: { ...s.working, [id]: undefined },
       history: { ...s.history, [id]: undefined },
+      compare: { ...s.compare, [id]: undefined },
       all: { ...s.all, [id]: undefined },
       paths: { ...s.paths, [id]: '' },
     })),
 }));
-export function useCurrentSelection(id: string, history: boolean) {
-  return useSelection((s) => (history ? s.history[id] : s.working[id]));
+export function useCurrentSelection(id: string, mode: SidebarMode) {
+  return useSelection((s) => s[mode][id]);
 }
 export function useWorkingSelection(id: string) {
   return useSelection((s) => s.working[id]);

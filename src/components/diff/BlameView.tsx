@@ -32,7 +32,7 @@ export function BlameView({
               className="w-16 justify-start text-label text-muted"
               title={line.hash}
               onClick={() => {
-                useLayout.getState().update(repo, { history: true });
+                useLayout.getState().update(repo, { mode: 'history' });
                 useSelection.getState().select(repo, {
                   path: selection.path,
                   source: 'commit',

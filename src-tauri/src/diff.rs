@@ -290,6 +290,77 @@ pub async fn resolve(repo: &Repo, revision: &str) -> Result<String> {
     .trim()
     .into())
 }
+#[derive(Debug, Serialize)]
+pub struct ChangedFile {
+    pub path: String,
+    pub status: String,
+    pub additions: u32,
+    pub deletions: u32,
+}
+#[derive(Debug, Serialize)]
+pub struct Comparison {
+    pub base: String,
+    pub target: String,
+    pub files: Vec<ChangedFile>,
+}
+async fn tree_diff(repo: &Repo, listing: &str, base: &str, target: &str) -> Result<Vec<String>> {
+    Ok(git::text(
+        &repo.root,
+        &[
+            "diff-tree",
+            "--no-commit-id",
+            listing,
+            "-r",
+            "-z",
+            base,
+            target,
+        ],
+    )
+    .await?
+    .split('\0')
+    .filter(|s| !s.is_empty())
+    .map(String::from)
+    .collect())
+}
+pub async fn compare(
+    repo: &Repo,
+    base: &str,
+    target: &str,
+    merge_base: bool,
+) -> Result<Comparison> {
+    let mut base = resolve(repo, base).await?;
+    let target = resolve(repo, target).await?;
+    if merge_base {
+        let common = git::run(&repo.root, &["merge-base", &base, &target], None).await?;
+        if common.code != 0 {
+            return Err(Error::refused(
+                "These branches have no common commit. Turn off \"Since branches diverged\" to compare them directly.",
+            ));
+        }
+        base = common.text().trim().to_owned();
+    }
+    let statuses = tree_diff(repo, "--name-status", &base, &target).await?;
+    let counts = tree_diff(repo, "--numstat", &base, &target).await?;
+    let files = statuses
+        .chunks(2)
+        .zip(counts)
+        .map(|(entry, count)| {
+            let mut numbers = count.split('\t');
+            let mut number = || numbers.next().and_then(|n| n.parse().ok()).unwrap_or(0);
+            ChangedFile {
+                status: entry[0].chars().take(1).collect(),
+                path: entry[1].clone(),
+                additions: number(),
+                deletions: number(),
+            }
+        })
+        .collect();
+    Ok(Comparison {
+        base,
+        target,
+        files,
+    })
+}
 enum Blob {
     Working(std::path::PathBuf),
     Object(String),
@@ -300,6 +371,7 @@ async fn location(
     path: &str,
     source: &str,
     revision: &str,
+    base: &str,
     old: bool,
 ) -> Result<Blob> {
     let full = repo.path(path)?;
@@ -332,6 +404,8 @@ async fn location(
                 sha
             }
         }
+        "compare" if old => resolve(repo, base).await?,
+        "compare" => resolve(repo, revision).await?,
         _ => return Err(Error::refused("Unknown diff source")),
     };
     let original = if old && source == "staged" {
@@ -364,9 +438,10 @@ pub async fn bytes(
     path: &str,
     source: &str,
     revision: &str,
+    base: &str,
     old: bool,
 ) -> Result<Vec<u8>> {
-    match location(repo, path, source, revision, old).await? {
+    match location(repo, path, source, revision, base, old).await? {
         Blob::Absent => Ok(Vec::new()),
         Blob::Object(spec) => Ok(git::run(&repo.root, &["show", &spec], None)
             .await?
@@ -384,9 +459,10 @@ pub async fn size(
     path: &str,
     source: &str,
     revision: &str,
+    base: &str,
     old: bool,
 ) -> Result<usize> {
-    match location(repo, path, source, revision, old).await? {
+    match location(repo, path, source, revision, base, old).await? {
         Blob::Absent => Ok(0),
         Blob::Object(spec) => git::text(&repo.root, &["cat-file", "-s", &spec])
             .await?
@@ -415,6 +491,7 @@ pub async fn read(
     path: &str,
     source: &str,
     revision: &str,
+    base: &str,
     context: u32,
     override_limit: bool,
 ) -> Result<Diff> {
@@ -426,8 +503,8 @@ pub async fn read(
         image,
         ..Diff::default()
     };
-    result.old_size = size(repo, path, source, revision, true).await?;
-    result.new_size = size(repo, path, source, revision, false).await?;
+    result.old_size = size(repo, path, source, revision, base, true).await?;
+    result.new_size = size(repo, path, source, revision, base, false).await?;
     let limit = if image {
         20 * 1024 * 1024
     } else {
@@ -438,8 +515,9 @@ pub async fn read(
         return Ok(result);
     }
     if image {
-        result.old_dimensions = dimensions(&bytes(repo, path, source, revision, true).await?);
-        result.new_dimensions = dimensions(&bytes(repo, path, source, revision, false).await?);
+        result.old_dimensions = dimensions(&bytes(repo, path, source, revision, base, true).await?);
+        result.new_dimensions =
+            dimensions(&bytes(repo, path, source, revision, base, false).await?);
         return Ok(result);
     }
     if source == "file"
@@ -449,7 +527,7 @@ pub async fn read(
                 .iter()
                 .any(|entry| entry == path))
     {
-        let new = bytes(repo, path, source, revision, false).await?;
+        let new = bytes(repo, path, source, revision, base, false).await?;
         if new.contains(&0) {
             result.binary = true;
         } else {
@@ -475,6 +553,10 @@ pub async fn read(
     let parent;
     if source == "staged" {
         args.push("--cached");
+    } else if source == "compare" {
+        parent = resolve(repo, base).await?;
+        sha = resolve(repo, revision).await?;
+        args.extend([parent.as_str(), sha.as_str()]);
     } else if source == "commit" || source == "stash" {
         sha = resolve(repo, revision).await?;
         let output = git::run(
@@ -569,7 +651,7 @@ pub async fn apply_hunk(
             "This action is not permitted for this diff source",
         ));
     }
-    let diff = read(repo, path, source, "", context, true).await?;
+    let diff = read(repo, path, source, "", "", context, true).await?;
     let hunk = diff
         .hunks
         .get(hunk)
