@@ -326,7 +326,7 @@ describe('presentation state', () => {
       imageUrl('a & b', { path: 'a#b.png', source: 'staged' }, 'old'),
     ).toContain('path=a%23b.png');
     expect(
-      imageUrl('r', { path: 'a.png', source: 'working' }, 'new', 17),
+      imageUrl('r', { path: 'a.png', source: 'unstaged' }, 'new', 17),
     ).toContain('version=17');
   });
 });
