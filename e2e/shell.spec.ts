@@ -108,6 +108,26 @@ test('split panes fit the width and scroll horizontally alone', async ({
   expect(await after.evaluate((element) => element.scrollLeft)).toBe(0);
 });
 
+test('stacked split columns fit the width of the all-changes pane', async ({
+  page,
+}) => {
+  await page.goto('/?scenario=long');
+  await page
+    .getByRole('button', { name: 'Open repository', exact: true })
+    .last()
+    .click();
+  await page.getByRole('button', { name: 'All changes', exact: true }).click();
+  const pane = page.getByRole('region', { name: 'All changes' });
+  const before = pane.getByLabel('Previous version').first();
+  const after = pane.getByLabel('Current version').first();
+  const overflows = (element: HTMLElement) =>
+    element.scrollWidth > element.clientWidth;
+  await expect(before).toBeVisible();
+  expect(await pane.evaluate(overflows)).toBe(false);
+  expect(await before.evaluate(overflows)).toBe(true);
+  expect(await after.evaluate(overflows)).toBe(false);
+});
+
 for (const mode of ['side by side', 'swipe', 'onion skin']) {
   test(`image comparison ${mode}`, async ({ page }) => {
     await page.route('http://gitblob.localhost/**', async (route) => {

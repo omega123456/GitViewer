@@ -53,7 +53,7 @@ export function DiffSurface({
 }) {
   const primary = useRef<HTMLDivElement>(null);
   const secondary = useRef<HTMLDivElement>(null);
-  const columns = split && !wrap && !scroller;
+  const columns = split && !wrap;
   const virtual = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scroller?.current ?? primary.current,
@@ -175,7 +175,9 @@ export function DiffSurface({
       </div>
     );
   return (
-    <div className="flex min-h-0 flex-1 font-mono text-diff">
+    <div
+      className={`flex font-mono text-diff ${scroller ? '' : 'min-h-0 flex-1'}`}
+    >
       <div
         ref={secondary}
         aria-label="Previous version"
@@ -193,7 +195,7 @@ export function DiffSurface({
       <div
         ref={primary}
         aria-label="Current version"
-        className="w-1/2 shrink-0 overflow-auto"
+        className={`w-1/2 shrink-0 ${scroller ? 'overflow-x-auto overflow-y-hidden' : 'overflow-auto'}`}
         onScroll={() => {
           if (primary.current && secondary.current)
             secondary.current.scrollTop = primary.current.scrollTop;
