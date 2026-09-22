@@ -29,11 +29,13 @@ export function ImageDiff({
   view = repo,
   selection,
   diff,
+  version = 0,
 }: {
   repo: string;
   view?: string;
   selection: Selection;
   diff: Diff;
+  version?: number;
 }) {
   const { mode, zoom } = useTabImageView(view);
   const update = useImageViews((s) => s.update);
@@ -83,7 +85,7 @@ export function ImageDiff({
       <img
         draggable={false}
         alt={side === 'old' ? 'Before' : 'After'}
-        src={imageUrl(repo, selection, side)}
+        src={imageUrl(repo, selection, side, version)}
         onError={() => setImageError(true)}
         className={`max-h-full object-contain ${zoom ? 'w-image max-w-none shrink-0' : 'max-w-full'}`}
         style={dynamic({ '--image-width': `${zoom}px` })}

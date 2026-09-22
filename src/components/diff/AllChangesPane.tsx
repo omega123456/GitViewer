@@ -286,6 +286,7 @@ function FileDiff({
               view={`${repo}:${selection.path}`}
               selection={selection}
               diff={data!}
+              version={query.dataUpdatedAt}
             />
           </div>
         ) : (

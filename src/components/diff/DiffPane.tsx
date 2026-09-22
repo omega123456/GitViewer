@@ -302,10 +302,10 @@ function SelectedDiff({
         </State>
       ) : data.image ? (
         <ImageDiff
-          key={query.dataUpdatedAt}
           repo={repo}
           selection={selection}
           diff={data}
+          version={query.dataUpdatedAt}
         />
       ) : data.binary ? (
         <State icon={Image} title="Binary file">

@@ -749,7 +749,6 @@ describe('keyboard and pointer access', () => {
         : ['README.md', 'src/app.ts', 'new.txt'],
     );
     const user = userEvent.setup();
-    useLayout.getState().update(repository.id, { mode: 'history' });
     mount();
     const message = await screen.findByLabelText('Commit message');
     fireEvent.keyDown(message, { key: 'F2' });

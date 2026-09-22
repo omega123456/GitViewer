@@ -363,14 +363,16 @@ export function RepositoryView({
           {layout.mode === 'compare' && (
             <CompareSection repo={repo} status={status} />
           )}
-          <CommitFooter
-            repo={repo}
-            status={status}
-            settings={settings}
-            disabled={disabled || !committable}
-            pushable={status.branch !== '(detached)'}
-            commit={(mode) => void commit(mode)}
-          />
+          {layout.mode === 'working' && (
+            <CommitFooter
+              repo={repo}
+              status={status}
+              settings={settings}
+              disabled={disabled || !committable}
+              pushable={status.branch !== '(detached)'}
+              commit={(mode) => void commit(mode)}
+            />
+          )}
         </aside>
         <ResizeHandle
           label="Resize sidebar"
