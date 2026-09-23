@@ -396,3 +396,34 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.getByTitle('Stage hunk')).toHaveCount(0);
   });
 }
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`command palette ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto('/');
+    await page
+      .getByRole('button', { name: 'Open repository', exact: true })
+      .last()
+      .click();
+    await expect(
+      page.getByLabel('Stage src/app.ts', { exact: true }),
+    ).toBeVisible();
+    await page.keyboard.press('F2');
+    const palette = page.getByRole('dialog', {
+      name: 'Command palette',
+      exact: true,
+    });
+    await page.getByLabel('Find file', { exact: true }).fill('s');
+    await expect(
+      palette.getByRole('button', { name: /CommandPalette\.tsx/ }),
+    ).toBeVisible();
+    await expect(palette).toHaveScreenshot(`palette-files-${theme}.png`);
+    await page.keyboard.press('Escape');
+    await expect(palette).toBeHidden();
+    await page.keyboard.press('Meta+Shift+p');
+    await expect(
+      palette.getByRole('button', { name: /Go to file/ }),
+    ).toBeVisible();
+    await expect(palette).toHaveScreenshot(`palette-commands-${theme}.png`);
+  });
+}

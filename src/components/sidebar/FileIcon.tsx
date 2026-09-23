@@ -74,15 +74,17 @@ export function FileIcon({
   name,
   directory,
   expanded = false,
+  size = 'size-3',
 }: {
   name: string;
   directory: boolean;
   expanded?: boolean;
+  size?: 'size-3' | 'size-3.5';
 }) {
   const category = fileCategory(name, directory);
   const Glyph =
     category === 'folder'
       ? folderGlyphs[folderGlyph(name, expanded)]
       : glyphs[category];
-  return <Glyph className={`size-3 shrink-0 ${tints[category]}`} />;
+  return <Glyph className={`${size} shrink-0 ${tints[category]}`} />;
 }

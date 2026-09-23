@@ -4,9 +4,10 @@ import { X } from 'lucide-react';
 import { Button } from './Button';
 import { focus } from './styles';
 const sizes = {
-  dialog: 'top-1/4 w-dialog',
+  dialog: 'top-1/4 w-dialog shadow-xl',
+  palette: 'top-24 w-dialog-wide shadow-2xl animate-rise',
   settings:
-    'top-1/2 -translate-y-1/2 w-settings-width h-settings-height max-h-full',
+    'top-1/2 -translate-y-1/2 w-settings-width h-settings-height max-h-full shadow-xl',
 };
 export function Modal({
   title,
@@ -28,7 +29,7 @@ export function Modal({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/30" />
         <Dialog.Content
-          className={`fixed left-1/2 z-50 max-w-full -translate-x-1/2 overflow-hidden rounded-md border border-line bg-surface text-ink shadow-xl dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark ${sizes[size]} ${hideChrome ? '' : 'p-5'} ${focus}`}
+          className={`fixed left-1/2 z-50 max-w-full -translate-x-1/2 overflow-hidden rounded-md border border-line bg-surface text-ink dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark ${sizes[size]} ${hideChrome ? '' : 'p-5'} ${focus}`}
         >
           {hideChrome ? (
             <Dialog.Title className="sr-only">{title}</Dialog.Title>

@@ -1049,12 +1049,22 @@ describe('keyboard and pointer access', () => {
     expect(
       within(palette).queryByRole('button', { name: /bundle\.js/ }),
     ).not.toBeInTheDocument();
+    await user.type(input, 'missing');
+    expect(
+      within(palette).getByText('Include ignored files to widen the search'),
+    ).toBeVisible();
+    await user.clear(input);
     await user.click(within(palette).getByLabelText('Include ignored files'));
     expect(
       await within(palette).findByRole('button', { name: /bundle\.js/ }),
     ).toBeVisible();
     await user.type(input, 'missing');
-    expect(within(palette).getByText('No matching file.')).toBeVisible();
+    expect(
+      within(palette).getByText('No file matches “missing”'),
+    ).toBeVisible();
+    expect(
+      within(palette).queryByText('Include ignored files to widen the search'),
+    ).not.toBeInTheDocument();
     await user.clear(input);
     await user.type(input, 'sapt');
     expect(within(palette).getAllByRole('button', { name: /\./ })).toHaveLength(
@@ -1075,7 +1085,16 @@ describe('keyboard and pointer access', () => {
     const commands = await screen.findByRole('dialog', {
       name: 'Command palette',
     });
-    expect(within(commands).getByLabelText('Find command')).toHaveValue('');
+    const search = within(commands).getByLabelText('Find command');
+    expect(search).toHaveValue('');
+    await user.type(search, 'zzz');
+    expect(
+      within(commands).getByText('No command matches “zzz”'),
+    ).toBeVisible();
+    expect(
+      within(commands).getByText('Press F2 to search files instead'),
+    ).toBeVisible();
+    await user.clear(search);
     await user.click(
       within(commands).getByRole('button', { name: /Go to file/ }),
     );

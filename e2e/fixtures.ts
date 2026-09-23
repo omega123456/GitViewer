@@ -185,6 +185,16 @@ export const test = base.extend({
                     return repository;
                   case 'status':
                     return status;
+                  case 'files':
+                    return [
+                      'README.md',
+                      'package.json',
+                      'public/logo.png',
+                      'src/app.ts',
+                      'src/index.css',
+                      'src/components/shell/CommandPalette.tsx',
+                      'src-tauri/Cargo.toml',
+                    ];
                   case 'stashes':
                     return scenario === 'stash' ? stashes : [];
                   case 'history':
