@@ -6,10 +6,12 @@ export function Details({
   message,
   actions,
   center = false,
+  onToggle,
 }: {
   message: string;
   actions?: ReactNode;
   center?: boolean;
+  onToggle?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const tray = useId();
@@ -22,7 +24,10 @@ export function Details({
           aria-expanded={open}
           aria-controls={tray}
           className={`text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark ${center ? '' : '-ml-2'}`}
-          onClick={() => setOpen(!open)}
+          onClick={() => {
+            setOpen(!open);
+            onToggle?.();
+          }}
         >
           {open ? 'Hide details' : 'Show details'}
           <ChevronDown

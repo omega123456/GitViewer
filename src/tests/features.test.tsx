@@ -794,9 +794,11 @@ describe('repository workflows', () => {
     ).toBeVisible();
     expect(screen.getByText('Credentials rejected')).toBeVisible();
     await user.click(screen.getByLabelText('Dismiss error'));
-    expect(
-      screen.queryByText('Sign-in to the remote failed'),
-    ).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Sign-in to the remote failed'),
+      ).not.toBeInTheDocument(),
+    );
   });
   it('confirms finished actions with success cards beside failures', async () => {
     setup();
@@ -825,13 +827,19 @@ describe('repository workflows', () => {
     mockCommand('sync', () => 0);
     await action('fetch');
     await action('fetch');
-    expect(
-      screen.queryByText('Could not reach the remote'),
-    ).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Could not reach the remote'),
+      ).not.toBeInTheDocument(),
+    );
     expect(screen.getAllByText('Fetched')).toHaveLength(1);
     expect(screen.getByText('Up to date')).toBeVisible();
-    await user.click(screen.getAllByLabelText('Dismiss')[0]);
-    expect(screen.queryByText('Pushed to origin/main')).not.toBeInTheDocument();
+    await user.click(screen.getAllByLabelText('Dismiss').at(-1)!);
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Pushed to origin/main'),
+      ).not.toBeInTheDocument(),
+    );
     await user.click(await screen.findByRole('button', { name: /Stashes/ }));
     await user.click(screen.getByLabelText('Drop stash@{0}'));
     expect(await screen.findByText('Stash dropped')).toBeVisible();
@@ -845,7 +853,9 @@ describe('repository workflows', () => {
       },
     });
     expect(await screen.findByText('Stash restored')).toBeVisible();
-    expect(screen.queryByText('Stash dropped')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByText('Stash dropped')).not.toBeInTheDocument(),
+    );
   });
   it('shows a running pull on its button, in the status bar, and on a background tab', async () => {
     setup();

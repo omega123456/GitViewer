@@ -192,22 +192,26 @@ describe('application shell', () => {
     expect(screen.queryByText('Hidden failure')).not.toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Errors waiting' })).toBeVisible();
     const details = screen.getAllByRole('button', { name: 'Show details' });
-    await user.click(details[details.length - 1]);
+    await user.click(details[0]);
     expect(screen.getByText('fatal: offline')).toBeVisible();
     await user.click(screen.getByLabelText('Copy error output'));
     expect(await screen.findByLabelText('Copied')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Hide details' }));
     await user.click(screen.getByRole('button', { name: /Retry/ }));
     expect(retried).toBe(true);
-    expect(
-      screen.queryByText('Could not reach the remote'),
-    ).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Could not reach the remote'),
+      ).not.toBeInTheDocument(),
+    );
     await user.click(screen.getByRole('button', { name: 'Pull' }));
     expect(calls).toContainEqual({
       command: 'sync',
       args: { repo: repository.id, action: 'pull' },
     });
-    expect(screen.queryByText('Push rejected')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByText('Push rejected')).not.toBeInTheDocument(),
+    );
     act(() => useTabs.getState().activate('/second'));
     expect(await screen.findByText('Hidden failure')).toBeVisible();
     await user.click(screen.getByLabelText('Dismiss error'));
