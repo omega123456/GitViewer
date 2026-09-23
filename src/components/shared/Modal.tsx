@@ -13,6 +13,7 @@ export function Modal({
   title,
   open,
   hideChrome,
+  focusId,
   size = 'dialog',
   onOpenChange,
   children,
@@ -20,6 +21,7 @@ export function Modal({
   title: string;
   open: boolean;
   hideChrome?: boolean;
+  focusId?: string;
   size?: keyof typeof sizes;
   onOpenChange: (value: boolean) => void;
   children: ReactNode;
@@ -29,6 +31,12 @@ export function Modal({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/30" />
         <Dialog.Content
+          onOpenAutoFocus={(event) => {
+            const target = focusId && document.getElementById(focusId);
+            if (!target) return;
+            event.preventDefault();
+            target.focus();
+          }}
           className={`fixed left-1/2 z-50 max-w-full -translate-x-1/2 overflow-hidden rounded-md border border-line bg-surface text-ink dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark ${sizes[size]} ${hideChrome ? '' : 'p-5'} ${focus}`}
         >
           {hideChrome ? (

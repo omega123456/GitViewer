@@ -398,6 +398,31 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`new branch dialog ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto('/');
+    await page
+      .getByRole('button', { name: 'Open repository', exact: true })
+      .last()
+      .click();
+    await expect(
+      page.getByLabel('Stage src/app.ts', { exact: true }),
+    ).toBeVisible();
+    await page.keyboard.press('ControlOrMeta+Shift+B');
+    const name = page.getByLabel('Name', { exact: true });
+    await expect(name).toBeFocused();
+    await name.pressSequentially('fix login');
+    await expect(name).toHaveValue('fix-login');
+    await expect(
+      page.getByRole('combobox', { name: 'Based on', exact: true }),
+    ).toHaveText('maincurrent');
+    await expect(
+      page.getByRole('dialog', { name: 'New branch', exact: true }),
+    ).toHaveScreenshot(`new-branch-${theme}.png`);
+  });
+}
+
+for (const theme of ['light', 'dark'] as const) {
   test(`command palette ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme });
     await page.goto('/');

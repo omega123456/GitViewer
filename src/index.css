@@ -133,6 +133,8 @@
   --spacing-toast: 360px;
   --spacing-sidebar: var(--sidebar-width, 300px);
   --spacing-branches: var(--branches-width, 320px);
+  --spacing-select-width: var(--radix-select-trigger-width, 160px);
+  --spacing-select-height: var(--radix-select-content-available-height, 320px);
   --spacing-virtual: var(--virtual-height);
   --spacing-diff: var(--diff-width);
   --spacing-indent: var(--tree-indent);

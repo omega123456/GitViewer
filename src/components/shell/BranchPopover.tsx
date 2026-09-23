@@ -19,17 +19,28 @@ import { normalizeError } from '../../lib/ipc';
 import { overwrittenPaths } from '../../lib/failure';
 import { ask } from '../../stores/decision';
 import { useErrors } from '../../stores/errors';
-import type { Status } from '../../lib/types';
+import type { Branch, Status } from '../../lib/types';
 import { Button } from '../shared/Button';
-import { CheckBox } from '../shared/CheckBox';
 import { Decision } from '../shared/Decision';
-import { ErrorRow } from '../states/Errors';
+import { ErrorRow, FieldError } from '../states/Errors';
 import { Modal } from '../shared/Modal';
+import { Select } from '../shared/Select';
 import { VirtualList } from '../shared/VirtualList';
 import { dynamic, field, focus } from '../shared/styles';
 import { openCompare } from '../sidebar/CompareSection';
 import { mergeBranch } from '../../lib/merge';
 const item = `flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs outline-none data-disabled:opacity-40 data-highlighted:bg-hover dark:data-highlighted:bg-hover-dark ${focus}`;
+const createModes = { switch: 'Create & switch', stay: 'Create only' };
+type CreateMode = keyof typeof createModes;
+const invalidRef =
+  /[\s~^:?*[\\]|\.\.|@\{|\/\/|^[-./]|\/\.|[./]$|\.lock(\/|$)|^@$/;
+function nameProblem(name: string, branches: Branch[]) {
+  if (branches.some((branch) => branch.name === name))
+    return `A branch named “${name}” already exists.`;
+  if (invalidRef.test(name))
+    return 'Not a valid branch name. Avoid ~ ^ : ? * [ \\ @{ and .., a leading - . or /, and a trailing . / or .lock.';
+  return null;
+}
 export async function checkout(repo: string, name: string) {
   try {
     await attempt('branch_switch', { repo, name });
@@ -68,9 +79,16 @@ export function BranchPopover({
   const [filter, setFilter] = useState('');
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
-  const [base, setBase] = useState('HEAD');
-  const [switchAfter, setSwitchAfter] = useState(true);
+  const [base, setBase] = useState('');
+  const [mode, setMode] = useState<CreateMode>('switch');
   const query = useBackend('branches', { repo }, open || creating);
+  const all = query.data ?? [];
+  const head = all.find((branch) => branch.current)?.name;
+  const local = all.filter((branch) => !branch.remote).map((b) => b.name);
+  const remote = all.filter((branch) => branch.remote).map((b) => b.name);
+  const chosenBase = base || head || 'HEAD';
+  const problem = name ? nameProblem(name, all) : null;
+  const blocked = disabled || !name || Boolean(problem);
   const branches =
     query.data?.filter((branch) =>
       branch.name.toLowerCase().includes(filter.toLowerCase()),
@@ -289,62 +307,130 @@ export function BranchPopover({
           </Popover.Content>
         </Popover.Portal>
       </Popover.Root>
-      <Modal title="New branch" open={creating} onOpenChange={setCreating}>
-        <div className="flex flex-col gap-4">
-          <label className="text-xs">
-            Name
+      <Modal
+        title="New branch"
+        focusId="new-branch-name"
+        open={creating}
+        onOpenChange={setCreating}
+      >
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (blocked) return;
+            const result = await perform('branch_create', {
+              repo,
+              name,
+              base: chosenBase,
+              checkout: false,
+            });
+            if (result === undefined) return;
+            setCreating(false);
+            setName('');
+            setBase('');
+            if (mode === 'switch') await checkout(repo, name);
+          }}
+        >
+          <div className="flex flex-col gap-1 text-xs">
+            <label htmlFor="new-branch-name">Name</label>
             <TextInput
-              className={field}
+              id="new-branch-name"
+              aria-invalid={Boolean(problem)}
+              aria-describedby="new-branch-hint"
+              className={`${field} h-7 font-mono text-xs`}
+              placeholder="feature/short-description"
               value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </label>
-          <label className="text-xs">
-            Based on
-            <TextInput
-              list="base-references"
-              className={field}
-              value={base}
-              onChange={(event) => setBase(event.target.value)}
-            />
-            <datalist id="base-references">
-              {query.data?.map((branch) => (
-                <option key={branch.name} value={branch.name} />
-              ))}
-            </datalist>
-          </label>
-          <div className="flex items-center gap-2 text-xs">
-            <CheckBox
-              label="Switch to it after creating"
-              checked={switchAfter}
-              onChange={() => setSwitchAfter(!switchAfter)}
-            />
-            Switch to it after creating
-          </div>
-          <Button
-            className="bg-accent text-white"
-            disabled={
-              disabled ||
-              !name.trim() ||
-              !base.trim() ||
-              query.data?.some((branch) => branch.name === name)
-            }
-            onClick={async () => {
-              const result = await perform('branch_create', {
-                repo,
-                name,
-                base,
-                checkout: false,
-              });
-              if (result !== undefined) {
-                setCreating(false);
-                if (switchAfter) await checkout(repo, name);
+              onChange={(event) =>
+                setName(event.target.value.replace(/\s+/g, '-'))
               }
-            }}
-          >
-            Create branch
-          </Button>
-        </div>
+            />
+            <div id="new-branch-hint">
+              {problem ? (
+                <FieldError>{problem}</FieldError>
+              ) : (
+                <p className="text-label text-muted dark:text-muted-dark">
+                  Spaces become dashes.
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-col gap-1 text-xs">
+            <span>Based on</span>
+            <Select
+              label="Based on"
+              placeholder="Current branch"
+              icon={
+                <GitBranch className="size-3.5 shrink-0 text-muted dark:text-muted-dark" />
+              }
+              value={chosenBase}
+              groups={[
+                { label: 'Local', options: head ? local : ['HEAD', ...local] },
+                { label: 'Remote', options: remote },
+              ].filter((group) => group.options.length)}
+              badges={head ? { [head]: 'current' } : { HEAD: 'detached' }}
+              onChange={setBase}
+            />
+          </div>
+          <div className="flex justify-end gap-1.5 border-t border-line pt-4 dark:border-line-dark">
+            <Button
+              className="h-7 px-3 font-medium text-muted dark:text-muted-dark"
+              onClick={() => setCreating(false)}
+            >
+              Cancel
+            </Button>
+            <div className="flex">
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={blocked}
+                className="h-7 rounded-r-none px-3 font-medium"
+              >
+                {createModes[mode]}
+              </Button>
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild>
+                  <Button
+                    variant="primary"
+                    disabled={blocked}
+                    aria-label="Create options"
+                    className="h-7 rounded-l-none border-l border-white/30 dark:border-surface-dark/30"
+                  >
+                    <ChevronDown className="size-3.5" />
+                  </Button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    align="end"
+                    sideOffset={4}
+                    className="z-50 flex w-40 flex-col rounded-md border border-line bg-surface p-1 text-ink shadow-lg dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark"
+                  >
+                    <DropdownMenu.RadioGroup
+                      value={mode}
+                      onValueChange={(value) => setMode(value as CreateMode)}
+                    >
+                      {(Object.keys(createModes) as CreateMode[]).map(
+                        (option) => (
+                          <DropdownMenu.RadioItem
+                            key={option}
+                            value={option}
+                            className={item}
+                          >
+                            <span className="flex size-3 items-center justify-center">
+                              <DropdownMenu.ItemIndicator>
+                                <Check className="size-3" />
+                              </DropdownMenu.ItemIndicator>
+                            </span>
+                            {createModes[option]}
+                          </DropdownMenu.RadioItem>
+                        ),
+                      )}
+                    </DropdownMenu.RadioGroup>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+            </div>
+          </div>
+        </form>
       </Modal>
     </>
   );

@@ -330,11 +330,37 @@ describe('repository workflows', () => {
       }),
     );
     await user.click(screen.getByRole('button', { name: 'New branch' }));
-    await user.type(screen.getByLabelText('Name'), 'new-feature');
-    await user.clear(screen.getByLabelText('Based on'));
-    await user.type(screen.getByLabelText('Based on'), 'origin/main');
-    await user.click(screen.getByLabelText('Switch to it after creating'));
-    await user.click(screen.getByRole('button', { name: 'Create branch' }));
+    const name = screen.getByLabelText('Name');
+    expect(name).toHaveFocus();
+    expect(screen.getByLabelText('Based on')).toHaveTextContent('maincurrent');
+    await user.type(name, 'feature');
+    expect(name).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'A branch named “feature” already exists.',
+    );
+    expect(
+      screen.getByRole('button', { name: 'Create & switch' }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Create options' }),
+    ).toBeDisabled();
+    await user.clear(name);
+    await user.type(name, 'bad:name');
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Not a valid branch name.',
+    );
+    await user.clear(name);
+    await user.type(name, 'new feature');
+    expect(name).toHaveValue('new-feature');
+    expect(screen.getByText('Spaces become dashes.')).toBeVisible();
+    await user.click(screen.getByLabelText('Based on'));
+    expect(await screen.findByText('Remote')).toBeVisible();
+    await user.click(screen.getByRole('option', { name: 'origin/main' }));
+    await user.click(screen.getByRole('button', { name: 'Create options' }));
+    await user.click(
+      await screen.findByRole('menuitemradio', { name: 'Create only' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Create only' }));
     expect(calls).toContainEqual({
       command: 'branch_create',
       args: {
@@ -1139,10 +1165,12 @@ describe('keyboard and pointer access', () => {
       'false',
     );
     await action('new-branch');
-    await user.type(screen.getByLabelText('Name'), 'new');
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
+    await action('new-branch');
     mockCommand('branch_create', () => null);
     mockCommand('branch_switch', () => null);
-    await user.click(screen.getByRole('button', { name: 'Create branch' }));
+    await user.type(screen.getByLabelText('Name'), 'new{Enter}');
     await waitFor(() =>
       expect(calls).toContainEqual({
         command: 'branch_switch',
