@@ -1248,6 +1248,50 @@ async fn ai_accepts_a_local_endpoint_without_a_key_and_with_sparse_responses() {
 }
 
 #[tokio::test]
+async fn ai_reports_a_context_overflow_without_stepping_down_reasoning() {
+    for response in [
+        ResponseTemplate::new(400).set_body_json(json!({"error": {
+            "message": "This model's maximum context length is 8192 tokens.",
+            "type": "invalid_request_error",
+            "param": "messages",
+            "code": "context_length_exceeded"
+        }})),
+        ResponseTemplate::new(400).set_body_json(json!({"error": {
+            "code": 400,
+            "message": "the request exceeds the available context size, try increasing it",
+            "type": "exceed_context_size_error"
+        }})),
+        ResponseTemplate::new(413)
+            .set_body_json(json!({"error": {"message": "Request too large"}})),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .respond_with(response)
+            .expect(1)
+            .mount(&server)
+            .await;
+        let error = ai::draft(
+            &endpoint(
+                &format!("{}/v1", server.uri()),
+                "key",
+                Duration::from_secs(5),
+            ),
+            "small",
+            "t",
+            sample(),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.category, "refused");
+        assert_eq!(
+            error.message,
+            "The changes are too large for this model's context"
+        );
+    }
+}
+
+#[tokio::test]
 async fn ai_drafts_a_message_and_reports_its_source_and_detail() {
     let server = MockServer::start().await;
     let generated: String = std::iter::repeat_n('m', ai::MESSAGE_CAP + 500).collect();
@@ -1273,7 +1317,7 @@ async fn ai_drafts_a_message_and_reports_its_source_and_detail() {
         "Describe it.",
         ai::Material {
             source: ai::Source::WorkingTree,
-            detail: ai::Detail::Summary,
+            detail: ai::Detail::Compacted,
             ..sample()
         },
     )
@@ -1281,7 +1325,7 @@ async fn ai_drafts_a_message_and_reports_its_source_and_detail() {
     .unwrap();
     assert_eq!(draft.message.chars().count(), ai::MESSAGE_CAP);
     assert_eq!(draft.source, ai::Source::WorkingTree);
-    assert_eq!(draft.detail, ai::Detail::Summary);
+    assert_eq!(draft.detail, ai::Detail::Compacted);
 }
 
 #[tokio::test]

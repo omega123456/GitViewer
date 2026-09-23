@@ -116,7 +116,7 @@ export interface SettingsResponse extends Settings {
 export interface GeneratedMessage {
   message: string;
   source: 'index' | 'workingTree';
-  detail: 'patch' | 'summary';
+  detail: 'patch' | 'compacted';
 }
 export interface Mark {
   text: string;

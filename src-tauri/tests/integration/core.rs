@@ -272,18 +272,96 @@ async fn ai_material_chooses_its_source_and_budget() {
     let staged = ai::material(&root).await.unwrap();
     assert_eq!(staged.source, ai::Source::Index);
     assert_eq!(staged.detail, ai::Detail::Patch);
-    let large: String = std::iter::repeat_n("a line of change\n", 4000).collect();
+    let large: String = std::iter::repeat_n("a line of change\n", 12_000).collect();
     assert!(large.chars().count() > ai::DIFF_BUDGET);
     std::fs::write(root.join("file.txt"), &large).unwrap();
     super::workflows::command(&root, &["add", "file.txt"]).await;
-    let summarized = ai::material(&root).await.unwrap();
-    assert_eq!(summarized.source, ai::Source::Index);
-    assert_eq!(summarized.detail, ai::Detail::Summary);
-    assert!(summarized.text.contains("file.txt"));
+    let compacted = ai::material(&root).await.unwrap();
+    assert_eq!(compacted.source, ai::Source::Index);
+    assert_eq!(compacted.detail, ai::Detail::Compacted);
+    assert!(compacted.text.contains("file.txt"));
+    assert!(compacted.text.chars().count() <= ai::DIFF_BUDGET);
     super::workflows::command(&root, &["reset"]).await;
-    let unstaged_summary = ai::material(&root).await.unwrap();
-    assert_eq!(unstaged_summary.source, ai::Source::WorkingTree);
-    assert_eq!(unstaged_summary.detail, ai::Detail::Summary);
+    let unstaged_compacted = ai::material(&root).await.unwrap();
+    assert_eq!(unstaged_compacted.source, ai::Source::WorkingTree);
+    assert_eq!(unstaged_compacted.detail, ai::Detail::Compacted);
+}
+#[tokio::test]
+async fn ai_material_ignores_repository_diff_configuration() {
+    let (dir, handle) = super::workflows::fixture().await;
+    super::workflows::base(&dir, &handle).await;
+    let root = dir.path().to_path_buf();
+    super::workflows::command(&root, &["config", "diff.noprefix", "true"]).await;
+    super::workflows::command(
+        &root,
+        &["config", "diff.external", "gitviewer-missing-external-diff"],
+    )
+    .await;
+    std::fs::write(root.join("file.txt"), "one\ntwo\nfour\n").unwrap();
+    let material = ai::material(&root).await.unwrap();
+    assert!(material
+        .text
+        .starts_with("diff --git a/file.txt b/file.txt"));
+    assert!(material.text.contains("+four"));
+}
+fn patch_section(path: &str, lines: &[String]) -> String {
+    let body: String = lines.iter().map(|line| format!("+{line}\n")).collect();
+    format!(
+        "diff --git a/{path} b/{path}\nindex 1111111..2222222 100644\n--- a/{path}\n+++ b/{path}\n@@ -0,0 +1,{} @@\n{body}",
+        lines.len()
+    )
+}
+fn repeated(line: &str, count: usize) -> Vec<String> {
+    std::iter::repeat_n(line.to_string(), count).collect()
+}
+#[test]
+fn ai_compact_reduces_noise_files_to_their_header_first() {
+    let code = patch_section("src/main.rs", &repeated("fn main() {}", 3));
+    let lock = patch_section("pnpm-lock.yaml", &repeated("  version: 1.0.0", 5000));
+    let patch = format!("{lock}{code}");
+    let compacted = ai::compact(&patch, 2000);
+    assert!(compacted.chars().count() <= 2000);
+    assert!(compacted.ends_with(&code));
+    assert!(compacted.contains("+++ b/pnpm-lock.yaml\n"));
+    assert!(compacted.contains("… 5000 changed lines omitted"));
+    assert!(!compacted.contains("version: 1.0.0"));
+}
+#[test]
+fn ai_compact_shares_the_budget_and_outlines_what_it_cuts() {
+    let small = patch_section("src/small.rs", &repeated("fn small() {}", 4));
+    let mut lines = repeated("    let helper = 1;", 2000);
+    lines.extend([
+        "fn late_function_name() {".to_string(),
+        "}".to_string(),
+        String::new(),
+    ]);
+    let large = patch_section("src/large.rs", &lines);
+    let compacted = ai::compact(&format!("{small}{large}"), 4000);
+    assert!(compacted.chars().count() <= 4000);
+    assert!(compacted.starts_with(&small));
+    assert!(compacted.contains("+++ b/src/large.rs\n@@ -0,0 +1,2003 @@\n+    let helper = 1;\n"));
+    let (_, outline) = compacted
+        .split_once("more changed lines omitted, outline follows\n")
+        .unwrap();
+    assert_eq!(outline, "+fn late_function_name() {\n");
+    assert!(compacted.matches("let helper").count() < 2000);
+}
+#[test]
+fn ai_compact_never_exceeds_the_budget() {
+    let patch: String = (0..200)
+        .map(|index| {
+            patch_section(
+                &format!("src/file{index}.rs"),
+                &repeated("fn body() {}", 40),
+            )
+        })
+        .chain(
+            (0..300).map(|index| patch_section(&format!("vendor/{index}.lock"), &repeated("x", 2))),
+        )
+        .collect();
+    let compacted = ai::compact(&patch, 2000);
+    assert!(compacted.chars().count() <= 2000);
+    assert!(compacted.ends_with("… the remaining files are omitted\n"));
 }
 #[test]
 fn ai_prompt_states_the_source_and_the_detail() {
@@ -303,18 +381,20 @@ fn ai_prompt_states_the_source_and_the_detail() {
         ai::prompt("   ", &material(ai::Source::Index, ai::Detail::Patch))
             .starts_with(settings::DEFAULT_PROMPT)
     );
+    let compacted = ai::prompt("t", &material(ai::Source::Index, ai::Detail::Compacted));
     assert!(
-        ai::prompt("t", &material(ai::Source::Index, ai::Detail::Summary))
-            .contains("staged changes exceed the patch budget")
+        compacted.contains("The staged patch exceeds the budget, so a compacted patch follows.")
     );
+    assert!(compacted.contains("Write exactly one commit message from what is shown."));
     assert!(
         ai::prompt("t", &material(ai::Source::WorkingTree, ai::Detail::Patch))
             .contains("Nothing is staged, so the unstaged working tree patch follows.")
     );
-    assert!(
-        ai::prompt("t", &material(ai::Source::WorkingTree, ai::Detail::Summary))
-            .contains("working tree changes exceed the patch budget")
-    );
+    assert!(ai::prompt(
+        "t",
+        &material(ai::Source::WorkingTree, ai::Detail::Compacted)
+    )
+    .contains("Nothing is staged and the working tree patch exceeds the budget"));
 }
 #[test]
 fn lane_assignment_handles_merges_and_termination() {

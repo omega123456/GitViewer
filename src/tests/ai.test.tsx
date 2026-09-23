@@ -236,7 +236,7 @@ describe('commit message generation', () => {
     mockCommand('ai_generate', () => ({
       ...generated,
       source: 'workingTree' as const,
-      detail: 'summary' as const,
+      detail: 'compacted' as const,
     }));
     const user = userEvent.setup();
     mount();
@@ -249,7 +249,7 @@ describe('commit message generation', () => {
     );
     expect(
       screen.getByText(
-        'Generation summarized the unstaged working tree and used the file summary.',
+        'Generation summarized the unstaged working tree and compacted the large diff.',
       ),
     ).toBeVisible();
     expect(sourceNotice(generated)).toBeNull();

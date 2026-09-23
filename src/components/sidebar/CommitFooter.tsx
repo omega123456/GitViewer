@@ -35,7 +35,7 @@ export function sourceNotice(result: GeneratedMessage) {
     ...(result.source === 'workingTree'
       ? ['summarized the unstaged working tree']
       : []),
-    ...(result.detail === 'summary' ? ['used the file summary'] : []),
+    ...(result.detail === 'compacted' ? ['compacted the large diff'] : []),
   ];
   return parts.length ? `Generation ${parts.join(' and ')}.` : null;
 }
