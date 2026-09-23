@@ -27,6 +27,7 @@ import { useFilter } from '../../stores/filter';
 import { useCompact } from '../../stores/density';
 import type { Source, Status, TreeEntry } from '../../lib/types';
 import { dynamic, focus, revealSlot, rowTint } from '../shared/styles';
+import { FileMenu } from '../shared/FileMenu';
 import { GroupHeader } from '../shared/Section';
 import { State } from '../states/State';
 import { FileIcon } from './FileIcon';
@@ -170,42 +171,48 @@ export function ChangesTree({
                   '--tree-indent': `${item.getItemMeta().level * 14 + 8}px`,
                 })}
               >
-                <button
-                  {...item.getProps()}
-                  onClick={(event) => {
-                    item.getProps().onClick?.(event);
-                    if (!node.directory)
-                      useSelection.getState().select(repo, {
-                        path: node.path,
-                        source: node.status === '?' ? 'file' : target,
-                      });
-                  }}
-                  className={`relative flex min-w-0 flex-1 items-center gap-1.5 pr-2 pl-indent text-left text-sm ${compact ? 'h-tree-compact' : 'h-tree-comfortable'} ${focus}`}
+                <FileMenu
+                  repo={repo}
+                  path={node.path}
+                  disabled={node.directory}
                 >
-                  {selection?.path === node.path &&
-                    selection.source === target && (
-                      <span className="absolute inset-y-0 left-0 w-accent bg-accent" />
-                    )}
-                  {node.directory ? (
-                    item.isExpanded() ? (
-                      <ChevronDown className="size-3 shrink-0 text-muted dark:text-muted-dark" />
+                  <button
+                    {...item.getProps()}
+                    onClick={(event) => {
+                      item.getProps().onClick?.(event);
+                      if (!node.directory)
+                        useSelection.getState().select(repo, {
+                          path: node.path,
+                          source: node.status === '?' ? 'file' : target,
+                        });
+                    }}
+                    className={`relative flex min-w-0 flex-1 items-center gap-1.5 pr-2 pl-indent text-left text-sm ${compact ? 'h-tree-compact' : 'h-tree-comfortable'} ${focus}`}
+                  >
+                    {selection?.path === node.path &&
+                      selection.source === target && (
+                        <span className="absolute inset-y-0 left-0 w-accent bg-accent" />
+                      )}
+                    {node.directory ? (
+                      item.isExpanded() ? (
+                        <ChevronDown className="size-3 shrink-0 text-muted dark:text-muted-dark" />
+                      ) : (
+                        <ChevronRight className="size-3 shrink-0 text-muted dark:text-muted-dark" />
+                      )
                     ) : (
-                      <ChevronRight className="size-3 shrink-0 text-muted dark:text-muted-dark" />
-                    )
-                  ) : (
-                    <span className="w-3 shrink-0" />
-                  )}
-                  <FileIcon
-                    name={node.name}
-                    directory={node.directory}
-                    expanded={item.isExpanded()}
-                  />
-                  <span className="truncate">{node.name}</span>
-                  <StatusBadge
-                    status={node.status}
-                    partial={node.directory && node.partial}
-                  />
-                </button>
+                      <span className="w-3 shrink-0" />
+                    )}
+                    <FileIcon
+                      name={node.name}
+                      directory={node.directory}
+                      expanded={item.isExpanded()}
+                    />
+                    <span className="truncate">{node.name}</span>
+                    <StatusBadge
+                      status={node.status}
+                      partial={node.directory && node.partial}
+                    />
+                  </button>
+                </FileMenu>
                 <div className={slot}>
                   <Button
                     variant="icon"
@@ -365,45 +372,53 @@ export function FilesTree({ repo, status }: { repo: string; status: Status }) {
           const node = item.getItemData();
           if (!node) return null;
           return (
-            <button
-              {...item.getProps()}
+            <FileMenu
               key={item.getId()}
-              onClick={(event) => {
-                item.getProps().onClick?.(event);
-                if (!node.directory)
-                  useSelection.getState().select(repo, {
-                    path: node.path,
-                    source: sourceFor(
-                      status.entries.find((entry) => entry.path === node.path),
-                    ),
-                  });
-              }}
-              className={`absolute top-0 left-0 flex w-full translate-y-row items-center gap-1.5 pr-2 pl-indent text-left text-sm hover:bg-hover dark:hover:bg-hover-dark ${compact ? 'h-tree-compact' : 'h-tree-comfortable'} ${node.ignored ? 'opacity-55' : ''} ${selection?.path === node.path ? 'bg-selected dark:bg-selected-dark' : ''} ${focus}`}
-              style={dynamic({
-                '--row-offset': `${row.start}px`,
-                '--tree-indent': `${item.getItemMeta().level * 14 + 8}px`,
-              })}
+              repo={repo}
+              path={node.path}
+              disabled={node.directory}
             >
-              {selection?.path === node.path && (
-                <span className="absolute inset-y-0 left-0 w-accent bg-accent" />
-              )}
-              {node.directory ? (
-                item.isExpanded() ? (
-                  <ChevronDown className="size-3 shrink-0 text-muted dark:text-muted-dark" />
+              <button
+                {...item.getProps()}
+                onClick={(event) => {
+                  item.getProps().onClick?.(event);
+                  if (!node.directory)
+                    useSelection.getState().select(repo, {
+                      path: node.path,
+                      source: sourceFor(
+                        status.entries.find(
+                          (entry) => entry.path === node.path,
+                        ),
+                      ),
+                    });
+                }}
+                className={`absolute top-0 left-0 flex w-full translate-y-row items-center gap-1.5 pr-2 pl-indent text-left text-sm hover:bg-hover dark:hover:bg-hover-dark ${compact ? 'h-tree-compact' : 'h-tree-comfortable'} ${node.ignored ? 'opacity-55' : ''} ${selection?.path === node.path ? 'bg-selected dark:bg-selected-dark' : ''} ${focus}`}
+                style={dynamic({
+                  '--row-offset': `${row.start}px`,
+                  '--tree-indent': `${item.getItemMeta().level * 14 + 8}px`,
+                })}
+              >
+                {selection?.path === node.path && (
+                  <span className="absolute inset-y-0 left-0 w-accent bg-accent" />
+                )}
+                {node.directory ? (
+                  item.isExpanded() ? (
+                    <ChevronDown className="size-3 shrink-0 text-muted dark:text-muted-dark" />
+                  ) : (
+                    <ChevronRight className="size-3 shrink-0 text-muted dark:text-muted-dark" />
+                  )
                 ) : (
-                  <ChevronRight className="size-3 shrink-0 text-muted dark:text-muted-dark" />
-                )
-              ) : (
-                <span className="w-3 shrink-0" />
-              )}
-              <FileIcon
-                name={node.name}
-                directory={node.directory}
-                expanded={item.isExpanded()}
-              />
-              <span className="truncate">{node.name}</span>
-              <StatusBadge status={node.ignored ? '' : node.status} />
-            </button>
+                  <span className="w-3 shrink-0" />
+                )}
+                <FileIcon
+                  name={node.name}
+                  directory={node.directory}
+                  expanded={item.isExpanded()}
+                />
+                <span className="truncate">{node.name}</span>
+                <StatusBadge status={node.ignored ? '' : node.status} />
+              </button>
+            </FileMenu>
           );
         })}
       </div>

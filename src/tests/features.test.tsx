@@ -23,6 +23,7 @@ import { checkout } from '../components/shell/BranchPopover';
 import { DiffPane } from '../components/diff/DiffPane';
 import { AllChangesPane } from '../components/diff/AllChangesPane';
 import { ImageDiff } from '../components/image/ImageDiff';
+import { absolutePath } from '../components/shared/FileMenu';
 import { mockCommand, dialog, calls, emit, lastError } from './harness';
 import { intersect, intersecting } from './setup';
 import { settings, status, repository, diff } from './fixtures';
@@ -694,7 +695,74 @@ describe('repository workflows', () => {
   });
 });
 
+describe('file context menu', () => {
+  it('copies the name and full path and opens a changed file', async () => {
+    setup();
+    mockCommand('system_open', () => null);
+    const user = userEvent.setup();
+    mount();
+    const tree = await screen.findByRole('tree', { name: 'Changes' });
+    const row = await within(tree).findByRole('treeitem', { name: 'app.ts' });
+    await user.pointer({ keys: '[MouseRight]', target: row });
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Copy filename' }),
+    );
+    expect(await navigator.clipboard.readText()).toBe('app.ts');
+    await user.pointer({ keys: '[MouseRight]', target: row });
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Copy path' }),
+    );
+    expect(await navigator.clipboard.readText()).toBe('/fixture/src/app.ts');
+    await user.pointer({ keys: '[MouseRight]', target: row });
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Open in default editor' }),
+    );
+    expect(calls).toContainEqual({
+      command: 'system_open',
+      args: { repo: repository.id, path: 'src/app.ts' },
+    });
+  });
+  it('offers no menu on folders and serves the all files tree', async () => {
+    setup();
+    const user = userEvent.setup();
+    mount();
+    const tree = await screen.findByRole('tree', { name: 'Changes' });
+    await user.pointer({
+      keys: '[MouseRight]',
+      target: await within(tree).findByRole('treeitem', { name: 'src' }),
+    });
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^Files/ }));
+    const files = await screen.findByRole('tree', { name: 'All files' });
+    await user.pointer({
+      keys: '[MouseRight]',
+      target: await within(files).findByRole('treeitem', { name: 'app.ts' }),
+    });
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Copy filename' }),
+    );
+    expect(await navigator.clipboard.readText()).toBe('app.ts');
+  });
+  it('builds native full paths for Windows roots', () => {
+    expect(absolutePath('\\\\?\\C:\\repo', 'src/app.ts')).toBe(
+      'C:\\repo\\src\\app.ts',
+    );
+    expect(absolutePath('C:\\repo', 'a.txt')).toBe('C:\\repo\\a.txt');
+  });
+});
+
 describe('diff interaction', () => {
+  it('copies the file path from the diff header', async () => {
+    setup();
+    useSelection
+      .getState()
+      .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByLabelText('Copy file path'));
+    expect(await screen.findByLabelText('Copied')).toBeVisible();
+    expect(await navigator.clipboard.readText()).toBe('src/app.ts');
+  });
   it('uses the registry for hunk actions, view controls, and system opening', async () => {
     setup();
     useSelection

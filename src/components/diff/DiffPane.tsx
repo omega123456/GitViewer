@@ -24,6 +24,7 @@ import { useLayout } from '../../stores/layout';
 import { useSelection } from '../../stores/selection';
 import type { Selection, Settings } from '../../lib/types';
 import { Button } from '../shared/Button';
+import { CopyButton } from '../shared/CopyButton';
 import { ErrorState } from '../states/Errors';
 import { State } from '../states/State';
 import { StatusBadge } from '../sidebar/StatusBadge';
@@ -260,6 +261,11 @@ function SelectedDiff({
           <span className="text-muted">{directory}</span>
           <span className="font-semibold">{name}</span>
         </span>
+        <CopyButton
+          text={selection.path}
+          label="Copy file path"
+          className="size-6 text-muted dark:text-muted-dark"
+        />
         <DiffSourcePill selection={selection} />
         {Boolean(added) && (
           <span className="shrink-0 font-mono text-label text-added dark:text-added-dark">
