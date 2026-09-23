@@ -6,6 +6,7 @@ use crate::{
     repo::Repo,
 };
 use serde::Serialize;
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Page {
@@ -136,7 +137,7 @@ pub async fn page(repo: &mut Repo, cursor: &str, path: &str) -> Result<Page> {
         .page(cursor)
         .await
 }
-pub async fn files(repo: &Repo, revision: &str) -> Result<Vec<String>> {
+pub async fn files(repo: &Repo, revision: &str) -> Result<BTreeMap<String, String>> {
     let sha = resolve(repo, revision).await?;
     let parents = git::text(&repo.root, &["rev-list", "--parents", "-n", "1", &sha]).await?;
     let parent = parents.split_whitespace().nth(1);
@@ -144,7 +145,7 @@ pub async fn files(repo: &Repo, revision: &str) -> Result<Vec<String>> {
         "diff-tree",
         "--root",
         "--no-commit-id",
-        "--name-only",
+        "--name-status",
         "-r",
         "-z",
     ];
@@ -152,11 +153,11 @@ pub async fn files(repo: &Repo, revision: &str) -> Result<Vec<String>> {
         args.push(parent);
     }
     args.push(&sha);
-    Ok(git::text(&repo.root, &args)
-        .await?
-        .split('\0')
-        .filter(|s| !s.is_empty())
-        .map(String::from)
+    let output = git::text(&repo.root, &args).await?;
+    let fields: Vec<&str> = output.split('\0').filter(|s| !s.is_empty()).collect();
+    Ok(fields
+        .chunks(2)
+        .map(|entry| (entry[1].to_owned(), entry[0].chars().take(1).collect()))
         .collect())
 }
 #[derive(Debug, Serialize)]

@@ -327,9 +327,9 @@ pub async fn dispatch<R: tauri::Runtime>(
             "commit_files" => {
                 let mut files = history::files(&repo, revision).await?;
                 if optional(&args, "source") == "stash" {
-                    files.extend(stash::untracked(&repo, revision).await?);
-                    files.sort();
-                    files.dedup();
+                    for path in stash::untracked(&repo, revision).await? {
+                        files.entry(path).or_insert_with(|| "?".into());
+                    }
                 }
                 return Ok(serde_json::to_value(files)?);
             }

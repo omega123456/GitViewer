@@ -269,7 +269,7 @@ export interface Commands {
   history: Command<RepoArgs & { path?: string; cursor?: string }, Page>;
   commit_files: Command<
     RepoArgs & { revision: string; source?: Source },
-    string[]
+    Record<string, string>
   >;
   blame: Command<FileArgs, Blame[]>;
   stashes: Command<RepoArgs, Stash[]>;

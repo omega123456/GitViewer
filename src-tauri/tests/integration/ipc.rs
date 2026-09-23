@@ -65,9 +65,12 @@ async fn typed_commands_events_and_protocol_are_wired() {
     call("blame", json!({"repo":id,"path":"file.txt"}))
         .await
         .unwrap();
-    call("commit_files", json!({"repo":id,"revision":"HEAD"}))
-        .await
-        .unwrap();
+    assert_eq!(
+        call("commit_files", json!({"repo":id,"revision":"HEAD"}))
+            .await
+            .unwrap(),
+        json!({"file.txt":"A"})
+    );
     call(
         "branch_create",
         json!({"repo":id,"name":"feature","base":"HEAD","checkout":true}),

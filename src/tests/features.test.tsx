@@ -61,7 +61,7 @@ function setup() {
   ]);
   mockCommand('stashes', () => []);
   mockCommand('history', () => ({ commits: [commit], cursor: null }));
-  mockCommand('commit_files', () => ['src/app.ts']);
+  mockCommand('commit_files', () => ({ 'src/app.ts': 'M' }));
   mockCommand('branches', () => branches);
   mockCommand('diff', () => diff);
   mockCommand('refresh', () => null);
@@ -465,6 +465,7 @@ describe('repository workflows', () => {
     );
     const fileTree = await screen.findByRole('tree', { name: 'Commit files' });
     await within(fileTree).findByRole('treeitem', { name: 'app.ts' });
+    expect(within(fileTree).getByText('M')).toBeInTheDocument();
     const folder = within(fileTree).getByRole('treeitem', { name: 'src' });
     await user.click(folder);
     expect(
@@ -1018,10 +1019,11 @@ describe('keyboard and pointer access', () => {
 describe('all changes pane', () => {
   it('shows a loading state until the commit file list arrives', async () => {
     setup();
-    let release: (paths: string[]) => void = () => {};
+    let release: (files: Record<string, string>) => void = () => {};
     mockCommand(
       'commit_files',
-      () => new Promise<string[]>((resolve) => (release = resolve)),
+      () =>
+        new Promise<Record<string, string>>((resolve) => (release = resolve)),
     );
     render(
       <QueryProvider>
@@ -1040,13 +1042,13 @@ describe('all changes pane', () => {
     });
     expect(within(pane).getByText('Loading changes')).toBeInTheDocument();
     expect(within(pane).queryByText('Nothing here')).not.toBeInTheDocument();
-    await act(async () => release(['src/app.ts']));
+    await act(async () => release({ 'src/app.ts': 'A' }));
     await within(pane).findByRole('button', { name: /app\.ts/ });
     expect(within(pane).queryByText('Loading changes')).not.toBeInTheDocument();
   });
   it('keeps the scroll position when a deferred file diff arrives', async () => {
     setup();
-    mockCommand('commit_files', () => ['src/app.ts']);
+    mockCommand('commit_files', () => ({ 'src/app.ts': 'M' }));
     let release: (value: typeof diff) => void = () => {};
     mockCommand(
       'diff',

@@ -70,9 +70,9 @@ export function AllChangesPane({
   const compared = comparison.data;
   const entries =
     stack === 'commit'
-      ? (files.data ?? []).map((path) => ({
+      ? Object.entries(files.data ?? {}).map(([path, badge]) => ({
           selection: { ...commit!, path },
-          badge: undefined,
+          badge,
         }))
       : stack === 'compare'
         ? (compared?.files ?? []).map((file) => ({

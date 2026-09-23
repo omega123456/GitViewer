@@ -225,7 +225,7 @@ export const test = base.extend({
                       cursor: null,
                     };
                   case 'commit_files':
-                    return ['src/app.ts'];
+                    return { 'src/app.ts': 'M' };
                   case 'branches':
                     return [
                       {

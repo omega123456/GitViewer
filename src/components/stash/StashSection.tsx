@@ -238,7 +238,7 @@ export function StashSection({
               >
                 <GroupHeader
                   title="Stash files"
-                  count={files.data?.length ?? 0}
+                  count={Object.keys(files.data ?? {}).length}
                   actions={
                     <Button
                       variant="icon"
@@ -264,7 +264,8 @@ export function StashSection({
                   <RevisionTree
                     key={selected}
                     label="Stash files"
-                    paths={files.data}
+                    paths={Object.keys(files.data)}
+                    statuses={files.data}
                     selectedPath={
                       selection?.source === 'stash' &&
                       selection.revision === selected

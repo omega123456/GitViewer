@@ -142,7 +142,7 @@ export function CommitList({ repo }: { repo: string }) {
         <div className="flex h-1/3 min-h-24 flex-col border-t border-line dark:border-line-dark">
           <GroupHeader
             title="Files in commit"
-            count={files.data?.length ?? 0}
+            count={Object.keys(files.data ?? {}).length}
             actions={
               <Button
                 variant="icon"
@@ -166,7 +166,8 @@ export function CommitList({ repo }: { repo: string }) {
             <RevisionTree
               key={selection.revision}
               label="Commit files"
-              paths={files.data}
+              paths={Object.keys(files.data)}
+              statuses={files.data}
               selectedPath={selection.path}
               onSelect={(path) =>
                 useSelection.getState().select(repo, {
