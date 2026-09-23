@@ -22,7 +22,12 @@ const pruneForeignCoverageBinaries = () => {
   }
 
   const binaries = readdirSync(depsDir)
-    .filter((name) => !name.includes('.') || name.endsWith('.exe'))
+    .filter(
+      (name) =>
+        !name.includes('.') ||
+        name.endsWith('.exe') ||
+        /^(lib)?gitviewer_lib\.(dylib|so|dll)$/.test(name),
+    )
     .map((name) => path.join(depsDir, name))
     .filter((candidate) => statSync(candidate).isFile());
   const newestTestBinary = binaries

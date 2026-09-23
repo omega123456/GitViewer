@@ -17,6 +17,7 @@ Use `pnpm` only. Run Rust commands with `--manifest-path src-tauri/Cargo.toml`.
 - Rust tests: `pnpm test:rust`. This uses `cargo nextest` with the `test-utils` feature.
 - Run one Rust test: `cargo nextest run --manifest-path src-tauri/Cargo.toml --features test-utils -E 'test(name)'`.
 - Rust coverage: `pnpm test:rust:coverage`. It uses `cargo llvm-cov nextest` on stable Rust and needs `cargo-nextest`, `cargo-llvm-cov`, and `llvm-tools-preview`. The runner clears raw profiles and prunes stale coverage executables, then runs with `--no-clean` to preserve compiled dependencies. Do not clean the Rust target directory for routine test runs.
+- Reclaim Rust target disk: `pnpm clean:rust-target`. Cargo never deletes obsolete artifacts, so the target directory grows during normal work. The next build is a full rebuild.
 - All test layers: `pnpm test:all` runs frontend coverage, Rust coverage, and Playwright in sequence, stopping at the first failure.
 - End-to-end tests: `pnpm test:e2e`. First run `pnpm exec playwright install chromium`.
 - Production desktop build check: `cargo build --manifest-path src-tauri/Cargo.toml --no-default-features`.
@@ -72,6 +73,7 @@ GitViewer2 is a Tauri 2 desktop Git client. Rust owns data and Git. React owns t
 - Every test lives in a dedicated test root. Production files contain only shipping code.
 - Never embed a test attribute or a test module inside `src-tauri/src/`. All Rust tests live in `src-tauri/tests/`.
 - All Rust integration tests compile into one binary through a single module list, because each additional test target relinks the whole dependency graph.
+- Every `reqwest` client is built with `no_proxy()` under the test-utils feature. On macOS the system proxy lookup goes through `configd`, which answers one caller at a time. The parallel test processes then queue on it.
 - Rust tests run with a test-utils feature. Any code path that can touch machine-global state compiles to a fake or returns an unsupported result under it.
 - Vitest IPC mocking is centralized in one shared harness. Ad hoc per-test mocks are prohibited, and the intentional unmocked-command failure is part of the contract.
 - **Vitest must run without React `act(...)` warnings.** Treat any `act(...)` output as unfinished work and fix the test, rather than ignoring the warning. The default reporter hides console output for passing tests, so a run can look clean while warnings still fire. Surface them with the verbose reporter and search the error stream for `not wrapped in act`. A common source is a test calling a Zustand store setter directly while a component from that test is still mounted and subscribed.

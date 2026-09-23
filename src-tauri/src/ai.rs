@@ -173,9 +173,10 @@ fn client(endpoint: &Endpoint) -> Result<Client<OpenAIConfig>> {
     if endpoint.base_url.is_empty() {
         return Err(Error::refused("No endpoint is configured"));
     }
-    let transport = reqwest::Client::builder()
-        .timeout(endpoint.timeout)
-        .build()?;
+    let builder = reqwest::Client::builder().timeout(endpoint.timeout);
+    #[cfg(feature = "test-utils")]
+    let builder = builder.no_proxy();
+    let transport = builder.build()?;
     let configuration = OpenAIConfig::new()
         .with_api_base(endpoint.base_url.clone())
         .with_api_key(endpoint.key.clone());
