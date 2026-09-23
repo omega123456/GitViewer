@@ -97,8 +97,8 @@ async fn staging_commit_lazy_tree_and_plain_reads() {
     )
     .await
     .unwrap();
-    actions::commit(&mut repo, "first").await.unwrap();
-    repo.refresh().await.unwrap();
+    let oid = actions::commit(&mut repo, "first").await.unwrap();
+    assert_eq!(repo.refresh().await.unwrap().oid, oid);
     assert_eq!(
         history::page(&mut repo, "", "").await.unwrap().commits[0].subject,
         "first"
@@ -195,6 +195,14 @@ async fn branches_history_blame_stashes_and_checkout_rollback() {
     branch::switch(&mut repo, "main").await.unwrap();
     stash::apply(&mut repo, &sha, true, false).await.unwrap();
     assert!(stash::list(&repo).await.unwrap().is_empty());
+    assert!(stash::store(&mut repo, "missing", "lost").await.is_err());
+    stash::store(&mut repo, &sha, "On main: local experiment")
+        .await
+        .unwrap();
+    let restored = stash::list(&repo).await.unwrap();
+    assert_eq!(restored[0].hash, sha);
+    assert_eq!(restored[0].message, "On main: local experiment");
+    stash::drop(&mut repo, &sha).await.unwrap();
     actions::files(&mut repo, &["file.txt".into()], "discard")
         .await
         .unwrap();
@@ -411,22 +419,29 @@ async fn local_remote_fetch_pull_push_and_divergence_refusal() {
             .await
             .unwrap();
         actions::commit(&mut repo, "Remote change").await.unwrap();
-        branch::sync(&mut repo, "push", silent()).await.unwrap();
+        assert_eq!(
+            branch::sync(&mut repo, "push", silent()).await.unwrap(),
+            Some(1)
+        );
     }
     let mut repo = handle.lock().await;
     let reported = Arc::new(Mutex::new(Vec::<String>::new()));
     let collector = reported.clone();
-    branch::sync(&mut repo, "fetch", move |line| {
+    let fetched = branch::sync(&mut repo, "fetch", move |line| {
         collector.lock().unwrap().push(line.into())
     })
     .await
     .unwrap();
+    assert_eq!(fetched, Some(1));
     assert!(!reported.lock().unwrap().is_empty());
     assert_eq!(repo.refresh().await.unwrap().behind, Some(1));
     std::fs::write(dir.path().join("file.txt"), "one\ntwo\ndirty\n").unwrap();
     std::fs::write(dir.path().join("untracked.txt"), "untracked\n").unwrap();
     repo.refresh().await.unwrap();
-    branch::sync(&mut repo, "pull", silent()).await.unwrap();
+    assert_eq!(
+        branch::sync(&mut repo, "pull", silent()).await.unwrap(),
+        Some(1)
+    );
     assert!(dir.path().join("remote.txt").exists());
     assert!(dir.path().join("untracked.txt").exists());
     assert_eq!(
@@ -783,7 +798,7 @@ async fn merge_previews_every_outcome_and_leaves_conflicts_until_the_merge_is_ab
     assert_eq!(preview.outcome, "fastForward");
     assert_eq!(preview.changed, 1);
     assert!(preview.conflicts.is_empty());
-    branch::merge(&mut repo, "ahead").await.unwrap();
+    assert!(branch::merge(&mut repo, "ahead").await.unwrap());
     assert!(!repo.refresh().await.unwrap().conflicted);
     assert_eq!(
         branch::merge_preview(&repo, "ahead").await.unwrap().outcome,
@@ -811,7 +826,7 @@ async fn merge_previews_every_outcome_and_leaves_conflicts_until_the_merge_is_ab
     assert_eq!(preview.outcome, "conflict");
     assert_eq!(preview.conflicts, vec!["file.txt".to_string()]);
     assert!(branch::abort(&mut repo).await.is_err());
-    branch::merge(&mut repo, "clash").await.unwrap();
+    assert!(!branch::merge(&mut repo, "clash").await.unwrap());
     let status = repo.refresh().await.unwrap();
     assert!(status.conflicted);
     assert_eq!(status.merging.as_deref(), Some("clash"));

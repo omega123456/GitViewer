@@ -6,6 +6,7 @@ import { client } from '../lib/query';
 import { useTabs } from '../stores/tabs';
 import { useActivity } from '../stores/activity';
 import { useErrors } from '../stores/errors';
+import { useSuccesses } from '../stores/successes';
 import { useDecision } from '../stores/decision';
 import { useLayout } from '../stores/layout';
 import { useSelection } from '../stores/selection';
@@ -117,6 +118,7 @@ beforeEach(() => {
   useTabs.setState({ tabs: [], active: '' });
   useActivity.setState({ scopes: {} });
   useErrors.setState({ scopes: {} });
+  useSuccesses.setState({ scopes: {} });
   useDecision.setState({ pending: {} });
   useLayout.setState({ tabs: {} });
   useSelection.setState({

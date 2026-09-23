@@ -194,6 +194,7 @@ pub async fn dispatch<R: tauri::Runtime>(
             | "stash_save"
             | "stash_apply"
             | "stash_drop"
+            | "stash_restore"
     );
     let previous_head = (repo.status.oid.clone(), repo.status.branch.clone());
     let outcome: Result<Value> = async {
@@ -263,10 +264,7 @@ pub async fn dispatch<R: tauri::Runtime>(
                 .await?;
                 Value::Null
             }
-            "commit" => {
-                actions::commit(&mut repo, string(&args, "message")?).await?;
-                Value::Null
-            }
+            "commit" => json!(actions::commit(&mut repo, string(&args, "message")?).await?),
             "branches" => return Ok(serde_json::to_value(branch::list(&repo).await?)?),
             "default_branch" => {
                 return Ok(serde_json::to_value(branch::default_branch(&repo).await?)?)
@@ -302,10 +300,7 @@ pub async fn dispatch<R: tauri::Runtime>(
                     branch::merge_preview(&repo, string(&args, "name")?).await?,
                 )?)
             }
-            "branch_merge" => {
-                branch::merge(&mut repo, string(&args, "name")?).await?;
-                Value::Null
-            }
+            "branch_merge" => json!(branch::merge(&mut repo, string(&args, "name")?).await?),
             "merge_abort" => {
                 branch::abort(&mut repo).await?;
                 Value::Null
@@ -326,7 +321,7 @@ pub async fn dispatch<R: tauri::Runtime>(
                 })
                 .await;
                 let message = match &outcome {
-                    Ok(()) => format!("{action} complete"),
+                    Ok(_) => format!("{action} complete"),
                     Err(error) => format!("{action} failed: {}", error.message),
                 };
                 app.emit(
@@ -334,8 +329,7 @@ pub async fn dispatch<R: tauri::Runtime>(
                     json!({"repo":id,"message":message,"done":true}),
                 )
                 .map_err(Error::from)?;
-                outcome?;
-                Value::Null
+                json!(outcome?)
             }
             "history" => {
                 return Ok(serde_json::to_value(
@@ -366,6 +360,10 @@ pub async fn dispatch<R: tauri::Runtime>(
             }
             "stash_drop" => {
                 stash::drop(&mut repo, string(&args, "hash")?).await?;
+                Value::Null
+            }
+            "stash_restore" => {
+                stash::store(&mut repo, string(&args, "hash")?, string(&args, "message")?).await?;
                 Value::Null
             }
             "system_open" => {

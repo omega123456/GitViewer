@@ -40,7 +40,7 @@ function setup(preferences: SettingsResponse) {
   mockCommand('stashes', () => []);
   mockCommand('history', () => ({ commits: [], cursor: null }));
   mockCommand('branches', () => []);
-  mockCommand('commit', () => null);
+  mockCommand('commit', () => 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0');
   useTabs.getState().open(repository.id, repository.name);
 }
 function mount() {

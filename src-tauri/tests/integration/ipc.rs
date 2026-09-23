@@ -110,9 +110,12 @@ async fn typed_commands_events_and_protocol_are_wired() {
             .unwrap()["outcome"],
         "upToDate"
     );
-    call("branch_merge", json!({"repo":id,"name":"feature"}))
-        .await
-        .unwrap();
+    assert_eq!(
+        call("branch_merge", json!({"repo":id,"name":"feature"}))
+            .await
+            .unwrap(),
+        json!(true)
+    );
     assert!(call("merge_abort", json!({"repo":id})).await.is_err());
     call("branch_delete", json!({"repo":id,"name":"feature"}))
         .await
@@ -154,14 +157,24 @@ async fn typed_commands_events_and_protocol_are_wired() {
         .await
         .unwrap();
     call(
+        "stash_restore",
+        json!({"repo":id,"hash":hash,"message":"On main: IPC stash"}),
+    )
+    .await
+    .unwrap();
+    call("stash_drop", json!({"repo":id,"hash":hash}))
+        .await
+        .unwrap();
+    call(
         "files_action",
         json!({"repo":id,"paths":["file.txt"],"action":"stage"}),
     )
     .await
     .unwrap();
-    call("commit", json!({"repo":id,"message":"IPC commit"}))
+    let oid = call("commit", json!({"repo":id,"message":"IPC commit"}))
         .await
         .unwrap();
+    assert_eq!(oid.as_str().map(str::len), Some(40));
     let progress = Arc::new(Mutex::new(Vec::<Value>::new()));
     let captured = progress.clone();
     app.handle().listen("sync://progress", move |event| {

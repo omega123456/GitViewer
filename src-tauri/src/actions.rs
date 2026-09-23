@@ -1,4 +1,5 @@
 use crate::{
+    diff::resolve,
     error::{Error, Result},
     git,
     repo::Repo,
@@ -149,7 +150,7 @@ pub async fn files(repo: &mut Repo, paths: &[String], action: &str) -> Result<()
     }
     Ok(())
 }
-pub async fn commit(repo: &mut Repo, message: &str) -> Result<()> {
+pub async fn commit(repo: &mut Repo, message: &str) -> Result<String> {
     repo.writable().await?;
     if message.trim().is_empty() {
         return Err(Error::refused("Write a commit message first"));
@@ -167,5 +168,5 @@ pub async fn commit(repo: &mut Repo, message: &str) -> Result<()> {
     )
     .await?
     .accept(&[0])?;
-    Ok(())
+    resolve(repo, "HEAD").await
 }

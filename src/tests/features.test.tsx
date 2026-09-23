@@ -395,7 +395,7 @@ describe('repository workflows', () => {
       changed: 12,
       conflicts: ['a.ts', 'b.ts', 'c.ts', 'd.ts'],
     }));
-    mockCommand('branch_merge', () => null);
+    mockCommand('branch_merge', () => true);
     const user = userEvent.setup();
     mount();
     await screen.findByLabelText('Commit message');
@@ -797,6 +797,55 @@ describe('repository workflows', () => {
     expect(
       screen.queryByText('Sign-in to the remote failed'),
     ).not.toBeInTheDocument();
+  });
+  it('confirms finished actions with success cards beside failures', async () => {
+    setup();
+    mockCommand('stashes', () => [
+      {
+        hash: 'stash-hash',
+        selector: 'stash@{0}',
+        message: 'On main: tidy tests',
+        timestamp: commit.timestamp,
+      },
+    ]);
+    mockCommand('stash_drop', () => null);
+    mockCommand('stash_restore', () => null);
+    mockCommand('sync', () => 3);
+    const user = userEvent.setup();
+    mount();
+    await screen.findAllByLabelText('Commit message');
+    await action('push');
+    expect(await screen.findByText('Pushed to origin/main')).toBeVisible();
+    expect(screen.getByText('3 commits')).toBeVisible();
+    mockCommand('sync', () => {
+      throw { category: 'network', message: 'fatal: unable to access' };
+    });
+    await action('fetch');
+    expect(await screen.findByText('Could not reach the remote')).toBeVisible();
+    mockCommand('sync', () => 0);
+    await action('fetch');
+    await action('fetch');
+    expect(
+      screen.queryByText('Could not reach the remote'),
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByText('Fetched')).toHaveLength(1);
+    expect(screen.getByText('Up to date')).toBeVisible();
+    await user.click(screen.getAllByLabelText('Dismiss')[0]);
+    expect(screen.queryByText('Pushed to origin/main')).not.toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: /Stashes/ }));
+    await user.click(screen.getByLabelText('Drop stash@{0}'));
+    expect(await screen.findByText('Stash dropped')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(calls).toContainEqual({
+      command: 'stash_restore',
+      args: {
+        repo: repository.id,
+        hash: 'stash-hash',
+        message: 'On main: tidy tests',
+      },
+    });
+    expect(await screen.findByText('Stash restored')).toBeVisible();
+    expect(screen.queryByText('Stash dropped')).not.toBeInTheDocument();
   });
   it('shows a running pull on its button, in the status bar, and on a background tab', async () => {
     setup();

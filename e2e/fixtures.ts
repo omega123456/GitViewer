@@ -143,6 +143,7 @@ export const test = base.extend({
               payload: { command: string; args: Record<string, string> },
             ) => {
               if (name === 'plugin:dialog|open') return '/fixture';
+              if (name === 'plugin:dialog|message') return 'Ok';
               if (name === 'plugin:event|listen') return ++callback;
               if (name === 'plugin:event|unlisten') return null;
               if (name === 'execute') {
@@ -314,6 +315,7 @@ export const test = base.extend({
                       truncated: false,
                     };
                   case 'refresh':
+                  case 'stash_drop':
                     return null;
                   case 'sync':
                     throw {

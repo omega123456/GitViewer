@@ -127,7 +127,21 @@ pub async fn delete(repo: &mut Repo, name: &str) -> Result<()> {
     }
     Ok(())
 }
-pub async fn sync<F: Fn(&str)>(repo: &mut Repo, action: &str, progress: F) -> Result<()> {
+async fn tip(repo: &Repo, name: Option<&str>) -> Option<String> {
+    resolve(repo, name?).await.ok()
+}
+async fn distance(repo: &Repo, from: Option<String>, to: Option<String>) -> Result<Option<u32>> {
+    let (Some(from), Some(to)) = (from, to) else {
+        return Ok(None);
+    };
+    let count = git::text(
+        &repo.root,
+        &["rev-list", "--count", &format!("{from}..{to}")],
+    )
+    .await?;
+    Ok(count.trim().parse().ok())
+}
+pub async fn sync<F: Fn(&str)>(repo: &mut Repo, action: &str, progress: F) -> Result<Option<u32>> {
     repo.writable().await?;
     #[cfg(feature = "test-utils")]
     {
@@ -145,6 +159,11 @@ pub async fn sync<F: Fn(&str)>(repo: &mut Repo, action: &str, progress: F) -> Re
     if action != "fetch" && repo.status.branch == "(detached)" {
         return Err(Error::refused("Detached HEAD has no upstream branch"));
     }
+    let tracked = match action {
+        "pull" => Some("HEAD".to_string()),
+        _ => repo.status.upstream.clone(),
+    };
+    let before = tip(repo, tracked.as_deref()).await;
     match action {
         "fetch" => {
             git::stream(&repo.root, &["fetch", "--all", "--progress"], &progress)
@@ -182,7 +201,7 @@ pub async fn sync<F: Fn(&str)>(repo: &mut Repo, action: &str, progress: F) -> Re
                 .await?
                 .accept(&[0, 1])?;
                 if ahead.code == 0 {
-                    return Ok(());
+                    return Ok(Some(0));
                 }
                 return Err(Error::refused(
                     "Pull cannot fast-forward; resolve the diverged history in a terminal",
@@ -194,7 +213,8 @@ pub async fn sync<F: Fn(&str)>(repo: &mut Repo, action: &str, progress: F) -> Re
         }
         _ => return Err(Error::refused("Unknown synchronization action")),
     }
-    Ok(())
+    let after = tip(repo, tracked.as_deref()).await;
+    distance(repo, before, after).await
 }
 async fn mergeable(repo: &Repo, name: &str) -> Result<()> {
     if repo.status.branch == "(detached)" {
@@ -283,16 +303,17 @@ pub async fn merge_preview(repo: &Repo, name: &str) -> Result<MergePreview> {
             .collect(),
     })
 }
-pub async fn merge(repo: &mut Repo, name: &str) -> Result<()> {
+pub async fn merge(repo: &mut Repo, name: &str) -> Result<bool> {
     repo.writable().await?;
     mergeable(repo, name).await?;
     let output = git::run(&repo.root, &["merge", "--no-edit", name], None)
         .await?
         .accept(&[0, 1])?;
-    if output.code == 1 && !merging(repo).await? {
+    let conflicted = merging(repo).await?;
+    if output.code == 1 && !conflicted {
         return Err(Error::git(output.message()));
     }
-    Ok(())
+    Ok(!conflicted)
 }
 async fn merging(repo: &Repo) -> Result<bool> {
     Ok(git::run(

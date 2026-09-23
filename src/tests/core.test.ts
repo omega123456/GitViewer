@@ -45,6 +45,8 @@ import { track, useActivity, type Activity } from '../stores/activity';
 import type { Commands } from '../lib/types';
 import { describe as describeFailure, overwrittenPaths } from '../lib/failure';
 import { useErrors } from '../stores/errors';
+import { describeSuccess, type Before } from '../lib/success';
+import { useSuccesses } from '../stores/successes';
 import { answer, ask, useDecision } from '../stores/decision';
 import { diff, status } from './fixtures';
 describe('IPC and events', () => {
@@ -624,5 +626,114 @@ describe('git activity', () => {
     long();
     expect(pendingActivity()).toEqual([]);
     vi.useRealTimers();
+  });
+});
+describe('success notices', () => {
+  it('describes each finished command in plain words', () => {
+    const say = (
+      command: string,
+      args: Record<string, unknown>,
+      result: unknown = null,
+      before: Before = { status },
+    ) => describeSuccess(command, args, result, before);
+    const stashes = [
+      {
+        hash: 'h',
+        selector: 'stash@{0}',
+        message: 'On main: tidy',
+        timestamp: 0,
+      },
+    ];
+    expect(say('sync', { action: 'fetch' }, 4)).toEqual({
+      key: 'sync:fetch',
+      title: 'Fetched',
+      description: '4 new commits',
+    });
+    expect(say('sync', { action: 'fetch' }, 1)?.description).toBe(
+      '1 new commit',
+    );
+    expect(say('sync', { action: 'fetch' }, 0)?.description).toBe('Up to date');
+    expect(say('sync', { action: 'fetch' })?.description).toBeUndefined();
+    expect(say('sync', { action: 'pull' }, 2)).toMatchObject({
+      title: 'Pulled from origin/main',
+      description: '2 commits',
+    });
+    expect(say('sync', { action: 'pull' }, 0, {})).toMatchObject({
+      title: 'Pulled from the remote',
+      description: 'Already up to date',
+    });
+    expect(say('sync', { action: 'push' }, 3)).toMatchObject({
+      title: 'Pushed to origin/main',
+      description: '3 commits',
+      replaces: 'commit',
+    });
+    expect(say('sync', { action: 'push' }, 0)).toMatchObject({
+      title: 'Nothing to push',
+      description: 'origin/main already has every commit',
+    });
+    expect(say('sync', { action: 'push' })?.title).toBe('Published main');
+    expect(say('sync', { action: 'push' }, null, {})?.title).toBe(
+      'Published branch',
+    );
+    expect(
+      say('commit', { message: 'Fix typo\n\nBody' }, 'a1b2c3d4e5f6'),
+    ).toMatchObject({ title: 'Committed', description: 'a1b2c3d Fix typo' });
+    expect(say('stash_save', {}, 'h')?.description).toBe('2 files');
+    expect(say('stash_save', {}, 'h', {})?.description).toBeUndefined();
+    expect(
+      say('stash_apply', { hash: 'h', pop: true }, null, { stashes }),
+    ).toMatchObject({ title: 'Stash popped', description: 'On main: tidy' });
+    expect(
+      say('stash_apply', { hash: 'x', pop: false }, null, { stashes }),
+    ).toEqual({ key: 'stash_apply', title: 'Stash applied' });
+    expect(say('stash_drop', { hash: 'h' }, null, { stashes })).toMatchObject({
+      title: 'Stash dropped',
+      restore: { hash: 'h', message: 'On main: tidy' },
+    });
+    expect(say('stash_drop', { hash: 'x' }, null, {})?.restore).toBeUndefined();
+    expect(
+      say('stash_restore', { hash: 'h', message: 'On main: tidy' }),
+    ).toMatchObject({ title: 'Stash restored', replaces: 'stash_drop' });
+    expect(say('branch_switch', { name: 'dev' })).toEqual({
+      key: 'branch_switch',
+      title: 'Switched to dev',
+    });
+    expect(say('smart_checkout', { name: 'dev' })?.key).toBe('branch_switch');
+    expect(say('branch_create', { name: 'dev' })?.title).toBe('Created dev');
+    expect(say('branch_delete', { name: 'dev' })?.title).toBe('Deleted dev');
+    expect(say('branch_merge', { name: 'dev' }, true)).toMatchObject({
+      title: 'Merged dev',
+      description: 'into main',
+    });
+    expect(say('branch_merge', { name: 'dev' }, false)).toBeNull();
+    expect(say('merge_abort', {})?.title).toBe('Merge aborted');
+    expect(
+      say('files_action', { action: 'discard', paths: ['a', 'b'] }),
+    ).toMatchObject({ title: 'Discarded changes', description: '2 files' });
+    expect(
+      say('files_action', { action: 'revert', paths: ['a'] }),
+    ).toMatchObject({ title: 'Reverted', description: '1 file' });
+    expect(say('files_action', { action: 'stage', paths: ['a'] })).toBeNull();
+    expect(
+      say('hunk_action', { action: 'discard', path: 'src/app.ts' }),
+    ).toMatchObject({ description: 'src/app.ts' });
+    expect(say('hunk_action', { action: 'unstage', path: 'a' })).toBeNull();
+    expect(say('refresh', {})).toBeNull();
+  });
+  it('keeps one card per command, lets a push replace its commit, and keeps three', () => {
+    const { announce, dismiss } = useSuccesses.getState();
+    const titles = () =>
+      (useSuccesses.getState().scopes.r ?? []).map((notice) => notice.title);
+    announce('r', { key: 'commit', title: 'Committed' });
+    announce('r', { key: 'sync:fetch', title: 'Fetched' });
+    announce('r', { key: 'sync:fetch', title: 'Fetched again' });
+    expect(titles()).toEqual(['Committed', 'Fetched again']);
+    announce('r', { key: 'sync:push', title: 'Pushed', replaces: 'commit' });
+    expect(titles()).toEqual(['Fetched again', 'Pushed']);
+    announce('r', { key: 'a', title: 'A' });
+    announce('r', { key: 'b', title: 'B' });
+    expect(titles()).toEqual(['Pushed', 'A', 'B']);
+    dismiss('r', useSuccesses.getState().scopes.r[0].id);
+    expect(titles()).toEqual(['A', 'B']);
   });
 });

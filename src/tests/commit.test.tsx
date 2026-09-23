@@ -50,7 +50,7 @@ function setup(current: Status, preferences: SettingsResponse = settings) {
     emit('repo://status-changed', { repo: repository.id });
     return null;
   });
-  mockCommand('commit', () => null);
+  mockCommand('commit', () => 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0');
   mockCommand('sync', () => null);
   useTabs.getState().open(repository.id, repository.name);
   useTabs.getState().setMessage(repository.id, 'Ship it');

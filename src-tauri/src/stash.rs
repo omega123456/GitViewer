@@ -63,6 +63,17 @@ pub async fn drop(repo: &mut Repo, hash: &str) -> Result<()> {
         .accept(&[0])?;
     Ok(())
 }
+pub async fn store(repo: &mut Repo, hash: &str, message: &str) -> Result<()> {
+    repo.writable().await?;
+    git::run(
+        &repo.root,
+        &["stash", "store", "--message", message, hash],
+        None,
+    )
+    .await?
+    .accept(&[0])?;
+    Ok(())
+}
 async fn changed_paths(repo: &Repo, hash: &str) -> Result<HashSet<String>> {
     let text = git::text(
         &repo.root,

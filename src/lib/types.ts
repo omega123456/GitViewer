@@ -253,7 +253,7 @@ export interface Commands {
     },
     null
   >;
-  commit: Command<RepoArgs & { message: string }, null>;
+  commit: Command<RepoArgs & { message: string }, string>;
   settings_get: Command<Record<string, never>, SettingsResponse>;
   settings_set: Command<Settings, Settings>;
   ai_models: Command<Record<string, never>, string[]>;
@@ -272,10 +272,10 @@ export interface Commands {
   >;
   branch_delete: Command<RepoArgs & { name: string }, null>;
   merge_preview: Command<RepoArgs & { name: string }, MergePreview>;
-  branch_merge: Command<RepoArgs & { name: string }, null>;
+  branch_merge: Command<RepoArgs & { name: string }, boolean>;
   merge_abort: Command<RepoArgs, null>;
   smart_checkout: Command<RepoArgs & { name: string }, null>;
-  sync: Command<RepoArgs & { action: string }, null>;
+  sync: Command<RepoArgs & { action: string }, number | null>;
   history: Command<RepoArgs & { path?: string; cursor?: string }, Page>;
   commit_files: Command<
     RepoArgs & { revision: string; source?: Source },
@@ -289,6 +289,7 @@ export interface Commands {
     null
   >;
   stash_drop: Command<RepoArgs & { hash: string }, null>;
+  stash_restore: Command<RepoArgs & { hash: string; message: string }, null>;
   system_open: Command<FileArgs, null>;
 }
 export interface Events {

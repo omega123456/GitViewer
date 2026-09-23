@@ -20,6 +20,9 @@ interface Errors {
 }
 const limit = 3;
 let sequence = 0;
+export function nextNotice() {
+  return ++sequence;
+}
 export const useErrors = create<Errors>((set, get) => {
   const edit = (scope: string, change: (list: Failure[]) => Failure[]) =>
     set((state) => ({
@@ -29,7 +32,7 @@ export const useErrors = create<Errors>((set, get) => {
     scopes: {},
     report: (scope, error, extra) =>
       edit(scope, (list) =>
-        [...list, { ...extra, id: ++sequence, error }].slice(-limit),
+        [...list, { ...extra, id: nextNotice(), error }].slice(-limit),
       ),
     dismiss: (scope, id) =>
       edit(scope, (list) => list.filter((failure) => failure.id !== id)),

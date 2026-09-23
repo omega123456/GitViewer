@@ -3,8 +3,10 @@ import { listen } from '@tauri-apps/api/event';
 import { invoke, normalizeError } from './ipc';
 import type { Commands, Events } from './types';
 import { parseProgress } from './activity';
+import { describeSuccess, type Before } from './success';
 import { track, useActivity } from '../stores/activity';
 import { appScope, useErrors } from '../stores/errors';
+import { useSuccesses } from '../stores/successes';
 export const client = new QueryClient({
   defaultOptions: {
     queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false },
@@ -48,13 +50,31 @@ function refreshes(name: string, key: readonly unknown[]) {
 function scopeOf(args: object) {
   return 'repo' in args ? String(args.repo) : appScope;
 }
+function cached(args: object): Before {
+  if (!('repo' in args)) return {};
+  const repo = String(args.repo);
+  return {
+    status: client.getQueryData(queryKey('status', { repo })),
+    stashes: client.getQueryData(queryKey('stashes', { repo })),
+  };
+}
 export async function attempt<K extends keyof Commands>(
   command: K,
   args: Commands[K]['args'],
 ) {
-  const finish = track(scopeOf(args), command, args);
+  const scope = scopeOf(args);
+  const before = cached(args);
+  const finish = track(scope, command, args);
   try {
-    return await invoke(command, args);
+    const result = await invoke(command, args);
+    const success = describeSuccess(
+      command,
+      Object.fromEntries(Object.entries(args)),
+      result,
+      before,
+    );
+    if (success) useSuccesses.getState().announce(scope, success);
+    return result;
   } finally {
     finish();
   }
