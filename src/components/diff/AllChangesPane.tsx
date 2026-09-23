@@ -17,7 +17,7 @@ import { groupEntries, treeOrder } from '../sidebar/nodes';
 import { useDiffView } from '../../stores/diff-view';
 import { useFilter } from '../../stores/filter';
 import type { Stack } from '../../stores/selection';
-import { dynamic, focus } from '../shared/styles';
+import { dynamic, focus, focusInset } from '../shared/styles';
 import { ErrorState } from '../states/Errors';
 import { State } from '../states/State';
 import { StatusBadge } from '../sidebar/StatusBadge';
@@ -28,6 +28,7 @@ import { runHunkAction } from './hunks';
 import { diffRows } from './rows';
 import { viewStack } from './stack';
 import { useTokens } from './tokens';
+import { scrollPage } from './scroll';
 const context = 3;
 const settle = 150;
 interface Batch {
@@ -183,7 +184,14 @@ export function AllChangesPane({
           </span>
         )}
       </header>
-      <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto">
+      <div
+        ref={scroller}
+        tabIndex={-1}
+        role="region"
+        aria-label="Stacked diff content"
+        onKeyDownCapture={scrollPage}
+        className={`relative min-h-0 flex-1 overflow-y-auto ${focusInset}`}
+      >
         <div>
           {stack === 'compare' && comparison.same ? (
             <SameRefState />

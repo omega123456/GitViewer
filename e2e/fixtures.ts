@@ -108,15 +108,23 @@ export const test = base.extend({
                 : line.content,
           }));
         }
-        if (scenario === 'scale') {
-          diff.hunks[0].lines = Array.from({ length: 20000 }, (_, index) => ({
-            kind: 'context',
-            content: `const row${index} = ${index};`,
-            old: index + 1,
-            new: index + 1,
-            noNewline: false,
-            marks: [],
-          }));
+        if (scenario === 'scale' || scenario === 'stack-scroll') {
+          if (scenario === 'stack-scroll')
+            status.entries = Array.from({ length: 40 }, (_, index) => ({
+              ...status.entries[0],
+              path: index === 0 ? 'src/app.ts' : `src/file${index}.ts`,
+            }));
+          diff.hunks[0].lines = Array.from(
+            { length: scenario === 'stack-scroll' ? 60 : 20000 },
+            (_, index) => ({
+              kind: 'context',
+              content: `const row${index} = ${index};`,
+              old: index + 1,
+              new: index + 1,
+              noNewline: false,
+              marks: [],
+            }),
+          );
         }
         let callback = 0;
         const listeners = new Map<number, (value: unknown) => void>();

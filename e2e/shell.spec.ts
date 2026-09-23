@@ -82,6 +82,56 @@ test('large diffs keep a bounded DOM while scrolling', async ({ page }) => {
     .toBe(await after.evaluate((element) => element.scrollTop));
 });
 
+for (const mode of ['unified', 'split']) {
+  for (const stacked of [false, true]) {
+    test(`${mode} diff keeps keyboard scrolling ${stacked ? 'stacked' : 'single file'}`, async ({
+      page,
+    }) => {
+      await page.goto(`/?scenario=${stacked ? 'stack-scroll' : 'scale'}`);
+      await page
+        .getByRole('button', { name: 'Open repository', exact: true })
+        .last()
+        .click();
+      await page
+        .getByRole('tree', { name: 'Changes', exact: true })
+        .getByText('app.ts', { exact: true })
+        .click();
+      await page.getByRole('radio', { name: mode, exact: true }).click();
+      if (stacked)
+        await page
+          .getByRole('button', { name: 'All changes', exact: true })
+          .click();
+      const pane = page.getByRole('region', {
+        name: stacked ? 'All changes' : 'Diff viewer',
+        exact: true,
+      });
+      const first = pane.getByText('const row0 = 0;', { exact: true }).first();
+      await first.click();
+      const clicked = await first.elementHandle();
+      const scroller = pane.locator(
+        stacked ? '.overflow-y-auto' : '.overflow-auto',
+      );
+      await expect(scroller).toBeFocused();
+      for (const key of ['PageDown', 'PageUp']) {
+        for (let index = 0; index < (key === 'PageDown' ? 60 : 30); index++) {
+          const before = await scroller.evaluate(
+            (element) => element.scrollTop,
+          );
+          await page.keyboard.down(key);
+          await expect
+            .poll(() => scroller.evaluate((element) => element.scrollTop))
+            .not.toBe(before);
+          await expect(scroller).toBeFocused();
+        }
+        await page.keyboard.up(key);
+        await expect
+          .poll(() => clicked!.evaluate((element) => element.isConnected))
+          .toBe(false);
+      }
+    });
+  }
+}
+
 test('split panes fit the width and scroll horizontally alone', async ({
   page,
 }) => {

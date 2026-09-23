@@ -5,14 +5,16 @@ import {
   type ReactNode,
   type Ref,
   type RefObject,
+  type PointerEvent,
 } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { markedTokens } from '../../lib/highlight';
 import type { Hunk, DiffLine, Source } from '../../lib/types';
-import { dynamic } from '../shared/styles';
+import { dynamic, focusInset } from '../shared/styles';
 import { HunkHeader } from './HunkHeader';
 import type { Row } from './rows';
 import type { Tokens } from './tokens';
+import { scrollPage } from './scroll';
 export interface DiffSurfaceHandle {
   scrollToRow: (index: number) => void;
 }
@@ -54,6 +56,10 @@ export function DiffSurface({
   const primary = useRef<HTMLDivElement>(null);
   const secondary = useRef<HTMLDivElement>(null);
   const columns = split && !wrap;
+  const focusScroller = (event: PointerEvent<HTMLDivElement>) => {
+    if (!(event.target as HTMLElement).closest('button'))
+      (scroller?.current ?? primary.current)?.focus({ preventScroll: true });
+  };
   const virtual = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scroller?.current ?? primary.current,
@@ -158,7 +164,12 @@ export function DiffSurface({
     return (
       <div
         ref={primary}
-        className={`font-mono text-diff ${scroller ? 'overflow-x-auto' : 'min-h-0 flex-1 overflow-auto'}`}
+        tabIndex={scroller ? undefined : -1}
+        role={scroller ? undefined : 'region'}
+        aria-label={scroller ? undefined : 'Diff content'}
+        onPointerUp={focusScroller}
+        onKeyDownCapture={scroller ? undefined : scrollPage}
+        className={`font-mono text-diff ${focusInset} ${scroller ? 'overflow-x-auto' : 'min-h-0 flex-1 overflow-auto'}`}
       >
         {stack('right', (value) =>
           value.hunk !== undefined ? (
@@ -176,6 +187,7 @@ export function DiffSurface({
     );
   return (
     <div
+      onPointerUp={focusScroller}
       className={`flex font-mono text-diff ${scroller ? '' : 'min-h-0 flex-1'}`}
     >
       <div
@@ -194,8 +206,10 @@ export function DiffSurface({
       </div>
       <div
         ref={primary}
+        tabIndex={scroller ? undefined : -1}
+        onKeyDownCapture={scroller ? undefined : scrollPage}
         aria-label="Current version"
-        className={`w-1/2 shrink-0 ${scroller ? 'overflow-x-auto overflow-y-hidden' : 'overflow-auto'}`}
+        className={`w-1/2 shrink-0 ${focusInset} ${scroller ? 'overflow-x-auto overflow-y-hidden' : 'overflow-auto'}`}
         onScroll={() => {
           if (primary.current && secondary.current)
             secondary.current.scrollTop = primary.current.scrollTop;
