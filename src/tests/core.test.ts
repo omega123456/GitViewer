@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { renderHook } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -6,6 +6,7 @@ import { invoke, normalizeError } from '../lib/ipc';
 import {
   client,
   connectEvents,
+  handleEvent,
   perform,
   queryKey,
   useBackend,
@@ -32,7 +33,16 @@ import {
   treeRoot,
 } from '../components/sidebar/nodes';
 import { imageUrl } from '../components/image/url';
-import { calls, emit, lastError, mockCommand } from './harness';
+import {
+  calls,
+  emit,
+  lastError,
+  mockCommand,
+  pendingActivity,
+} from './harness';
+import { describeActivity, parseProgress } from '../lib/activity';
+import { track, useActivity, type Activity } from '../stores/activity';
+import type { Commands } from '../lib/types';
 import { describe as describeFailure, overwrittenPaths } from '../lib/failure';
 import { useErrors } from '../stores/errors';
 import { answer, ask, useDecision } from '../stores/decision';
@@ -55,7 +65,7 @@ describe('IPC and events', () => {
       throw { category: 'refused', message: 'No' };
     });
     expect(await perform('refresh', { repo: 'r' })).toBeUndefined();
-    expect(useTabs.getState().busy).toBe(0);
+    expect(pendingActivity()).toEqual([]);
     expect(lastError('r')?.category).toBe('refused');
     expect(lastError('app')).toBeUndefined();
     mockCommand('update_check', () => {
@@ -258,8 +268,6 @@ describe('presentation state', () => {
     expect(useTheme.getState().preference).toBe('dark');
     useDensity.getState().setDensity('compact');
     expect(useDensity.getState().density).toBe('compact');
-    useTabs.getState().setBusy(-5);
-    expect(useTabs.getState().busy).toBe(0);
   });
   it('builds both changes trees and partial directory checkboxes', () => {
     expect(changeNodes(status.entries, 'staged', '')['src'].partial).toBe(true);
@@ -520,5 +528,101 @@ describe('modifier labels and syntax overlays', () => {
       { content: 'va', color: 'blue', changed: true },
       { content: 'lue', color: 'blue', changed: false },
     ]);
+  });
+});
+describe('git activity', () => {
+  it('reads each git progress phase and ignores other lines', () => {
+    expect(parseProgress('Enumerating objects: 5, done.')).toEqual({
+      phase: 'Preparing',
+      percent: undefined,
+    });
+    expect(parseProgress('remote: Counting objects:  40% (2/5)')).toEqual({
+      phase: 'Counting',
+      percent: 40,
+    });
+    expect(parseProgress('Compressing objects: 100% (3/3), done.')).toEqual({
+      phase: 'Compressing',
+      percent: 100,
+    });
+    expect(parseProgress('Writing objects:  62% (5/8)')?.phase).toBe('Sending');
+    expect(parseProgress('Receiving objects:  45% (9/20)')?.percent).toBe(45);
+    expect(parseProgress('Resolving deltas:   7% (1/14)')?.phase).toBe(
+      'Finalizing',
+    );
+    expect(parseProgress('To github.com:owner/repo.git')).toBeNull();
+  });
+  it('labels every tracked command in plain words', () => {
+    const label = <K extends keyof Commands>(
+      command: K,
+      args: Partial<Commands[K]['args']>,
+      from = status,
+    ) =>
+      describeActivity(
+        {
+          id: 0,
+          command,
+          args,
+          visible: true,
+          held: false,
+          done: false,
+        } satisfies Activity,
+        from,
+      );
+    expect(label('sync', { action: 'fetch' })).toBe('Fetching');
+    expect(label('sync', { action: 'pull' })).toBe('Pulling from origin/main');
+    expect(label('sync', { action: 'push' })).toBe('Pushing to origin/main');
+    expect(
+      label('sync', { action: 'push' }, { ...status, upstream: null }),
+    ).toBe('Pushing to main');
+    expect(label('commit', {})).toBe('Committing…');
+    expect(label('stash_save', {})).toBe('Stashing…');
+    expect(label('stash_apply', { pop: false })).toBe('Applying stash…');
+    expect(label('stash_apply', { pop: true })).toBe('Popping stash…');
+    expect(label('stash_drop', {})).toBe('Dropping stash…');
+    expect(label('branch_switch', { name: 'main' })).toBe('Switching to main…');
+    expect(label('smart_checkout', { name: 'dev' })).toBe('Switching to dev…');
+    expect(label('branch_create', { name: 'dev' })).toBe('Creating dev…');
+    expect(label('branch_delete', { name: 'dev' })).toBe('Deleting dev…');
+    expect(label('branch_merge', { name: 'dev' })).toBe('Merging dev…');
+    expect(label('merge_abort', {})).toBe('Aborting merge…');
+    expect(label('files_action', { action: 'unstage' })).toBe('Unstaging…');
+    expect(label('hunk_action', { action: 'discard' })).toBe('Discarding…');
+    expect(label('hunk_action', { action: 'other' })).toBeNull();
+    expect(label('refresh', {})).toBeNull();
+  });
+  it('reveals slow commands after a delay and holds them briefly', () => {
+    vi.useFakeTimers();
+    const scope = () => useActivity.getState().scopes.r ?? [];
+    const quick = track('r', 'commit', { repo: 'r', message: 'm' });
+    vi.advanceTimersByTime(299);
+    expect(scope()).toMatchObject([{ visible: false, done: false }]);
+    quick();
+    vi.advanceTimersByTime(1000);
+    expect(scope()).toEqual([]);
+    const slow = track('r', 'sync', { repo: 'r', action: 'pull' });
+    vi.advanceTimersByTime(300);
+    handleEvent('sync://progress', {
+      repo: 'r',
+      message: 'Receiving objects:  45% (9/20)',
+      done: false,
+    });
+    handleEvent('sync://progress', {
+      repo: 'r',
+      message: 'From github.com:owner/repo',
+      done: false,
+    });
+    expect(scope()).toMatchObject([
+      { visible: true, phase: 'Receiving', percent: 45 },
+    ]);
+    vi.advanceTimersByTime(100);
+    slow();
+    expect(scope()).toMatchObject([{ visible: true, done: true }]);
+    vi.advanceTimersByTime(300);
+    expect(scope()).toEqual([]);
+    const long = track('r', 'stash_save', { repo: 'r', message: 'm' });
+    vi.advanceTimersByTime(1000);
+    long();
+    expect(pendingActivity()).toEqual([]);
+    vi.useRealTimers();
   });
 });

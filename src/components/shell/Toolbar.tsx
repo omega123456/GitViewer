@@ -8,12 +8,14 @@ import {
   Upload,
 } from 'lucide-react';
 import { perform } from '../../lib/query';
+import { runs, useCurrentActivity } from '../../stores/activity';
 import { useActionRegistry } from '../../lib/actions';
 import { shortcutLabel, type Action } from '../../lib/keyboard';
 import type { Status } from '../../lib/types';
 import { useFilter, useFilterStore } from '../../stores/filter';
 import { usePalette } from '../../stores/palette';
 import { Button } from '../shared/Button';
+import { Spinner } from '../shared/Spinner';
 import { BranchPopover } from './BranchPopover';
 const icons = {
   fetch: <RefreshCw className="size-4" />,
@@ -35,6 +37,8 @@ export function Toolbar({
   actions: Action[];
 }) {
   const filter = useFilter(repo);
+  const activity = useCurrentActivity(repo);
+  const stashing = runs(activity, 'stash_save');
   const palette = useActionRegistry((state) =>
     state.scopes.app?.find((action) => action.id === 'palette'),
   );
@@ -46,13 +50,15 @@ export function Toolbar({
         {(['fetch', 'pull', 'push'] as const).map((id) => {
           const action = actions.find((action) => action.id === id)!;
           const count = id === 'pull' ? status.behind : status.ahead;
+          const running = runs(activity, 'sync', { action: id });
           return (
             <Button
               key={id}
+              aria-busy={running}
               disabled={action.disabled}
               onClick={() => void action.run()}
             >
-              {icons[id]}
+              {running ? <Spinner /> : icons[id]}
               <span className="capitalize">{id}</span>
               {id !== 'fetch' && Boolean(count) && (
                 <span className="rounded-full bg-accent px-1.5 font-mono text-label text-white dark:bg-accent-dark dark:text-surface-dark">
@@ -65,6 +71,7 @@ export function Toolbar({
       </div>
       <Divider />
       <Button
+        aria-busy={stashing}
         disabled={disabled}
         title="Stash changes"
         onClick={() =>
@@ -74,7 +81,7 @@ export function Toolbar({
           })
         }
       >
-        <Archive className="size-4" />
+        {stashing ? <Spinner /> : <Archive className="size-4" />}
         <span>Stash</span>
       </Button>
       <div className="ml-auto flex items-center gap-2 rounded border border-line bg-surface px-2 dark:border-line-dark dark:bg-surface-dark">

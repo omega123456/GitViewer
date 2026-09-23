@@ -1,6 +1,7 @@
 import { generated, update } from './fixtures';
 import { vi } from 'vitest';
 import type { Commands, Events } from '../lib/types';
+import { useActivity } from '../stores/activity';
 import { useErrors } from '../stores/errors';
 type Handler = (args: never) => unknown;
 const handlers = new Map<string, Handler>();
@@ -34,6 +35,9 @@ export function resetHarness() {
 }
 export function lastError(scope: string) {
   return useErrors.getState().scopes[scope]?.slice(-1)[0]?.error;
+}
+export function pendingActivity() {
+  return Object.values(useActivity.getState().scopes).flat();
 }
 export function emit<K extends keyof Events>(name: K, payload: Events[K]) {
   listeners.get(name)?.forEach((listener) => listener({ payload }));

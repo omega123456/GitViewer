@@ -23,6 +23,7 @@ import { useActions } from '../../lib/actions';
 import { perform, useBackend } from '../../lib/query';
 import type { Action } from '../../lib/keyboard';
 import type { SettingsResponse } from '../../lib/types';
+import { useBusy } from '../../stores/activity';
 import { useCommit } from '../../stores/commit';
 import { useGenerate, useGenerateState } from '../../stores/generate';
 import { type CommitMode, useMessage, useTabs } from '../../stores/tabs';
@@ -63,7 +64,7 @@ export function RepositoryView({
   version: string;
 }) {
   const query = useBackend('status', { repo });
-  const busy = useTabs((s) => s.busy) > 0;
+  const busy = useBusy(repo);
   const generate = useGenerateState(repo);
   const message = useMessage(repo);
   const filter = useFilter(repo);
@@ -447,7 +448,7 @@ export function RepositoryView({
           )}
         </div>
       </div>
-      <StatusBar status={status} version={version} />
+      <StatusBar repo={repo} status={status} version={version} />
     </>
   );
 }

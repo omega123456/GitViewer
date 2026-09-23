@@ -2,8 +2,9 @@ import { QueryClient, useQuery } from '@tanstack/react-query';
 import { listen } from '@tauri-apps/api/event';
 import { invoke, normalizeError } from './ipc';
 import type { Commands, Events } from './types';
+import { parseProgress } from './activity';
+import { track, useActivity } from '../stores/activity';
 import { appScope, useErrors } from '../stores/errors';
-import { useTabs } from '../stores/tabs';
 export const client = new QueryClient({
   defaultOptions: {
     queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false },
@@ -44,23 +45,25 @@ function refreshes(name: string, key: readonly unknown[]) {
     immutable.includes(String(args?.source))
   );
 }
+function scopeOf(args: object) {
+  return 'repo' in args ? String(args.repo) : appScope;
+}
 export async function attempt<K extends keyof Commands>(
   command: K,
   args: Commands[K]['args'],
 ) {
-  const store = useTabs.getState();
-  store.setBusy(1);
+  const finish = track(scopeOf(args), command, args);
   try {
     return await invoke(command, args);
   } finally {
-    store.setBusy(-1);
+    finish();
   }
 }
 export async function perform<K extends keyof Commands>(
   command: K,
   args: Commands[K]['args'],
 ): Promise<Commands[K]['result'] | undefined> {
-  const scope = 'repo' in args ? args.repo : appScope;
+  const scope = scopeOf(args);
   try {
     const result = await attempt(command, args);
     useErrors.getState().resolve(scope, command);
@@ -84,7 +87,10 @@ export function handleEvent<K extends keyof Events>(
     void client.invalidateQueries({ queryKey: ['app', 'ai_models'] });
   } else if (name === 'repo://closed' && payload && 'repo' in payload) {
     client.removeQueries({ queryKey: [payload.repo] });
-  } else if (payload && 'repo' in payload && name !== 'sync://progress') {
+  } else if (name === 'sync://progress' && payload && 'message' in payload) {
+    const progress = parseProgress(payload.message);
+    if (progress) useActivity.getState().progress(payload.repo, progress);
+  } else if (payload && 'repo' in payload) {
     void client.invalidateQueries({
       queryKey: [payload.repo],
       predicate: (query) => refreshes(name, query.queryKey),

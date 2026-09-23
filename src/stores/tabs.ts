@@ -9,18 +9,15 @@ export interface Tab {
 interface Tabs {
   tabs: Tab[];
   active: string;
-  busy: number;
   open: (id: string, name: string) => void;
   close: (id: string) => void;
   activate: (id: string) => void;
   setMessage: (id: string, message: string) => void;
   setCommitMode: (id: string, commitMode: CommitMode) => void;
-  setBusy: (delta: number) => void;
 }
 export const useTabs = create<Tabs>((set) => ({
   tabs: [],
   active: '',
-  busy: 0,
   open: (id, name) =>
     set((s) => ({
       active: id,
@@ -45,7 +42,6 @@ export const useTabs = create<Tabs>((set) => ({
     set((s) => ({
       tabs: s.tabs.map((t) => (t.id === id ? { ...t, commitMode } : t)),
     })),
-  setBusy: (delta) => set((s) => ({ busy: Math.max(0, s.busy + delta) })),
 }));
 export function useMessage(id: string) {
   return useTabs((s) => s.tabs.find((tab) => tab.id === id)?.message ?? '');

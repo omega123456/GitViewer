@@ -13,7 +13,7 @@ import { registeredActions } from '../lib/actions';
 import { usePalette } from '../stores/palette';
 import { useTabs } from '../stores/tabs';
 import { sourceNotice } from '../components/sidebar/CommitFooter';
-import { calls, emit, mockCommand } from './harness';
+import { calls, emit, mockCommand, pendingActivity } from './harness';
 import { ai, generated, repository, settings, status } from './fixtures';
 import type { SettingsResponse } from '../lib/types';
 const endpoint = 'https://api.example.com/v1';
@@ -288,6 +288,6 @@ describe('commit message generation', () => {
       'The endpoint rejected the API key. Check it in Settings.',
     );
     expect(message).toHaveValue('wip');
-    expect(useTabs.getState().busy).toBe(0);
+    expect(pendingActivity()).toEqual([]);
   });
 });

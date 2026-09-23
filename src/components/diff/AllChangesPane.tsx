@@ -17,6 +17,7 @@ import { groupEntries, treeOrder } from '../sidebar/nodes';
 import { useDiffView } from '../../stores/diff-view';
 import { useFilter } from '../../stores/filter';
 import type { Stack } from '../../stores/selection';
+import { Spinner } from '../shared/Spinner';
 import { dynamic, focus, focusInset } from '../shared/styles';
 import { ErrorState } from '../states/Errors';
 import { State } from '../states/State';
@@ -177,7 +178,7 @@ export function AllChangesPane({
             </span>
           </span>
         ) : listing ? (
-          <Loader2 className="size-3.5 shrink-0 animate-spin text-muted" />
+          <Spinner className="size-3.5 text-muted" />
         ) : (
           <span className="font-mono text-label text-muted">
             {entries.length}

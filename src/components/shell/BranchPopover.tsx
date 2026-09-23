@@ -17,6 +17,7 @@ import { useActions } from '../../lib/actions';
 import { attempt, useBackend, perform } from '../../lib/query';
 import { normalizeError } from '../../lib/ipc';
 import { overwrittenPaths } from '../../lib/failure';
+import { runs, useCurrentActivity } from '../../stores/activity';
 import { ask } from '../../stores/decision';
 import { useErrors } from '../../stores/errors';
 import type { Branch, Status } from '../../lib/types';
@@ -25,11 +26,19 @@ import { Decision } from '../shared/Decision';
 import { ErrorRow, FieldError } from '../states/Errors';
 import { Modal } from '../shared/Modal';
 import { Select } from '../shared/Select';
+import { Spinner } from '../shared/Spinner';
 import { VirtualList } from '../shared/VirtualList';
 import { dynamic, field, focus } from '../shared/styles';
 import { openCompare } from '../sidebar/CompareSection';
 import { mergeBranch } from '../../lib/merge';
 const item = `flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs outline-none data-disabled:opacity-40 data-highlighted:bg-hover dark:data-highlighted:bg-hover-dark ${focus}`;
+const branchCommands = [
+  'branch_switch',
+  'smart_checkout',
+  'branch_create',
+  'branch_delete',
+  'branch_merge',
+] as const;
 const createModes = { switch: 'Create & switch', stay: 'Create only' };
 type CreateMode = keyof typeof createModes;
 const invalidRef =
@@ -76,6 +85,8 @@ export function BranchPopover({
   disabled: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const activity = useCurrentActivity(repo);
+  const switching = branchCommands.some((command) => runs(activity, command));
   const [filter, setFilter] = useState('');
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
@@ -148,8 +159,11 @@ export function BranchPopover({
       <Popover.Root open={open} onOpenChange={setOpen}>
         <span className="relative flex">
           <Popover.Trigger asChild>
-            <Button className="border border-line bg-surface dark:border-line-dark dark:bg-surface-dark">
-              <GitBranch className="size-4" />
+            <Button
+              aria-busy={switching}
+              className="border border-line bg-surface dark:border-line-dark dark:bg-surface-dark"
+            >
+              {switching ? <Spinner /> : <GitBranch className="size-4" />}
               {status.branch === '(detached)'
                 ? `${status.oid.slice(0, 7)} · detached`
                 : status.branch || 'Branch'}

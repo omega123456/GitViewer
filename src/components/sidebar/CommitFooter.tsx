@@ -4,7 +4,6 @@ import {
   Check,
   ChevronDown,
   GitCommitHorizontal,
-  Loader2,
   Sparkles,
 } from 'lucide-react';
 import type {
@@ -24,6 +23,7 @@ import {
   useTabs,
 } from '../../stores/tabs';
 import { Button } from '../shared/Button';
+import { Spinner } from '../shared/Spinner';
 import { dynamic, field, focus } from '../shared/styles';
 import { ResizeHandle } from '../shell/ResizeHandle';
 import { FieldError } from '../states/Errors';
@@ -111,7 +111,7 @@ export function CommitFooter({
               onClick={() => void useGenerate.getState().generate(repo)}
             >
               {generate.busy ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Spinner className="size-3.5" />
               ) : (
                 <Sparkles className="size-3.5" />
               )}
@@ -205,7 +205,7 @@ export function CommitFooter({
             {flow.phase === 'idle' ? (
               <GitCommitHorizontal className="size-3.5" />
             ) : (
-              <Loader2 className="size-3.5 animate-spin" />
+              <Spinner className="size-3.5" />
             )}
             <span className="truncate">{label}</span>
           </Button>

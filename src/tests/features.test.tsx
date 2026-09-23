@@ -26,7 +26,15 @@ import { ImageDiff } from '../components/image/ImageDiff';
 import { absolutePath } from '../components/shared/FileMenu';
 import { highlight } from '../lib/highlight';
 import { client } from '../lib/query';
-import { mockCommand, dialog, calls, emit, lastError } from './harness';
+import { track } from '../stores/activity';
+import {
+  mockCommand,
+  dialog,
+  calls,
+  emit,
+  lastError,
+  pendingActivity,
+} from './harness';
 import { intersect, intersecting } from './setup';
 import { settings, status, repository, diff, stack } from './fixtures';
 import type { Diff, DiffStack } from '../lib/types';
@@ -464,7 +472,7 @@ describe('repository workflows', () => {
     );
     await act(() => switched);
     expect(calls.some((call) => call.command === 'smart_checkout')).toBe(true);
-    expect(useTabs.getState().busy).toBe(0);
+    expect(pendingActivity()).toEqual([]);
     const cancelled = checkout(repository.id, 'feature');
     await screen.findByRole('dialog', { name: 'Switch to feature?' });
     await user.keyboard('{Escape}');
@@ -788,6 +796,65 @@ describe('repository workflows', () => {
     await user.click(screen.getByLabelText('Dismiss error'));
     expect(
       screen.queryByText('Sign-in to the remote failed'),
+    ).not.toBeInTheDocument();
+  });
+  it('shows a running pull on its button, in the status bar, and on a background tab', async () => {
+    setup();
+    useTabs.getState().open('/second', 'Second');
+    useTabs.getState().activate(repository.id);
+    let finish = () => {};
+    mockCommand(
+      'sync',
+      () =>
+        new Promise<null>((resolve) => {
+          finish = () => resolve(null);
+        }),
+    );
+    mount();
+    await screen.findAllByLabelText('Commit message');
+    vi.useFakeTimers();
+    const [pull] = screen.getAllByRole('button', { name: /pull/i });
+    const [push] = screen.getAllByRole('button', { name: /push/i });
+    fireEvent.click(pull);
+    expect(screen.getAllByText('Ready')).toHaveLength(2);
+    act(() => vi.advanceTimersByTime(300));
+    expect(pull).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByText('Pulling from origin/main')).toBeVisible();
+    expect(push).toBeDisabled();
+    expect(screen.getAllByText('Ready')).toHaveLength(1);
+    act(() =>
+      emit('sync://progress', {
+        repo: repository.id,
+        message: 'Receiving objects:  45% (9/20)',
+        done: false,
+      }),
+    );
+    expect(
+      screen.getByText('Pulling from origin/main · Receiving'),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('progressbar', { name: 'Receiving' }),
+    ).toHaveAttribute('aria-valuenow', '45');
+    await act(async () => finish());
+    expect(push).toBeEnabled();
+    act(() => vi.advanceTimersByTime(400));
+    expect(screen.getAllByText('Ready')).toHaveLength(2);
+    expect(pull).toHaveAttribute('aria-busy', 'false');
+    let stop = () => {};
+    act(() => {
+      stop = track('/second', 'sync', { repo: '/second', action: 'push' });
+      vi.advanceTimersByTime(300);
+    });
+    expect(
+      screen.getByRole('img', { name: 'Git operation running' }),
+    ).toBeVisible();
+    expect(screen.getByText('Pushing to origin/main')).toBeVisible();
+    act(() => {
+      stop();
+      vi.advanceTimersByTime(400);
+    });
+    expect(
+      screen.queryByRole('img', { name: 'Git operation running' }),
     ).not.toBeInTheDocument();
   });
 });

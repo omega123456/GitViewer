@@ -1,10 +1,12 @@
 import { FolderGit2, Plus, Settings as SettingsIcon, X } from 'lucide-react';
 import { closeRepository, openRepository } from '../../lib/repository';
 import { useBackend } from '../../lib/query';
+import { useCurrentActivity } from '../../stores/activity';
 import { useErrors } from '../../stores/errors';
 import { usePalette } from '../../stores/palette';
 import { useTabs, type Tab } from '../../stores/tabs';
 import { Button } from '../shared/Button';
+import { Spinner } from '../shared/Spinner';
 const strip =
   'w-control self-stretch text-muted hover:bg-track dark:hover:bg-track-dark';
 export function RepoTabStrip() {
@@ -38,6 +40,7 @@ function RepoTab({ tab, active }: { tab: Tab; active: boolean }) {
   const status = useBackend('status', { repo: tab.id });
   const dirty = Boolean(status.data?.entries.length);
   const failed = useErrors((s) => Boolean(s.scopes[tab.id]?.length));
+  const working = Boolean(useCurrentActivity(tab.id)) && !active;
   return (
     <div
       className={`group relative flex min-w-0 max-w-52 items-center border-r border-line pr-1 dark:border-line-dark ${active ? 'bg-surface text-ink dark:bg-surface-dark dark:text-ink-dark' : 'text-muted hover:bg-track hover:text-ink dark:hover:bg-track-dark dark:hover:text-ink-dark'}`}
@@ -54,7 +57,12 @@ function RepoTab({ tab, active }: { tab: Tab; active: boolean }) {
           className={`size-4 shrink-0 ${active ? 'text-muted group-hover:text-ink dark:text-muted-dark dark:group-hover:text-ink-dark' : 'text-faint group-hover:text-muted dark:text-faint-dark dark:group-hover:text-muted-dark'}`}
         />
         <span className="truncate">{tab.name}</span>
-        {failed && !active && (
+        {working && (
+          <span role="img" aria-label="Git operation running">
+            <Spinner className="size-3 text-accent dark:text-accent-dark" />
+          </span>
+        )}
+        {failed && !active && !working && (
           <span
             role="img"
             aria-label="Errors waiting"

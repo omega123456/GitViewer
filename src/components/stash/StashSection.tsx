@@ -7,6 +7,7 @@ import { useActions } from '../../lib/actions';
 import { attempt, perform, useBackend } from '../../lib/query';
 import { normalizeError } from '../../lib/ipc';
 import type { Action } from '../../lib/keyboard';
+import { runs, useCurrentActivity } from '../../stores/activity';
 import { ask } from '../../stores/decision';
 import { useErrors } from '../../stores/errors';
 import { useLayout, useTabLayout } from '../../stores/layout';
@@ -15,6 +16,7 @@ import { Button } from '../shared/Button';
 import { Decision } from '../shared/Decision';
 import { ErrorRow } from '../states/Errors';
 import { GroupHeader, Section } from '../shared/Section';
+import { Spinner } from '../shared/Spinner';
 import { dynamic, pinnedSlot, revealSlot, rowTint } from '../shared/styles';
 import { VirtualList } from '../shared/VirtualList';
 import { percentBelow, ResizeHandle } from '../shell/ResizeHandle';
@@ -29,6 +31,7 @@ export function StashSection({
   const { stashOpen, stashHeight, stashFilesHeight } = useTabLayout(repo);
   const selection = useWorkingSelection(repo);
   const [selected, setSelected] = useState('');
+  const activity = useCurrentActivity(repo);
   const files = useBackend(
     'commit_files',
     { repo, revision: selected, source: 'stash' },
@@ -157,62 +160,92 @@ export function StashSection({
             <VirtualList
               label="Stashes"
               items={query.data}
-              render={(stash) => (
-                <div
-                  className={`group relative flex w-full items-center ${rowTint} ${selected === stash.hash ? 'bg-selected dark:bg-selected-dark' : ''}`}
-                >
-                  <Button
-                    className="h-tree-comfortable w-full justify-start truncate text-left"
-                    onClick={() => {
-                      setSelected(stash.hash);
-                      show('', stash.hash);
-                    }}
-                  >
-                    <Archive className="size-3 shrink-0 text-faint dark:text-faint-dark" />
-                    <span className="min-w-0 flex-1 truncate">
-                      {stash.message}
-                    </span>
-                    <span className="shrink-0 font-mono text-label text-muted">
-                      {formatDistanceToNowStrict(fromUnixTime(stash.timestamp))}
-                    </span>
-                  </Button>
+              render={(stash) => {
+                const applying = runs(activity, 'stash_apply', {
+                  hash: stash.hash,
+                  pop: false,
+                });
+                const popping = runs(activity, 'stash_apply', {
+                  hash: stash.hash,
+                  pop: true,
+                });
+                const dropping = runs(activity, 'stash_drop', {
+                  hash: stash.hash,
+                });
+                return (
                   <div
-                    className={`${selected === stash.hash ? pinnedSlot : revealSlot} right-1`}
+                    className={`group relative flex w-full items-center ${rowTint} ${selected === stash.hash ? 'bg-selected dark:bg-selected-dark' : ''}`}
                   >
                     <Button
-                      variant="icon"
-                      className="size-6"
-                      aria-label={`Apply ${stash.selector}`}
-                      title={`Apply ${stash.selector}`}
-                      disabled={disabled}
-                      onClick={() => void apply(stash.hash, false)}
+                      className="h-tree-comfortable w-full justify-start truncate text-left"
+                      onClick={() => {
+                        setSelected(stash.hash);
+                        show('', stash.hash);
+                      }}
                     >
-                      <Copy className="size-3" />
+                      <Archive className="size-3 shrink-0 text-faint dark:text-faint-dark" />
+                      <span className="min-w-0 flex-1 truncate">
+                        {stash.message}
+                      </span>
+                      <span className="shrink-0 font-mono text-label text-muted">
+                        {formatDistanceToNowStrict(
+                          fromUnixTime(stash.timestamp),
+                        )}
+                      </span>
                     </Button>
-                    <Button
-                      variant="icon"
-                      className="size-6"
-                      aria-label={`Pop ${stash.selector}`}
-                      title={`Pop ${stash.selector}`}
-                      disabled={disabled}
-                      onClick={() => void apply(stash.hash, true)}
+                    <div
+                      className={`${selected === stash.hash || applying || popping || dropping ? pinnedSlot : revealSlot} right-1`}
                     >
-                      <CopyMinus className="size-3" />
-                    </Button>
-                    <span className="w-1.5 shrink-0" />
-                    <Button
-                      variant="icon"
-                      className="size-6 text-deleted dark:text-deleted-dark"
-                      aria-label={`Drop ${stash.selector}`}
-                      title={`Drop ${stash.selector}`}
-                      disabled={disabled}
-                      onClick={() => void drop(stash.hash)}
-                    >
-                      <Trash2 className="size-3" />
-                    </Button>
+                      <Button
+                        variant="icon"
+                        className="size-6"
+                        aria-busy={applying}
+                        aria-label={`Apply ${stash.selector}`}
+                        title={`Apply ${stash.selector}`}
+                        disabled={disabled}
+                        onClick={() => void apply(stash.hash, false)}
+                      >
+                        {applying ? (
+                          <Spinner className="size-3" />
+                        ) : (
+                          <Copy className="size-3" />
+                        )}
+                      </Button>
+                      <Button
+                        variant="icon"
+                        className="size-6"
+                        aria-busy={popping}
+                        aria-label={`Pop ${stash.selector}`}
+                        title={`Pop ${stash.selector}`}
+                        disabled={disabled}
+                        onClick={() => void apply(stash.hash, true)}
+                      >
+                        {popping ? (
+                          <Spinner className="size-3" />
+                        ) : (
+                          <CopyMinus className="size-3" />
+                        )}
+                      </Button>
+                      <span className="w-1.5 shrink-0" />
+                      <Button
+                        variant="icon"
+                        className="size-6 text-deleted dark:text-deleted-dark"
+                        aria-busy={dropping}
+                        aria-label={`Drop ${stash.selector}`}
+                        title={`Drop ${stash.selector}`}
+                        disabled={disabled}
+                        onClick={() => void drop(stash.hash)}
+                      >
+                        {dropping ? (
+                          <Spinner className="size-3" />
+                        ) : (
+                          <Trash2 className="size-3" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              }}
             />
           </div>
           {selected && (
