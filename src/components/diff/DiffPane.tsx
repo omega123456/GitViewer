@@ -36,6 +36,7 @@ import { DiffSurface, type DiffSurfaceHandle } from './DiffSurface';
 import { MarkdownView, isMarkdown } from './Markdown';
 import { runHunkAction } from './hunks';
 import { diffRows } from './rows';
+import { cachedEntry } from './stack';
 import { useTokens } from './tokens';
 export function DiffPane({
   repo,
@@ -91,6 +92,9 @@ function SelectedDiff({
     'diff',
     { repo, ...selection, context: rendered ? 50000 : context, overrideLimit },
     !selection.blame,
+    context === 3 && !overrideLimit && !rendered
+      ? cachedEntry(repo, selection)
+      : undefined,
   );
   const mode = useDiffView((s) => s.mode) ?? settings.diffMode;
   const [wrap, setWrap] = useState(false);

@@ -6,6 +6,8 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use similar::{ChangeTag, TextDiff};
 
+pub mod stack;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Line {
@@ -487,6 +489,102 @@ pub fn is_image(path: &str) -> bool {
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "ico" | "svg" | "avif"
     )
 }
+const LINE_LIMIT: usize = 50000;
+fn size_limit(image: bool) -> usize {
+    if image {
+        20 * 1024 * 1024
+    } else {
+        2 * 1024 * 1024
+    }
+}
+fn missing_object(stderr: &str) -> bool {
+    stderr.contains("does not exist")
+        || stderr.contains("not in")
+        || stderr.contains("invalid object name")
+        || stderr.contains("Not a valid object name")
+}
+async fn object_sizes(repo: &Repo, specs: &[&str]) -> Result<Vec<Option<usize>>> {
+    if specs.is_empty() {
+        return Ok(Vec::new());
+    }
+    let input: String = specs.iter().map(|spec| format!("{spec}\0")).collect();
+    let text = git::run(
+        &repo.root,
+        &["cat-file", "--batch-check", "-z"],
+        Some(input.as_bytes()),
+    )
+    .await?
+    .accept(&[0])?
+    .text();
+    let invalid = || Error::new("unexpected", "Invalid Git object size");
+    let mut rest = text.as_str();
+    specs
+        .iter()
+        .map(|spec| {
+            if let Some((_, after)) = rest
+                .strip_prefix(spec)
+                .and_then(|after| after.strip_prefix(' '))
+                .and_then(|after| after.split_once('\n'))
+                .filter(|(word, _)| !word.contains(' '))
+            {
+                rest = after;
+                return Ok(None);
+            }
+            let (line, after) = rest.split_once('\n').ok_or_else(invalid)?;
+            rest = after;
+            line.rsplit(' ')
+                .next()
+                .and_then(|size| size.parse().ok())
+                .map(Some)
+                .ok_or_else(invalid)
+        })
+        .collect()
+}
+enum Side {
+    Working(std::path::PathBuf),
+    Object(String),
+    Absent,
+}
+async fn measure(repo: &Repo, side: &Side, size: Option<usize>) -> Result<usize> {
+    match (side, size) {
+        (Side::Absent, _) => Ok(0),
+        (Side::Object(_), Some(size)) => Ok(size),
+        (Side::Object(spec), None) => {
+            let exists = git::run(&repo.root, &["cat-file", "-e", spec], None).await?;
+            if exists.code == 0 {
+                return git::text(&repo.root, &["cat-file", "-s", spec])
+                    .await?
+                    .trim()
+                    .parse()
+                    .map_err(|_| Error::new("unexpected", "Invalid Git object size"));
+            }
+            if missing_object(&exists.stderr) {
+                return Ok(0);
+            }
+            Err(Error::git(exists.message()))
+        }
+        (Side::Working(path), _) => match std::fs::metadata(path) {
+            Ok(metadata) => Ok(metadata.len() as usize),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
+            Err(error) => Err(error.into()),
+        },
+    }
+}
+async fn side_bytes(repo: &Repo, side: &Side, size: usize) -> Result<Vec<u8>> {
+    match side {
+        Side::Object(_) if size == 0 => Ok(Vec::new()),
+        Side::Absent => Ok(Vec::new()),
+        Side::Object(spec) => Ok(git::run(&repo.root, &["show", spec], None)
+            .await?
+            .accept(&[0])?
+            .bytes),
+        Side::Working(path) => match std::fs::read(path) {
+            Ok(bytes) => Ok(bytes),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+            Err(error) => Err(error.into()),
+        },
+    }
+}
 pub async fn read(
     repo: &Repo,
     path: &str,
@@ -496,7 +594,7 @@ pub async fn read(
     context: u32,
     override_limit: bool,
 ) -> Result<Diff> {
-    repo.path(path)?;
+    let full = repo.path(path)?;
     let image = is_image(path);
     let mut result = Diff {
         path: path.into(),
@@ -504,36 +602,77 @@ pub async fn read(
         image,
         ..Diff::default()
     };
-    result.old_size = size(repo, path, source, revision, base, true).await?;
-    result.new_size = size(repo, path, source, revision, base, false).await?;
-    let limit = if image {
-        20 * 1024 * 1024
-    } else {
-        2 * 1024 * 1024
+    let (parent, sha) = match source {
+        "commit" | "stash" => {
+            let sha = resolve(repo, revision).await?;
+            (format!("{sha}^1"), sha)
+        }
+        "compare" => (resolve(repo, base).await?, resolve(repo, revision).await?),
+        "staged" | "unstaged" | "file" => (String::new(), String::new()),
+        _ => return Err(Error::refused("Unknown diff source")),
     };
-    if (image || !override_limit) && result.old_size.max(result.new_size) > limit {
+    let untracked = source == "stash"
+        && crate::stash::untracked(repo, &sha)
+            .await?
+            .iter()
+            .any(|entry| entry == path);
+    let original = repo
+        .status
+        .entries
+        .iter()
+        .find(|e| e.path() == path && source == "staged")
+        .and_then(|e| e.original_path());
+    let (old, new) = match source {
+        "file" => (Side::Absent, Side::Working(full)),
+        _ if untracked => (Side::Absent, Side::Object(format!("{sha}^3:{path}"))),
+        "unstaged" => (Side::Object(format!(":{path}")), Side::Working(full)),
+        "staged" => (
+            Side::Object(format!("HEAD:{}", original.unwrap_or(path))),
+            Side::Object(format!(":{path}")),
+        ),
+        _ => (
+            Side::Object(format!("{parent}:{path}")),
+            Side::Object(format!("{sha}:{path}")),
+        ),
+    };
+    let rooted = matches!(source, "commit" | "stash") && !untracked;
+    let mut specs = Vec::new();
+    if rooted {
+        specs.push(parent.as_str());
+    }
+    for side in [&old, &new] {
+        if let Side::Object(spec) = side {
+            specs.push(spec.as_str());
+        }
+    }
+    let mut sizes = object_sizes(repo, &specs).await?.into_iter();
+    let root = rooted && sizes.next().flatten().is_none();
+    let old_size = match old {
+        Side::Object(_) => sizes.next().flatten(),
+        _ => None,
+    };
+    let new_size = match new {
+        Side::Object(_) => sizes.next().flatten(),
+        _ => None,
+    };
+    result.old_size = measure(repo, &old, old_size).await?;
+    result.new_size = measure(repo, &new, new_size).await?;
+    if (image || !override_limit) && result.old_size.max(result.new_size) > size_limit(image) {
         result.too_large = true;
         return Ok(result);
     }
     if image {
-        result.old_dimensions = dimensions(&bytes(repo, path, source, revision, base, true).await?);
-        result.new_dimensions =
-            dimensions(&bytes(repo, path, source, revision, base, false).await?);
+        result.old_dimensions = dimensions(&side_bytes(repo, &old, result.old_size).await?);
+        result.new_dimensions = dimensions(&side_bytes(repo, &new, result.new_size).await?);
         return Ok(result);
     }
-    if source == "file"
-        || (source == "stash"
-            && crate::stash::untracked(repo, revision)
-                .await?
-                .iter()
-                .any(|entry| entry == path))
-    {
-        let new = bytes(repo, path, source, revision, base, false).await?;
+    if source == "file" || untracked {
+        let new = side_bytes(repo, &new, result.new_size).await?;
         if new.contains(&0) {
             result.binary = true;
         } else {
             let content = String::from_utf8_lossy(&new);
-            if !override_limit && content.lines().count() > 50000 {
+            if !override_limit && content.lines().count() > LINE_LIMIT {
                 result.too_large = true;
             } else {
                 result.content = Some(content.into_owned());
@@ -557,50 +696,27 @@ pub async fn read(
         "--find-renames",
         &context,
     ];
-    let sha;
-    let parent;
     if source == "staged" {
         args.push("--cached");
-    } else if source == "compare" {
-        parent = resolve(repo, base).await?;
-        sha = resolve(repo, revision).await?;
-        args.extend([parent.as_str(), sha.as_str()]);
-    } else if source == "commit" || source == "stash" {
-        sha = resolve(repo, revision).await?;
-        let output = git::run(
-            &repo.root,
-            &["rev-parse", "--verify", &format!("{sha}^1")],
-            None,
-        )
-        .await?;
-        if output.code == 0 {
-            parent = output.text().trim().to_owned();
-            args.extend([parent.as_str(), sha.as_str()]);
-        } else {
-            args = vec![
-                "show",
-                "--format=",
-                "--no-ext-diff",
-                "--no-textconv",
-                &context,
-                &sha,
-            ];
-        }
+    } else if root {
+        args = vec![
+            "show",
+            "--root",
+            "--format=",
+            "--no-ext-diff",
+            "--no-textconv",
+            &context,
+            &sha,
+        ];
     } else if source != "unstaged" {
-        return Err(Error::refused("Unknown diff source"));
+        args.extend([parent.as_str(), sha.as_str()]);
     }
     args.extend(["--", path]);
-    if let Some(original) = repo
-        .status
-        .entries
-        .iter()
-        .find(|e| e.path() == path && source == "staged")
-        .and_then(|e| e.original_path())
-    {
+    if let Some(original) = original {
         args.push(original);
     }
     let output = git::text(&repo.root, &args).await?;
-    if !override_limit && output.lines().count() > 50000 {
+    if !override_limit && output.lines().count() > LINE_LIMIT {
         result.too_large = true;
         return Ok(result);
     }

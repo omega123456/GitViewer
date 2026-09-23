@@ -24,9 +24,18 @@ import { DiffPane } from '../components/diff/DiffPane';
 import { AllChangesPane } from '../components/diff/AllChangesPane';
 import { ImageDiff } from '../components/image/ImageDiff';
 import { absolutePath } from '../components/shared/FileMenu';
+import { highlight } from '../lib/highlight';
+import { client } from '../lib/query';
 import { mockCommand, dialog, calls, emit, lastError } from './harness';
 import { intersect, intersecting } from './setup';
-import { settings, status, repository, diff } from './fixtures';
+import { settings, status, repository, diff, stack } from './fixtures';
+import type { Diff, DiffStack } from '../lib/types';
+import type { Stack } from '../stores/selection';
+
+vi.mock('../lib/highlight', async (original) => {
+  const actual = await original<typeof import('../lib/highlight')>();
+  return { ...actual, highlight: vi.fn(actual.highlight) };
+});
 
 const commit = {
   hash: 'a'.repeat(40),
@@ -65,6 +74,7 @@ function setup() {
   mockCommand('commit_files', () => ({ 'src/app.ts': 'M' }));
   mockCommand('branches', () => branches);
   mockCommand('diff', () => diff);
+  mockCommand('diff_stack', () => stack);
   mockCommand('refresh', () => null);
   mockCommand('files_action', () => null);
   mockCommand('sync', () => null);
@@ -80,6 +90,67 @@ function mount() {
   );
 }
 const settled = () => new Promise((resolve) => setTimeout(resolve, 250));
+const count = (command: string) =>
+  calls.filter((call) => call.command === command).length;
+const picture = {
+  ...diff,
+  path: 'photo.png',
+  image: true,
+  hunks: [],
+  patches: [],
+};
+const height = (block: HTMLElement) =>
+  within(block)
+    .getByText('Loading…')
+    .style.getPropertyValue('--virtual-height');
+const shown = (root: HTMLElement, text: string) =>
+  [...root.querySelectorAll('code')].filter((code) =>
+    code.textContent?.includes(text),
+  ).length;
+const colored = (root: HTMLElement) =>
+  [...root.querySelectorAll<HTMLElement>('.text-syntax')].filter(
+    (span) => span.style.getPropertyValue('--syntax-color') !== 'inherit',
+  ).length;
+async function renderStack(stack: Stack = 'commit') {
+  const view = render(
+    <QueryProvider>
+      <AllChangesPane
+        repo={repository.id}
+        stack={stack}
+        commit={
+          stack === 'commit'
+            ? { path: '', source: 'commit', revision: commit.hash }
+            : undefined
+        }
+        status={status}
+        settings={settings}
+        disabled={false}
+      />
+    </QueryProvider>,
+  );
+  const labels: Record<string, string> = {
+    commit: 'All changes in commit',
+    unstaged: 'All changes',
+  };
+  const pane = await screen.findByRole('region', { name: labels[stack] });
+  return Object.assign(pane, { unmount: view.unmount });
+}
+function renderFile(selection: Parameters<typeof DiffPane>[0]['selection']) {
+  return render(
+    <QueryProvider>
+      <DiffPane
+        repo={repository.id}
+        selection={selection}
+        settings={settings}
+        disabled={false}
+      />
+    </QueryProvider>,
+  );
+}
+function restart() {
+  calls.length = 0;
+  client.clear();
+}
 async function action(id: string) {
   await act(async () => {
     const entry = registeredActions(repository.id).find(
@@ -1114,37 +1185,20 @@ describe('all changes pane', () => {
     await within(pane).findByRole('button', { name: /app\.ts/ });
     expect(within(pane).queryByText('Loading changes')).not.toBeInTheDocument();
   });
-  it('keeps the scroll position when a deferred file diff arrives', async () => {
+  it('keeps the scroll position when the stack response arrives after the user scrolled', async () => {
     setup();
-    mockCommand('commit_files', () => ({ 'src/app.ts': 'M' }));
-    let release: (value: typeof diff) => void = () => {};
+    let release: (value: DiffStack) => void = () => {};
     mockCommand(
-      'diff',
-      () => new Promise<typeof diff>((resolve) => (release = resolve)),
+      'diff_stack',
+      () => new Promise<DiffStack>((resolve) => (release = resolve)),
     );
-    render(
-      <QueryProvider>
-        <AllChangesPane
-          repo={repository.id}
-          stack="commit"
-          commit={{ path: '', source: 'commit', revision: commit.hash }}
-          status={status}
-          settings={settings}
-          disabled={false}
-        />
-      </QueryProvider>,
-    );
-    const pane = await screen.findByRole('region', {
-      name: 'All changes in commit',
-    });
-    await waitFor(() =>
-      expect(calls.some((call) => call.command === 'diff')).toBe(true),
-    );
+    const pane = await renderStack();
+    await waitFor(() => expect(count('diff_stack')).toBe(1));
     const scroller = pane.lastElementChild as HTMLDivElement;
     scroller.scrollTop = 480;
     const scrollTo = vi.mocked(scroller.scrollTo);
     scrollTo.mockClear();
-    await act(async () => release(diff));
+    await act(async () => release(stack));
     await waitFor(() => expect(scrollTo).toHaveBeenCalled());
     expect(scrollTo).toHaveBeenCalledWith(
       expect.objectContaining({ top: 480 }),
@@ -1153,48 +1207,227 @@ describe('all changes pane', () => {
       expect.objectContaining({ top: 0 }),
     );
   });
-  it('only reads a file the viewport settles on, and stops reading it once it leaves', async () => {
+  it('reads a whole commit stack in one request', async () => {
+    setup();
+    mockCommand('commit_files', () => ({ 'src/app.ts': 'M', 'new.txt': 'A' }));
+    const pane = await renderStack();
+    await waitFor(() => expect(shown(pane, 'new value')).toBe(2));
+    expect(calls).toContainEqual({
+      command: 'diff_stack',
+      args: { repo: repository.id, source: 'commit', revision: commit.hash },
+    });
+    expect(count('diff_stack')).toBe(1);
+    expect(count('diff')).toBe(0);
+  });
+  it('falls back to a per-file read for a settled missing entry near the viewport', async () => {
+    for (const truncated of [true, false]) {
+      setup();
+      mockCommand('commit_files', () => ({ 'src/app.ts': 'M', 'lib.ts': 'M' }));
+      mockCommand('diff_stack', () => ({
+        files: { 'src/app.ts': diff },
+        truncated,
+      }));
+      const first = await renderStack();
+      await waitFor(() => expect(count('diff')).toBe(1));
+      expect(calls).toContainEqual({
+        command: 'diff',
+        args: {
+          repo: repository.id,
+          path: 'lib.ts',
+          source: 'commit',
+          revision: commit.hash,
+          context: 3,
+        },
+      });
+      first.unmount();
+      restart();
+      intersecting.initially = false;
+      const pane = await renderStack();
+      await waitFor(() => expect(count('diff_stack')).toBe(1));
+      const block = within(pane).getByRole('button', {
+        name: /lib\.ts/,
+      }).parentElement!;
+      await act(settled);
+      expect(count('diff')).toBe(0);
+      act(() => intersect(block, true));
+      expect(count('diff')).toBe(0);
+      await waitFor(() => expect(count('diff')).toBe(1));
+      act(() => intersect(block, false));
+      await act(settled);
+      act(() => emit('repo://head-changed', { repo: repository.id }));
+      await waitFor(() => expect(count('diff_stack')).toBe(2));
+      expect(count('diff')).toBe(1);
+      pane.unmount();
+      restart();
+      intersecting.initially = true;
+    }
+    setup();
+    mockCommand('commit_files', () => ({ 'src/app.ts': 'M', 'lib.ts': 'M' }));
+    let fail: (error: Error) => void = () => {};
+    mockCommand(
+      'diff_stack',
+      () => new Promise<DiffStack>((_, reject) => (fail = reject)),
+    );
+    const pane = await renderStack();
+    await waitFor(() => expect(count('diff_stack')).toBe(1));
+    await act(settled);
+    expect(count('diff')).toBe(0);
+    expect(within(pane).getAllByText('Loading…')).toHaveLength(2);
+    await act(async () => fail(new Error('The stack failed')));
+    expect(await within(pane).findAllByText('The stack failed')).toHaveLength(
+      2,
+    );
+    expect(count('diff')).toBe(0);
+  });
+  it('mounts surfaces near the viewport and keeps their height once far away', async () => {
     setup();
     intersecting.initially = false;
+    mockCommand('commit_files', () => ({
+      'src/app.ts': 'M',
+      'photo.png': 'M',
+    }));
+    mockCommand('diff_stack', () => ({
+      files: { 'src/app.ts': diff, 'photo.png': picture },
+      truncated: false,
+    }));
+    const pane = await renderStack();
+    await waitFor(() => expect(count('diff_stack')).toBe(1));
+    const block = within(pane).getByRole('button', {
+      name: /app\.ts/,
+    }).parentElement!;
+    const image = within(pane).getByRole('button', {
+      name: /photo\.png/,
+    }).parentElement!;
+    await waitFor(() =>
+      expect(within(block).getByText('Loading…')).toHaveClass('h-virtual'),
+    );
+    expect(height(block)).toBe('64px');
+    expect(within(image).getByText('Loading…')).toHaveClass('min-h-32');
+    expect(shown(pane, 'new value')).toBe(0);
+    expect(pane.querySelector('img')).toBeNull();
+    act(() => intersect(block, true));
+    await act(settled);
+    expect(shown(block, 'new value')).toBe(1);
+    act(() => intersect(block, false));
+    await act(settled);
+    expect(shown(block, 'new value')).toBe(1);
+    act(() => intersect(block, false, '2000px'));
+    expect(shown(block, 'new value')).toBe(0);
+    expect(height(block)).toBe('600px');
+    act(() => intersect(image, true));
+    await act(settled);
+    expect(image.querySelector('img')).not.toBeNull();
+  });
+  it('highlights a stacked file only near the viewport and drops stale tokens', async () => {
+    setup();
+    intersecting.initially = false;
+    const spy = vi.mocked(highlight);
+    spy.mockClear();
+    const changed = {
+      ...diff,
+      hunks: [
+        {
+          ...diff.hunks[0],
+          lines: diff.hunks[0].lines.map((line) => ({
+            ...line,
+            content: `${line.content};`,
+          })),
+        },
+      ],
+    };
+    let current: Diff = diff;
+    mockCommand('diff_stack', () => ({
+      files: { 'src/app.ts': current },
+      truncated: false,
+    }));
+    const pane = await renderStack();
+    await waitFor(() => expect(count('diff_stack')).toBe(1));
+    const block = within(pane).getByRole('button', {
+      name: /app\.ts/,
+    }).parentElement!;
+    await act(settled);
+    expect(spy).not.toHaveBeenCalled();
+    act(() => intersect(block, true));
+    await act(settled);
+    await waitFor(() => expect(colored(block)).toBeGreaterThan(0));
+    const highlighted = spy.mock.calls.length;
+    act(() => intersect(block, false));
+    await act(settled);
+    expect(colored(block)).toBeGreaterThan(0);
+    current = changed;
+    act(() => emit('repo://head-changed', { repo: repository.id }));
+    await waitFor(() => expect(shown(block, 'new value;')).toBe(1));
+    expect(colored(block)).toBe(0);
+    expect(spy.mock.calls.length).toBe(highlighted);
+  });
+  it('keeps the previous tokens of the file pane until new ones arrive', async () => {
+    setup();
+    const spy = vi.mocked(highlight);
     render(
       <QueryProvider>
-        <AllChangesPane
+        <DiffPane
           repo={repository.id}
-          stack="commit"
-          commit={{ path: '', source: 'commit', revision: commit.hash }}
-          status={status}
+          selection={{ path: 'src/app.ts', source: 'unstaged' }}
           settings={settings}
           disabled={false}
         />
       </QueryProvider>,
     );
-    const pane = await screen.findByRole('region', {
-      name: 'All changes in commit',
+    const pane = await screen.findByRole('region', { name: 'Diff viewer' });
+    await waitFor(() => expect(colored(pane)).toBeGreaterThan(0));
+    mockCommand('diff', () => ({ ...diff }));
+    spy
+      .mockImplementationOnce(() => new Promise(() => {}))
+      .mockImplementationOnce(() => new Promise(() => {}));
+    await action('context');
+    await waitFor(() => expect(count('diff')).toBe(2));
+    await waitFor(() => expect(shown(pane, 'new value')).toBe(1));
+    expect(colored(pane)).toBeGreaterThan(0);
+  });
+  it('seeds a commit file from its loaded stack and fetches working-tree files', async () => {
+    setup();
+    const loaded = await renderStack();
+    await waitFor(() => expect(shown(loaded, 'new value')).toBe(1));
+    loaded.unmount();
+    const selected = renderFile({
+      path: 'src/app.ts',
+      source: 'commit',
+      revision: commit.hash,
     });
-    const block = (await within(pane).findByRole('button', { name: /app\.ts/ }))
-      .parentElement!;
-    const reads = () => calls.filter((call) => call.command === 'diff').length;
-    expect(reads()).toBe(0);
-    act(() => intersect(block, true));
-    act(() => intersect(block, false));
-    await act(settled);
-    expect(reads()).toBe(0);
-    act(() => intersect(block, true));
-    expect(reads()).toBe(0);
-    await waitFor(() => expect(reads()).toBe(1));
-    act(() => intersect(block, false));
-    await act(settled);
-    act(() => emit('repo://status-changed', { repo: repository.id }));
-    await act(settled);
-    expect(reads()).toBe(1);
+    const pane = await screen.findByRole('region', { name: 'Diff viewer' });
+    expect(shown(pane, 'new value')).toBe(1);
+    expect(count('diff')).toBe(0);
+    await action('context');
+    await waitFor(() => expect(count('diff')).toBe(1));
+    selected.unmount();
+    const working = await renderStack('unstaged');
+    await waitFor(() => expect(count('diff_stack')).toBe(2));
+    working.unmount();
+    renderFile({ path: 'src/app.ts', source: 'unstaged' }).unmount();
+    await waitFor(() => expect(count('diff')).toBe(2));
+    act(() => {
+      void client.invalidateQueries({
+        queryKey: [repository.id, 'diff_stack'],
+      });
+    });
+    renderFile({ path: 'new.txt', source: 'commit', revision: commit.hash });
+    await waitFor(() => expect(count('diff')).toBe(3));
   });
   it('stacks every file of a group, collapses files, and returns on selection', async () => {
     setup();
-    mockCommand('diff', (args) =>
-      args.path === 'new.txt'
-        ? { ...diff, path: 'new.txt', image: true, hunks: [], patches: [] }
-        : diff,
-    );
+    mockCommand('diff_stack', () => ({
+      files: {
+        'src/app.ts': diff,
+        'new.txt': {
+          ...diff,
+          path: 'new.txt',
+          image: true,
+          hunks: [],
+          patches: [],
+        },
+      },
+      truncated: false,
+    }));
     mockCommand('hunk_action', () => null);
     const user = userEvent.setup();
     mount();
@@ -1316,22 +1549,18 @@ describe('all changes pane', () => {
       ).getByText('A'),
     ).toBeVisible();
     expect(within(list).getByRole('treeitem', { name: 'src' })).toBeVisible();
+    expect(calls).toContainEqual({
+      command: 'diff_stack',
+      args: {
+        repo: repository.id,
+        source: 'compare',
+        base: 'b'.repeat(40),
+        revision: 't'.repeat(40),
+      },
+    });
     await user.click(row);
     await screen.findByRole('region', { name: 'Diff viewer' });
-    await waitFor(() =>
-      expect(calls).toContainEqual({
-        command: 'diff',
-        args: {
-          repo: repository.id,
-          path: 'src/app.ts',
-          source: 'compare',
-          base: 'b'.repeat(40),
-          revision: 't'.repeat(40),
-          context: 3,
-          overrideLimit: false,
-        },
-      }),
-    );
+    expect(count('diff')).toBe(0);
     expect(screen.queryByTitle('Stage hunk')).not.toBeInTheDocument();
     await user.click(screen.getByLabelText('All changes between branches'));
     await screen.findByRole('region', { name: 'All changes between branches' });

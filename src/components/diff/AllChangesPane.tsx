@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { CheckCircle2, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import { useBackend } from '../../lib/query';
-import type { Diff, Selection, Settings, Status } from '../../lib/types';
+import type {
+  Diff,
+  DiffStack,
+  Selection,
+  Settings,
+  Status,
+} from '../../lib/types';
 import {
   CompareError,
   SameRefState,
@@ -11,7 +17,7 @@ import { groupEntries, treeOrder } from '../sidebar/nodes';
 import { useDiffView } from '../../stores/diff-view';
 import { useFilter } from '../../stores/filter';
 import type { Stack } from '../../stores/selection';
-import { focus } from '../shared/styles';
+import { dynamic, focus } from '../shared/styles';
 import { ErrorState } from '../states/Errors';
 import { State } from '../states/State';
 import { StatusBadge } from '../sidebar/StatusBadge';
@@ -20,9 +26,16 @@ import { DiffSourcePill } from './DiffSourcePill';
 import { DiffSurface } from './DiffSurface';
 import { runHunkAction } from './hunks';
 import { diffRows } from './rows';
+import { viewStack } from './stack';
 import { useTokens } from './tokens';
 const context = 3;
 const settle = 150;
+interface Batch {
+  data?: DiffStack;
+  error: Error | null;
+  settled: boolean;
+  version: number;
+}
 function note(data: Diff | undefined, error: Error | null) {
   if (error) return error.message;
   if (!data) return 'Loading…';
@@ -112,6 +125,18 @@ export function AllChangesPane({
     }),
     { additions: 0, deletions: 0 },
   );
+  const stackArgs = viewStack(repo, stack, commit, compared);
+  const stacked = useBackend(
+    'diff_stack',
+    stackArgs ?? { repo, source: 'unstaged' },
+    Boolean(stackArgs),
+  );
+  const batch: Batch = {
+    data: stacked.data,
+    error: stacked.error,
+    settled: stacked.isSuccess && !stacked.isFetching,
+    version: stacked.dataUpdatedAt,
+  };
   const scroller = useRef<HTMLDivElement>(null);
   const [, relayout] = useState(0);
   useEffect(() => {
@@ -189,6 +214,7 @@ export function AllChangesPane({
                 repo={repo}
                 selection={entry.selection}
                 badge={entry.badge}
+                batch={batch}
                 settings={settings}
                 disabled={disabled}
                 scroller={scroller}
@@ -200,24 +226,17 @@ export function AllChangesPane({
     </section>
   );
 }
-function FileDiff({
-  repo,
-  selection,
-  badge,
-  settings,
-  disabled,
-  scroller,
-}: {
-  repo: string;
-  selection: Selection;
-  badge?: string;
-  settings: Settings;
-  disabled: boolean;
-  scroller: RefObject<HTMLDivElement | null>;
-}) {
-  const [open, setOpen] = useState(true);
-  const box = useRef<HTMLDivElement>(null);
-  const [near, setNear] = useState(false);
+function useGate(
+  box: RefObject<HTMLDivElement | null>,
+  scroller: RefObject<HTMLDivElement | null>,
+  margin: string,
+  delay: number,
+  report: (visible: boolean) => void,
+) {
+  const latest = useRef(report);
+  useEffect(() => {
+    latest.current = report;
+  });
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let immediate = true;
@@ -225,32 +244,83 @@ function FileDiff({
       (entries) => {
         const visible = entries[entries.length - 1].isIntersecting;
         clearTimeout(timer);
-        if (immediate) setNear(visible);
-        else timer = setTimeout(() => setNear(visible), settle);
+        if (immediate || !delay) latest.current(visible);
+        else timer = setTimeout(() => latest.current(visible), delay);
         immediate = false;
       },
-      { root: scroller.current, rootMargin: '400px' },
+      { root: scroller.current, rootMargin: margin },
     );
     observer.observe(box.current!);
     return () => {
       clearTimeout(timer);
       observer.disconnect();
     };
-  }, [scroller]);
-  const query = useBackend('diff', { repo, ...selection, context }, near);
-  const data = query.data;
-  const tokens = useTokens(data, selection.path);
+  }, [box, scroller, margin, delay]);
+}
+function FileDiff({
+  repo,
+  selection,
+  badge,
+  batch,
+  settings,
+  disabled,
+  scroller,
+}: {
+  repo: string;
+  selection: Selection;
+  badge?: string;
+  batch: Batch;
+  settings: Settings;
+  disabled: boolean;
+  scroller: RefObject<HTMLDivElement | null>;
+}) {
+  const [open, setOpen] = useState(true);
+  const box = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
+  const height = useRef<number | null>(null);
+  const [near, setNear] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useGate(box, scroller, '400px', settle, (visible) => {
+    setNear(visible);
+    if (visible) setMounted(true);
+  });
+  useGate(box, scroller, '2000px', 0, (visible) => {
+    if (visible) return;
+    if (body.current) height.current = body.current.offsetHeight;
+    setMounted(false);
+  });
+  const entry = batch.data?.files[selection.path];
+  const missing = batch.settled && !entry;
+  const fallback = useBackend(
+    'diff',
+    { repo, ...selection, context },
+    missing && near,
+  );
+  const data = entry ?? (missing ? fallback.data : undefined);
+  const error = entry
+    ? null
+    : (batch.error ?? (missing ? fallback.error : null));
+  const version = entry ? batch.version : fallback.dataUpdatedAt;
+  const tokens = useTokens(data, selection.path, near);
   const mode = useDiffView((s) => s.mode) ?? settings.diffMode;
   const split = mode === 'split' && data?.content === null;
   const rows = useMemo(
     () => (data ? diffRows(data, split) : []),
     [data, split],
   );
-  const lines = data?.hunks.flatMap((hunk) => hunk.lines) ?? [];
-  const added = lines.filter((line) => line.kind === 'add').length;
-  const removed = lines.filter((line) => line.kind === 'remove').length;
+  const { added, removed } = useMemo(() => {
+    const lines = data?.hunks.flatMap((hunk) => hunk.lines) ?? [];
+    return {
+      added: lines.filter((line) => line.kind === 'add').length,
+      removed: lines.filter((line) => line.kind === 'remove').length,
+    };
+  }, [data]);
   const cut = selection.path.lastIndexOf('/') + 1;
-  const message = note(data, query.error);
+  const message = note(data, error);
+  const estimate = data?.image
+    ? null
+    : rows.reduce((sum, row) => sum + (row.hunk === undefined ? 20 : 24), 0);
+  const reserved = height.current ?? estimate;
   return (
     <div ref={box} className="border-b border-line dark:border-line-dark">
       <button
@@ -288,32 +358,54 @@ function FileDiff({
           >
             {message}
           </p>
-        ) : data!.image ? (
-          <div className="flex flex-col">
-            <ImageDiff
-              repo={repo}
-              view={`${repo}:${selection.path}`}
-              selection={selection}
-              diff={data!}
-              version={query.dataUpdatedAt}
-            />
-          </div>
-        ) : (
-          <DiffSurface
-            rows={rows}
-            hunks={data!.hunks}
-            patches={data!.patches}
-            split={split}
-            wrap={false}
-            whitespace={false}
-            tokens={tokens}
-            source={selection.source}
-            disabled={disabled}
-            scroller={scroller}
-            hunkAction={(hunk, action) =>
-              void runHunkAction(repo, selection, data!, context, hunk, action)
+        ) : !mounted ? (
+          <p
+            className={`px-3 py-2 text-xs text-muted ${reserved === null ? 'min-h-32' : 'h-virtual'}`}
+            style={
+              reserved === null
+                ? undefined
+                : dynamic({ '--virtual-height': `${reserved}px` })
             }
-          />
+          >
+            Loading…
+          </p>
+        ) : (
+          <div ref={body}>
+            {data!.image ? (
+              <div className="flex flex-col">
+                <ImageDiff
+                  repo={repo}
+                  view={`${repo}:${selection.path}`}
+                  selection={selection}
+                  diff={data!}
+                  version={version}
+                />
+              </div>
+            ) : (
+              <DiffSurface
+                rows={rows}
+                hunks={data!.hunks}
+                patches={data!.patches}
+                split={split}
+                wrap={false}
+                whitespace={false}
+                tokens={tokens}
+                source={selection.source}
+                disabled={disabled}
+                scroller={scroller}
+                hunkAction={(hunk, action) =>
+                  void runHunkAction(
+                    repo,
+                    selection,
+                    data!,
+                    context,
+                    hunk,
+                    action,
+                  )
+                }
+              />
+            )}
+          </div>
         ))}
     </div>
   );

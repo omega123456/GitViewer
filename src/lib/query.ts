@@ -19,12 +19,30 @@ export function useBackend<K extends keyof Commands>(
   command: K,
   args: Commands[K]['args'],
   enabled = true,
+  initial?: { data: Commands[K]['result']; updatedAt: number },
 ) {
   return useQuery({
     queryKey: queryKey(command, args),
     queryFn: () => invoke(command, args),
     enabled,
+    initialData: initial?.data,
+    initialDataUpdatedAt: initial?.updatedAt,
   });
+}
+const immutable = ['commit', 'stash', 'compare'];
+function refreshes(name: string, key: readonly unknown[]) {
+  const [, command, args] = key as [unknown, string, { source?: string }?];
+  if (name === 'repo://head-changed') return true;
+  if (
+    ['history', 'commit_files', 'compare_files', 'default_branch'].includes(
+      command,
+    )
+  )
+    return false;
+  return !(
+    ['diff', 'diff_stack'].includes(command) &&
+    immutable.includes(String(args?.source))
+  );
 }
 export async function attempt<K extends keyof Commands>(
   command: K,
@@ -69,14 +87,7 @@ export function handleEvent<K extends keyof Events>(
   } else if (payload && 'repo' in payload && name !== 'sync://progress') {
     void client.invalidateQueries({
       queryKey: [payload.repo],
-      predicate: (query) =>
-        name === 'repo://head-changed' ||
-        ![
-          'history',
-          'commit_files',
-          'compare_files',
-          'default_branch',
-        ].includes(String(query.queryKey[1])),
+      predicate: (query) => refreshes(name, query.queryKey),
     });
   }
 }

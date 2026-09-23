@@ -1532,3 +1532,551 @@ async fn stash_conflicts_preserve_clean_files_local_changes_and_the_stash() {
         }
     }
 }
+
+fn png(width: u32, height: u32) -> Vec<u8> {
+    let mut bytes = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec();
+    bytes.extend(width.to_be_bytes());
+    bytes.extend(height.to_be_bytes());
+    bytes.extend([8, 6, 0, 0, 0]);
+    bytes
+}
+fn jpeg(width: u16, height: u16) -> Vec<u8> {
+    let mut bytes = vec![0xff, 0xd8, 0xff, 0xe1, 0xff, 0xf0];
+    bytes.extend(vec![0x20; 0xffee]);
+    bytes.extend([0xff, 0xc0, 0x00, 0x11, 0x08]);
+    bytes.extend(height.to_be_bytes());
+    bytes.extend(width.to_be_bytes());
+    bytes.extend([0x03, 0x01, 0x22, 0x00]);
+    bytes
+}
+fn numbered(prefix: &str, count: usize) -> String {
+    (0..count).map(|n| format!("{prefix}{n}\n")).collect()
+}
+async fn place(root: &Path, path: &str, bytes: &[u8], mode: &str) {
+    let oid = git::run(root, &["hash-object", "-w", "--stdin"], Some(bytes))
+        .await
+        .unwrap()
+        .accept(&[0])
+        .unwrap()
+        .text();
+    command(
+        root,
+        &[
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            &format!("{mode},{},{path}", oid.trim()),
+        ],
+    )
+    .await;
+}
+fn parsed(stack: &diff::stack::Stack) -> usize {
+    stack
+        .files
+        .values()
+        .map(|entry| {
+            entry
+                .hunks
+                .iter()
+                .map(|hunk| hunk.lines.len())
+                .sum::<usize>()
+                + entry
+                    .content
+                    .as_deref()
+                    .map_or(0, |text| text.lines().count())
+        })
+        .sum()
+}
+async fn equivalent(
+    repo: &Repo,
+    source: &str,
+    revision: &str,
+    base: &str,
+    expected: &[&str],
+) -> diff::stack::Stack {
+    let stack = diff::stack::read(repo, source, revision, base)
+        .await
+        .unwrap();
+    for path in expected {
+        assert!(stack.files.contains_key(*path), "{source} lacks {path}");
+    }
+    for (path, entry) in &stack.files {
+        let single = diff::read(repo, path, &entry.source, revision, base, 3, false)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(entry).unwrap(),
+            serde_json::to_value(&single).unwrap(),
+            "{source} {path}"
+        );
+    }
+    stack
+}
+#[tokio::test]
+async fn stacked_entries_equal_single_file_reads_for_every_source() {
+    let (dir, handle) = fixture().await;
+    let root = dir.path();
+    let mut repo = handle.lock().await;
+    let write = |path: &str, bytes: &[u8]| std::fs::write(root.join(path), bytes).unwrap();
+    write("modified.txt", b"one\ntwo\nthree\n");
+    write("deleted.txt", b"gone\n");
+    write("mode.sh", b"echo\n");
+    write("type.txt", b"target\n");
+    write("binary.bin", b"\0\x01\x02");
+    write("picture.png", &png(1, 1));
+    write("vector.svg", b"<svg width='1'/>\n");
+    write("space name.txt", b"a\n");
+    write("\u{fc}n\u{ef}.txt", b"a\n");
+    write("rename-me.txt", numbered("line ", 20).as_bytes());
+    command(root, &["add", "-A"]).await;
+    place(root, "q\"uote.txt", b"a\n", "100644").await;
+    command(root, &["commit", "-m", "Root"]).await;
+    let first = command(root, &["rev-parse", "HEAD"])
+        .await
+        .trim()
+        .to_owned();
+    repo.refresh().await.unwrap();
+    equivalent(
+        &repo,
+        "commit",
+        &first,
+        "",
+        &[
+            "modified.txt",
+            "picture.png",
+            "q\"uote.txt",
+            "\u{fc}n\u{ef}.txt",
+        ],
+    )
+    .await;
+    write("modified.txt", b"one\nTWO\nthree\n");
+    std::fs::remove_file(root.join("deleted.txt")).unwrap();
+    write("added.txt", b"new\n");
+    write("empty.txt", b"");
+    write("binary.bin", b"\0\x03\x04");
+    write("picture.png", &png(2, 3));
+    write("vector.svg", b"<svg width='2'/>\n");
+    write("photo.jpg", &jpeg(640, 480));
+    write("space name.txt", b"b\n");
+    write("\u{fc}n\u{ef}.txt", b"b\n");
+    write("huge.txt", numbered(&"x".repeat(120), 18_000).as_bytes());
+    write("minified.js", &vec![b'm'; 2 * 1024 * 1024 + 10]);
+    write("long.txt", numbered("", 50_001).as_bytes());
+    std::fs::rename(root.join("rename-me.txt"), root.join("renamed.txt")).unwrap();
+    repo.refresh().await.unwrap();
+    let unstaged = equivalent(
+        &repo,
+        "unstaged",
+        "",
+        "",
+        &[
+            "modified.txt",
+            "deleted.txt",
+            "binary.bin",
+            "picture.png",
+            "vector.svg",
+            "space name.txt",
+            "\u{fc}n\u{ef}.txt",
+            "added.txt",
+            "empty.txt",
+            "photo.jpg",
+            "huge.txt",
+            "minified.js",
+            "long.txt",
+            "renamed.txt",
+            "rename-me.txt",
+        ],
+    )
+    .await;
+    assert_eq!(unstaged.files["added.txt"].source, "file");
+    assert!(unstaged.files["added.txt"].added);
+    assert!(unstaged.files["huge.txt"].too_large);
+    assert!(unstaged.files["minified.js"].too_large);
+    assert!(unstaged.files["long.txt"].too_large);
+    assert!(unstaged.files["binary.bin"].binary);
+    assert_eq!(
+        unstaged.files["photo.jpg"].new_dimensions,
+        Some(diff::Dimensions {
+            width: 640,
+            height: 480
+        })
+    );
+    assert!(!unstaged.truncated);
+    command(root, &["add", "-A"]).await;
+    command(root, &["update-index", "--chmod=+x", "mode.sh"]).await;
+    place(root, "type.txt", b"modified.txt", "120000").await;
+    place(root, "q\"uote.txt", b"b\n", "100644").await;
+    repo.refresh().await.unwrap();
+    let staged = equivalent(
+        &repo,
+        "staged",
+        "",
+        "",
+        &[
+            "modified.txt",
+            "deleted.txt",
+            "added.txt",
+            "empty.txt",
+            "mode.sh",
+            "type.txt",
+            "q\"uote.txt",
+            "renamed.txt",
+            "long.txt",
+            "photo.jpg",
+        ],
+    )
+    .await;
+    assert!(!staged.files.contains_key("rename-me.txt"));
+    assert_eq!(staged.files["mode.sh"].new_mode.as_deref(), Some("100755"));
+    assert_eq!(staged.files["type.txt"].hunks.len(), 2);
+    assert!(staged.files["empty.txt"].hunks.is_empty());
+    let worktree = equivalent(&repo, "unstaged", "", "", &["type.txt", "q\"uote.txt"]).await;
+    assert!(worktree.files.contains_key("type.txt"));
+    command(root, &["commit", "-m", "Second"]).await;
+    let second = command(root, &["rev-parse", "HEAD"])
+        .await
+        .trim()
+        .to_owned();
+    repo.refresh().await.unwrap();
+    let commit = equivalent(
+        &repo,
+        "commit",
+        &second,
+        "",
+        &[
+            "type.txt",
+            "mode.sh",
+            "rename-me.txt",
+            "renamed.txt",
+            "photo.jpg",
+        ],
+    )
+    .await;
+    assert!(commit.files["rename-me.txt"].old_size > 0);
+    equivalent(
+        &repo,
+        "compare",
+        &second,
+        &first,
+        &["type.txt", "renamed.txt"],
+    )
+    .await;
+    write("modified.txt", b"stashed\n");
+    command(root, &["rm", "--cached", "-q", "space name.txt"]).await;
+    write("stashed-new.txt", b"fresh\n");
+    write("stashed.png", &png(4, 5));
+    repo.refresh().await.unwrap();
+    let hash = stash::save(&mut repo, "Mixed").await.unwrap();
+    let stashed = equivalent(
+        &repo,
+        "stash",
+        &hash,
+        "",
+        &[
+            "modified.txt",
+            "stashed-new.txt",
+            "space name.txt",
+            "stashed.png",
+        ],
+    )
+    .await;
+    assert!(stashed.files["space name.txt"].added);
+    assert_eq!(
+        stashed.files["space name.txt"].content.as_deref(),
+        Some("b\n")
+    );
+    assert_eq!(
+        stashed.files["stashed.png"].new_dimensions,
+        Some(diff::Dimensions {
+            width: 4,
+            height: 5
+        })
+    );
+    let (unborn, fresh) = fixture().await;
+    std::fs::write(unborn.path().join("first.txt"), "first\n").unwrap();
+    let mut fresh = fresh.lock().await;
+    actions::files(&mut fresh, &["first.txt".into()], "stage")
+        .await
+        .unwrap();
+    fresh.refresh().await.unwrap();
+    equivalent(&fresh, "staged", "", "", &["first.txt"]).await;
+    assert!(diff::stack::read(&fresh, "commit", "HEAD", "")
+        .await
+        .is_err());
+    assert!(diff::stack::read(&fresh, "bogus", "", "").await.is_err());
+    assert!(equivalent(&fresh, "unstaged", "", "", &[])
+        .await
+        .files
+        .is_empty());
+}
+#[tokio::test]
+async fn stacks_omit_records_they_cannot_reproduce() {
+    let (dir, handle) = fixture().await;
+    let root = dir.path();
+    base(&dir, &handle).await;
+    let mut repo = handle.lock().await;
+    command(root, &["checkout", "-q", "-b", "other"]).await;
+    record(&dir, &mut repo, "file.txt", "theirs\n", "Theirs").await;
+    command(root, &["checkout", "-q", "main"]).await;
+    record(&dir, &mut repo, "file.txt", "ours\n", "Ours").await;
+    let head = command(root, &["rev-parse", "HEAD"])
+        .await
+        .trim()
+        .to_owned();
+    git::run(root, &["merge", "other"], None).await.unwrap();
+    place(root, "sub", head.as_bytes(), "100644").await;
+    command(
+        root,
+        &["update-index", "--cacheinfo", &format!("160000,{head},sub")],
+    )
+    .await;
+    place(root, "new\nline.txt", b"x\n", "100644").await;
+    std::fs::create_dir_all(root.join("nested")).unwrap();
+    command(&root.join("nested"), &["init", "-q"]).await;
+    std::fs::write(root.join("nested/inner.txt"), "inner").unwrap();
+    repo.refresh().await.unwrap();
+    for source in ["unstaged", "staged"] {
+        let stack = diff::stack::read(&repo, source, "", "").await.unwrap();
+        for path in ["file.txt", "sub", "new\nline.txt", "nested/"] {
+            assert!(!stack.files.contains_key(path), "{source} {path}");
+        }
+    }
+    assert!(diff::read(&repo, "file.txt", "unstaged", "", "", 3, false)
+        .await
+        .is_err());
+    assert!(diff::read(&repo, "file.txt", "staged", "", "", 3, false)
+        .await
+        .is_err());
+    assert!(diff::read(&repo, "sub", "staged", "", "", 3, false)
+        .await
+        .is_ok());
+    assert!(
+        diff::read(&repo, "new\nline.txt", "staged", "", "", 3, false)
+            .await
+            .is_ok()
+    );
+    assert!(diff::read(&repo, "nested/", "file", "", "", 3, false)
+        .await
+        .is_err());
+    #[cfg(unix)]
+    {
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.txt"), "secret\n").unwrap();
+        std::fs::write(outside.path().join("linked.txt"), "linked\n").unwrap();
+        command(root, &["merge", "--abort"]).await;
+        std::fs::create_dir(root.join("dir")).unwrap();
+        record(&dir, &mut repo, "dir/linked.txt", "tracked\n", "Directory").await;
+        std::fs::remove_dir_all(root.join("dir")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.join("dir")).unwrap();
+        std::os::unix::fs::symlink(outside.path().join("secret.txt"), root.join("escape.txt"))
+            .unwrap();
+        repo.refresh().await.unwrap();
+        let stack = diff::stack::read(&repo, "unstaged", "", "").await.unwrap();
+        assert!(!stack.files.contains_key("dir/linked.txt"));
+        assert!(!stack.files.contains_key("escape.txt"));
+        assert!(
+            diff::read(&repo, "dir/linked.txt", "unstaged", "", "", 3, false)
+                .await
+                .is_err()
+        );
+        assert!(diff::read(&repo, "escape.txt", "file", "", "", 3, false)
+            .await
+            .is_err());
+    }
+}
+#[tokio::test]
+async fn stacks_ignore_configuration_and_follow_the_status_rename_pairing() {
+    let (dir, handle) = fixture().await;
+    let root = dir.path();
+    for (key, value) in [
+        ("diff.mnemonicPrefix", "true"),
+        ("diff.noprefix", "true"),
+        ("diff.submodule", "log"),
+        ("diff.renames", "true"),
+        ("log.showRoot", "false"),
+    ] {
+        command(root, &["config", key, value]).await;
+    }
+    let mut repo = handle.lock().await;
+    let body = numbered("row ", 30);
+    record(&dir, &mut repo, "before.txt", &body, "Root").await;
+    let first = command(root, &["rev-parse", "HEAD"])
+        .await
+        .trim()
+        .to_owned();
+    assert_eq!(
+        diff::read(&repo, "before.txt", "commit", &first, "", 3, false)
+            .await
+            .unwrap()
+            .hunks
+            .len(),
+        1
+    );
+    equivalent(&repo, "commit", &first, "", &["before.txt"]).await;
+    std::fs::rename(root.join("before.txt"), root.join("after.txt")).unwrap();
+    command(root, &["add", "-A"]).await;
+    repo.refresh().await.unwrap();
+    equivalent(&repo, "staged", "", "", &["after.txt"]).await;
+    command(root, &["commit", "-m", "Rename"]).await;
+    let second = command(root, &["rev-parse", "HEAD"])
+        .await
+        .trim()
+        .to_owned();
+    std::fs::write(root.join("after.txt"), numbered("changed ", 30)).unwrap();
+    repo.refresh().await.unwrap();
+    equivalent(&repo, "unstaged", "", "", &["after.txt"]).await;
+    for (source, revision, base) in [("commit", &second, ""), ("compare", &second, &first)] {
+        let stack = equivalent(&repo, source, revision, base, &["before.txt", "after.txt"]).await;
+        assert!(stack.files["after.txt"].old_size == 0);
+    }
+    command(root, &["mv", "after.txt", "later.txt"]).await;
+    command(root, &["config", "status.renames", "false"]).await;
+    repo.refresh().await.unwrap();
+    let stack = equivalent(&repo, "staged", "", "", &[]).await;
+    assert!(!stack.files.contains_key("later.txt"));
+}
+#[tokio::test]
+async fn stack_budget_truncates_whole_files_and_skips_unparsed_ones() {
+    let (dir, handle) = fixture().await;
+    let root = dir.path();
+    let mut repo = handle.lock().await;
+    for path in ["a.txt", "b.txt", "c.txt", "0huge.txt", "0image.svg"] {
+        std::fs::write(root.join(path), "").unwrap();
+    }
+    command(root, &["add", "-A"]).await;
+    command(root, &["commit", "-m", "Empty"]).await;
+    std::fs::write(root.join("0huge.txt"), numbered("h", 400_000)).unwrap();
+    std::fs::write(root.join("0image.svg"), numbered("s", 60_000)).unwrap();
+    std::fs::write(root.join("a.txt"), numbered("a", 49_000)).unwrap();
+    std::fs::write(root.join("b.txt"), numbered("b", 49_000)).unwrap();
+    repo.refresh().await.unwrap();
+    let whole = diff::stack::read(&repo, "unstaged", "", "").await.unwrap();
+    assert!(!whole.truncated);
+    assert!(whole.files["0huge.txt"].too_large);
+    assert!(whole.files["0image.svg"].image);
+    assert!(whole.files.contains_key("b.txt"));
+    assert_eq!(parsed(&whole), 98_000);
+    for path in ["0huge.txt", "0image.svg"] {
+        std::fs::write(root.join(path), "").unwrap();
+    }
+    for path in ["a.txt", "b.txt", "c.txt"] {
+        std::fs::write(root.join(path), numbered(path, 45_000)).unwrap();
+    }
+    std::fs::write(root.join("u1.txt"), numbered("u", 5_000)).unwrap();
+    std::fs::write(root.join("u2.txt"), numbered("u", 6_000)).unwrap();
+    std::fs::write(root.join("u3.txt"), "u\n").unwrap();
+    repo.refresh().await.unwrap();
+    let cut = diff::stack::read(&repo, "unstaged", "", "").await.unwrap();
+    assert!(cut.truncated);
+    assert!(cut.files.contains_key("a.txt") && cut.files.contains_key("b.txt"));
+    assert!(!cut.files.contains_key("c.txt"));
+    assert!(cut.files.contains_key("u1.txt"));
+    assert!(!cut.files.contains_key("u2.txt") && !cut.files.contains_key("u3.txt"));
+    assert!(parsed(&cut) <= 100_000);
+    assert_eq!(cut.files["a.txt"].hunks[0].lines.len(), 45_000);
+    for path in ["u1.txt", "u2.txt", "u3.txt"] {
+        std::fs::remove_file(root.join(path)).unwrap();
+    }
+    std::fs::write(root.join("c.txt"), "").unwrap();
+    std::fs::write(root.join("a.txt"), numbered("a", 49_990)).unwrap();
+    std::fs::write(root.join("b.txt"), numbered("b", 49_990)).unwrap();
+    record(&dir, &mut repo, "shared.txt", "tracked\n", "Shared").await;
+    command(root, &["rm", "--cached", "-q", "shared.txt"]).await;
+    std::fs::write(root.join("shared.txt"), numbered("s", 100)).unwrap();
+    repo.refresh().await.unwrap();
+    let hash = stash::save(&mut repo, "Budget").await.unwrap();
+    let stashed = diff::stack::read(&repo, "stash", &hash, "").await.unwrap();
+    assert!(stashed.truncated);
+    assert!(stashed.files.contains_key("b.txt"));
+    assert!(!stashed.files.contains_key("shared.txt"));
+}
+#[tokio::test]
+async fn stacked_hunk_patches_apply() {
+    let (dir, handle) = fixture().await;
+    base(&dir, &handle).await;
+    let mut repo = handle.lock().await;
+    std::fs::write(dir.path().join("file.txt"), "one\nTWO\nthree\n").unwrap();
+    repo.refresh().await.unwrap();
+    let unstaged = diff::stack::read(&repo, "unstaged", "", "").await.unwrap();
+    let patch = diff::patch("file.txt", &unstaged.files["file.txt"].hunks[0]).unwrap();
+    diff::apply_hunk(&mut repo, "file.txt", "unstaged", 0, 3, &patch, "stage")
+        .await
+        .unwrap();
+    let staged = diff::stack::read(&repo, "staged", "", "").await.unwrap();
+    let patch = diff::patch("file.txt", &staged.files["file.txt"].hunks[0]).unwrap();
+    diff::apply_hunk(&mut repo, "file.txt", "staged", 0, 3, &patch, "unstage")
+        .await
+        .unwrap();
+    assert!(diff::stack::read(&repo, "staged", "", "")
+        .await
+        .unwrap()
+        .files
+        .is_empty());
+}
+fn starts(trace: &Path, from: usize) -> usize {
+    std::fs::read_to_string(trace).unwrap_or_default()[from..]
+        .lines()
+        .filter(|line| line.contains("\"event\":\"start\""))
+        .filter(|line| {
+            line.split("\"sid\":\"")
+                .nth(1)
+                .and_then(|rest| rest.split('"').next())
+                .is_some_and(|sid| !sid.contains('/'))
+        })
+        .count()
+}
+async fn counted<F: std::future::Future>(trace: &Path, work: F) -> usize {
+    let from = std::fs::metadata(trace).map_or(0, |meta| meta.len() as usize);
+    work.await;
+    starts(trace, from)
+}
+#[tokio::test]
+async fn stacks_and_single_file_reads_run_a_fixed_number_of_git_processes() {
+    let (dir, handle) = fixture().await;
+    let root = dir.path();
+    let mut repo = handle.lock().await;
+    record(&dir, &mut repo, "seed.txt", "seed\n", "Seed").await;
+    for count in [2, 5] {
+        for n in 0..count {
+            std::fs::write(root.join(format!("f{count}-{n}.txt")), format!("{n}\n")).unwrap();
+        }
+        command(root, &["add", "-A"]).await;
+        command(root, &["commit", "-m", "Batch"]).await;
+    }
+    std::fs::write(root.join("seed.txt"), "changed\n").unwrap();
+    command(root, &["commit", "-am", "Modify"]).await;
+    repo.refresh().await.unwrap();
+    let trace = dir.path().join("..").join(format!(
+        "{}-trace.json",
+        dir.path().file_name().unwrap().to_string_lossy()
+    ));
+    std::env::set_var("GIT_TRACE2_EVENT", &trace);
+    repo.snapshot().await.unwrap();
+    let wide = counted(&trace, async {
+        diff::stack::read(&repo, "commit", "HEAD~1", "")
+            .await
+            .unwrap()
+    })
+    .await;
+    let narrow = counted(&trace, async {
+        diff::stack::read(&repo, "commit", "HEAD~2", "")
+            .await
+            .unwrap()
+    })
+    .await;
+    let modified = counted(&trace, async {
+        diff::read(&repo, "seed.txt", "commit", "HEAD", "", 3, false)
+            .await
+            .unwrap()
+    })
+    .await;
+    let added = counted(&trace, async {
+        diff::read(&repo, "f5-0.txt", "commit", "HEAD~1", "", 3, false)
+            .await
+            .unwrap()
+    })
+    .await;
+    std::env::remove_var("GIT_TRACE2_EVENT");
+    std::fs::remove_file(&trace).ok();
+    assert_eq!((wide, narrow, modified, added), (3, 3, 3, 4));
+}

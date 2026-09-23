@@ -21,6 +21,16 @@ fn optional<'a>(args: &'a Value, key: &str) -> &'a str {
 fn flag(args: &Value, key: &str) -> bool {
     args.get(key).and_then(Value::as_bool).unwrap_or(false)
 }
+fn with_patches(path: &str, diff: diff::Diff) -> Result<Value> {
+    let patches: Vec<String> = diff
+        .hunks
+        .iter()
+        .map(|h| diff::patch(path, h).unwrap_or_default())
+        .collect();
+    let mut value = serde_json::to_value(diff)?;
+    value["patches"] = json!(patches);
+    Ok(value)
+}
 fn settings_path<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<std::path::PathBuf> {
     #[cfg(feature = "test-utils")]
     {
@@ -211,14 +221,22 @@ pub async fn dispatch<R: tauri::Runtime>(
                     flag(&args, "overrideLimit"),
                 )
                 .await?;
-                let patches: Vec<String> = result
-                    .hunks
-                    .iter()
-                    .map(|h| diff::patch(path, h).unwrap_or_default())
-                    .collect();
-                let mut value = serde_json::to_value(result)?;
-                value["patches"] = json!(patches);
-                return Ok(value);
+                return with_patches(path, result);
+            }
+            "diff_stack" => {
+                let stack = diff::stack::read(
+                    &repo,
+                    string(&args, "source")?,
+                    revision,
+                    optional(&args, "base"),
+                )
+                .await?;
+                let files = stack
+                    .files
+                    .into_iter()
+                    .map(|(path, entry)| Ok((path.clone(), with_patches(&path, entry)?)))
+                    .collect::<Result<serde_json::Map<String, Value>>>()?;
+                return Ok(json!({"files": files, "truncated": stack.truncated}));
             }
             "files_action" => {
                 actions::files(

@@ -67,27 +67,37 @@ vi.stubGlobal(
   },
 );
 type Report = (entries: { isIntersecting: boolean }[]) => void;
-const reports = new Map<Element, Report>();
+const reports = new Map<Element, Map<string, Report>>();
 export const intersecting = { initially: true };
-export function intersect(target: Element, visible: boolean) {
-  reports.get(target)?.([{ isIntersecting: visible }]);
+export function intersect(target: Element, visible: boolean, margin = '400px') {
+  reports.get(target)?.get(margin)?.([{ isIntersecting: visible }]);
 }
 vi.stubGlobal(
   'IntersectionObserver',
   class {
     private targets = new Set<Element>();
-    constructor(private callback: Report) {}
+    private margin: string;
+    constructor(
+      private callback: Report,
+      options?: { rootMargin?: string },
+    ) {
+      this.margin = options?.rootMargin ?? '';
+    }
     observe(target: Element) {
       this.targets.add(target);
-      reports.set(target, this.callback);
+      const group = reports.get(target) ?? new Map<string, Report>();
+      group.set(this.margin, this.callback);
+      reports.set(target, group);
       this.callback([{ isIntersecting: intersecting.initially }]);
     }
     unobserve(target: Element) {
       this.targets.delete(target);
-      reports.delete(target);
+      reports.get(target)?.delete(this.margin);
     }
     disconnect() {
-      this.targets.forEach((target) => reports.delete(target));
+      this.targets.forEach((target) =>
+        reports.get(target)?.delete(this.margin),
+      );
       this.targets.clear();
     }
   },

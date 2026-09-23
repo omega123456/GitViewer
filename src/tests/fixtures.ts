@@ -1,5 +1,6 @@
 import type {
   Diff,
+  DiffStack,
   Status,
   SettingsResponse,
   AiSettings,
@@ -103,6 +104,10 @@ export const diff: Diff = {
       ],
     },
   ],
+};
+export const stack: DiffStack = {
+  files: { 'src/app.ts': diff, 'new.txt': diff },
+  truncated: false,
 };
 
 export const update: import('../lib/types').UpdateSnapshot = {

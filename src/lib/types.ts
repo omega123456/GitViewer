@@ -155,6 +155,12 @@ export interface Diff {
   oldDimensions: Dimensions | null;
   newDimensions: Dimensions | null;
 }
+export type StackSource =
+  'unstaged' | 'staged' | 'commit' | 'stash' | 'compare';
+export interface DiffStack {
+  files: Record<string, Diff>;
+  truncated: boolean;
+}
 export interface Dimensions {
   width: number;
   height: number;
@@ -225,6 +231,10 @@ export interface Commands {
       overrideLimit?: boolean;
     },
     Diff
+  >;
+  diff_stack: Command<
+    RepoArgs & { source: StackSource; revision?: string; base?: string },
+    DiffStack
   >;
   files_action: Command<
     RepoArgs & {

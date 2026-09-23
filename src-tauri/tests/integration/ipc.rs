@@ -62,6 +62,30 @@ async fn typed_commands_events_and_protocol_are_wired() {
     call("diff", json!({"repo":id,"path":"file.txt","source":"file"}))
         .await
         .unwrap();
+    let stack = call(
+        "diff_stack",
+        json!({"repo":id,"source":"commit","revision":"HEAD"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(stack["truncated"], json!(false));
+    assert_eq!(stack["files"]["file.txt"]["path"], json!("file.txt"));
+    assert_eq!(
+        stack["files"]["file.txt"]["patches"],
+        call(
+            "diff",
+            json!({"repo":id,"path":"file.txt","source":"commit","revision":"HEAD"})
+        )
+        .await
+        .unwrap()["patches"]
+    );
+    assert_eq!(
+        call("diff_stack", json!({"repo":id,"source":"file"}))
+            .await
+            .unwrap_err()
+            .category,
+        "refused"
+    );
     call("blame", json!({"repo":id,"path":"file.txt"}))
         .await
         .unwrap();

@@ -285,6 +285,16 @@ export const test = base.extend({
                         ];
                   case 'diff':
                     return diff;
+                  case 'diff_stack':
+                    return {
+                      files: Object.fromEntries(
+                        [
+                          'src/app.ts',
+                          ...status.entries.map((entry) => entry.path),
+                        ].map((path) => [path, diff]),
+                      ),
+                      truncated: false,
+                    };
                   case 'refresh':
                     return null;
                   case 'sync':

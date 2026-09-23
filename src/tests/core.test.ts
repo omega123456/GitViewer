@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest';
+import { createElement, type ReactNode } from 'react';
+import { renderHook } from '@testing-library/react';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { invoke, normalizeError } from '../lib/ipc';
-import { client, connectEvents, perform, queryKey } from '../lib/query';
+import {
+  client,
+  connectEvents,
+  perform,
+  queryKey,
+  useBackend,
+} from '../lib/query';
 import { useTabs } from '../stores/tabs';
 import { useLayout } from '../stores/layout';
 import { useSelection } from '../stores/selection';
@@ -23,7 +32,7 @@ import {
   treeRoot,
 } from '../components/sidebar/nodes';
 import { imageUrl } from '../components/image/url';
-import { emit, lastError, mockCommand } from './harness';
+import { calls, emit, lastError, mockCommand } from './harness';
 import { describe as describeFailure, overwrittenPaths } from '../lib/failure';
 import { useErrors } from '../stores/errors';
 import { answer, ask, useDecision } from '../stores/decision';
@@ -158,6 +167,45 @@ describe('IPC and events', () => {
     expect(client.getQueryState(['two', 'status'])).toBeDefined();
     stop();
     expect(queryKey('env', {})).toEqual(['app', 'env', {}]);
+  });
+  it('keeps commit, stash and compare diffs valid on working-tree events', async () => {
+    const sources = [
+      'unstaged',
+      'staged',
+      'commit',
+      'stash',
+      'compare',
+    ] as const;
+    const keys = sources.flatMap((source) => [
+      { source, key: queryKey('diff', { repo: 'one', path: 'a', source }) },
+      { source, key: queryKey('diff_stack', { repo: 'one', source }) },
+    ]);
+    for (const { key } of keys) client.setQueryData(key, diff);
+    const stop = await connectEvents();
+    emit('repo://status-changed', { repo: 'one' });
+    for (const { source, key } of keys)
+      expect(client.getQueryState(key)?.isInvalidated, source).toBe(
+        source === 'unstaged' || source === 'staged',
+      );
+    emit('repo://head-changed', { repo: 'one' });
+    for (const { key } of keys)
+      expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+    stop();
+  });
+  it('starts a backend read from initial data without fetching', () => {
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+    const { result } = renderHook(
+      () =>
+        useBackend('status', { repo: 'one' }, true, {
+          data: status,
+          updatedAt: 42,
+        }),
+      { wrapper },
+    );
+    expect(result.current.data).toBe(status);
+    expect(result.current.dataUpdatedAt).toBe(42);
+    expect(calls).toHaveLength(0);
   });
 });
 describe('presentation state', () => {
