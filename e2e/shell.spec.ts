@@ -438,6 +438,7 @@ for (const theme of ['light', 'dark'] as const) {
       .getByRole('button', { name: 'Open repository', exact: true })
       .last()
       .click();
+    await page.mouse.move(0, 0);
     await expect(
       page.getByLabel('Stage src/app.ts', { exact: true }),
     ).toBeVisible();

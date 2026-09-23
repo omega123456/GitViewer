@@ -1195,9 +1195,18 @@ describe('keyboard and pointer access', () => {
       name: 'Command palette',
     });
     const input = within(palette).getByLabelText('Find file');
-    expect(
-      await within(palette).findByRole('button', { name: /README\.md/ }),
-    ).toBeVisible();
+    const readme = await within(palette).findByRole('button', {
+      name: /README\.md/,
+    });
+    expect(readme).toBeVisible();
+    fireEvent.mouseEnter(readme);
+    expect(readme).not.toHaveAttribute('title', 'README.md');
+    const overflow = vi
+      .spyOn(HTMLElement.prototype, 'scrollWidth', 'get')
+      .mockReturnValue(100);
+    fireEvent.mouseEnter(readme);
+    expect(readme).toHaveAttribute('title', 'README.md');
+    overflow.mockRestore();
     expect(
       within(palette).queryByRole('button', { name: /bundle\.js/ }),
     ).not.toBeInTheDocument();

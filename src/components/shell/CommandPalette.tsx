@@ -26,6 +26,7 @@ interface Row {
   id: string;
   icon: ReactNode;
   label: ReactNode;
+  title: string;
   trailing: ReactNode;
   disabled?: boolean;
   run: () => void;
@@ -53,7 +54,9 @@ function FileLabel({ path }: { path: string }) {
   const slash = path.lastIndexOf('/');
   return (
     <span className="flex min-w-0 items-baseline gap-2.5">
-      <span className="shrink-0 font-medium">{path.slice(slash + 1)}</span>
+      <span className="max-w-full shrink-0 truncate font-medium">
+        {path.slice(slash + 1)}
+      </span>
       {slash > 0 && (
         <span className="truncate text-meta text-muted dark:text-muted-dark">
           {path.slice(0, slash)}
@@ -103,6 +106,7 @@ export function CommandPalette({ repo }: { repo: string }) {
                     />
                   ),
                   label: <FileLabel path={path} />,
+                  title: path,
                   trailing: (
                     <StatusBadge
                       status={
@@ -133,6 +137,7 @@ export function CommandPalette({ repo }: { repo: string }) {
                 id: action.id,
                 icon: action.icon,
                 label: <span className="truncate">{action.label}</span>,
+                title: action.label,
                 trailing: <Keys shortcut={action.key} />,
                 disabled: action.disabled,
                 run: () => void action.run(),
@@ -215,6 +220,13 @@ export function CommandPalette({ repo }: { repo: string }) {
                 key={row.id}
                 type="button"
                 disabled={row.disabled}
+                onMouseEnter={(event) => {
+                  const button = event.currentTarget;
+                  const truncated = [...button.querySelectorAll('span')].some(
+                    (span) => span.scrollWidth > span.clientWidth,
+                  );
+                  button.title = truncated ? row.title : '';
+                }}
                 onClick={() => run(row)}
                 className={`flex h-10 w-full items-center gap-3 rounded px-3 text-sm disabled:opacity-40 ${row === current ? 'bg-selected dark:bg-selected-dark' : 'hover:bg-hover dark:hover:bg-hover-dark'} ${focusInset}`}
               >

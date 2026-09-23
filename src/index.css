@@ -129,7 +129,8 @@
   --spacing-staged-cap: 50%;
   --spacing-commit: 30px;
   --spacing-dialog: 460px;
-  --spacing-dialog-wide: 640px;
+  --spacing-palette-floor: min(800px, 80vw);
+  --spacing-palette-cap: 80vw;
   --spacing-toast: 356px;
   --spacing-sidebar: var(--sidebar-width, 300px);
   --spacing-branches: var(--branches-width, 320px);
