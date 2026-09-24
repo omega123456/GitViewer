@@ -1428,7 +1428,7 @@ describe('all changes pane', () => {
       await waitFor(() => expect(count('diff_stack')).toBe(1));
       const block = within(pane).getByRole('button', {
         name: /lib\.ts/,
-      }).parentElement!;
+      }).parentElement!.parentElement!;
       await act(settled);
       expect(count('diff')).toBe(0);
       act(() => intersect(block, true));
@@ -1476,10 +1476,10 @@ describe('all changes pane', () => {
     await waitFor(() => expect(count('diff_stack')).toBe(1));
     const block = within(pane).getByRole('button', {
       name: /app\.ts/,
-    }).parentElement!;
+    }).parentElement!.parentElement!;
     const image = within(pane).getByRole('button', {
       name: /photo\.png/,
-    }).parentElement!;
+    }).parentElement!.parentElement!;
     await waitFor(() =>
       expect(within(block).getByText('Loading…')).toHaveClass('h-virtual'),
     );
@@ -1526,7 +1526,7 @@ describe('all changes pane', () => {
     await waitFor(() => expect(count('diff_stack')).toBe(1));
     const block = within(pane).getByRole('button', {
       name: /app\.ts/,
-    }).parentElement!;
+    }).parentElement!.parentElement!;
     await act(settled);
     expect(spy).not.toHaveBeenCalled();
     act(() => intersect(block, true));
@@ -1642,6 +1642,17 @@ describe('all changes pane', () => {
         patch: 'patch',
         action: 'stage',
       },
+    });
+    mockCommand('system_open', () => null);
+    const header = within(pane).getByRole('button', {
+      name: /app\.ts/,
+    }).parentElement!;
+    await user.click(within(header).getByLabelText('Copy file path'));
+    expect(await navigator.clipboard.readText()).toBe('src/app.ts');
+    await user.click(within(header).getByRole('button', { name: 'Open' }));
+    expect(calls).toContainEqual({
+      command: 'system_open',
+      args: { repo: repository.id, path: 'src/app.ts' },
     });
     await user.click(within(pane).getByRole('button', { name: /app\.ts/ }));
     expect(within(pane).queryByTitle('Stage hunk')).not.toBeInTheDocument();

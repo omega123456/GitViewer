@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import { CheckCircle2, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
-import { useBackend } from '../../lib/query';
+import {
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  Loader2,
+} from 'lucide-react';
+import { perform, useBackend } from '../../lib/query';
 import type {
   Diff,
   DiffStack,
@@ -17,6 +23,8 @@ import { groupEntries, treeOrder } from '../sidebar/nodes';
 import { useDiffView } from '../../stores/diff-view';
 import { useFilter } from '../../stores/filter';
 import type { Stack } from '../../stores/selection';
+import { Button } from '../shared/Button';
+import { CopyButton } from '../shared/CopyButton';
 import { Spinner } from '../shared/Spinner';
 import { dynamic, focus, focusInset } from '../shared/styles';
 import { ErrorState } from '../states/Errors';
@@ -332,34 +340,50 @@ function FileDiff({
   const reserved = height.current ?? estimate;
   return (
     <div ref={box} className="border-b border-line dark:border-line-dark">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        className={`sticky top-0 z-10 flex h-tab w-full items-center gap-2 bg-sub px-3 text-sm dark:bg-sub-dark ${focus}`}
-      >
-        {open ? (
-          <ChevronDown className="size-3.5 shrink-0 text-muted" />
-        ) : (
-          <ChevronRight className="size-3.5 shrink-0 text-muted" />
-        )}
-        <span className="truncate" title={selection.path}>
-          <span className="text-muted">{selection.path.slice(0, cut)}</span>
-          <span className="font-semibold">{selection.path.slice(cut)}</span>
-        </span>
-        <DiffSourcePill selection={selection} />
-        {Boolean(added) && (
-          <span className="shrink-0 font-mono text-label text-added dark:text-added-dark">
-            +{added}
+      <div className="sticky top-0 z-10 flex h-tab items-center gap-1 bg-sub pr-3 dark:bg-sub-dark">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+          className={`flex h-full min-w-0 flex-1 items-center gap-2 pl-3 text-sm ${focus}`}
+        >
+          {open ? (
+            <ChevronDown className="size-3.5 shrink-0 text-muted" />
+          ) : (
+            <ChevronRight className="size-3.5 shrink-0 text-muted" />
+          )}
+          <span className="truncate" title={selection.path}>
+            <span className="text-muted">{selection.path.slice(0, cut)}</span>
+            <span className="font-semibold">{selection.path.slice(cut)}</span>
           </span>
-        )}
-        {Boolean(removed) && (
-          <span className="shrink-0 font-mono text-label text-deleted dark:text-deleted-dark">
-            −{removed}
-          </span>
-        )}
-        {badge && <StatusBadge status={badge} />}
-      </button>
+          <DiffSourcePill selection={selection} />
+          {Boolean(added) && (
+            <span className="shrink-0 font-mono text-label text-added dark:text-added-dark">
+              +{added}
+            </span>
+          )}
+          {Boolean(removed) && (
+            <span className="shrink-0 font-mono text-label text-deleted dark:text-deleted-dark">
+              −{removed}
+            </span>
+          )}
+          {badge && <StatusBadge status={badge} />}
+        </button>
+        <CopyButton
+          text={selection.path}
+          label="Copy file path"
+          className="size-6 text-muted dark:text-muted-dark"
+        />
+        <Button
+          title="Open in system application"
+          onClick={() =>
+            void perform('system_open', { repo, path: selection.path })
+          }
+        >
+          <ExternalLink className="size-4" />
+          <span>Open</span>
+        </Button>
+      </div>
       {open &&
         (message ? (
           <p
