@@ -1,5 +1,5 @@
 use crate::{
-    actions, ai, branch, diff,
+    actions, ai, branch, diff, edit,
     error::{Error, Result},
     git, history,
     repo::Registry,
@@ -96,6 +96,17 @@ pub async fn dispatch<R: tauri::Runtime>(
             return Ok(serde_json::to_value(
                 app.state::<crate::session::Store>().get(),
             )?)
+        }
+        "unsaved_set" => {
+            let paths: Vec<String> =
+                serde_json::from_value(args.get("paths").cloned().unwrap_or_default())?;
+            app.state::<crate::session::Store>().unsaved(paths);
+            return Ok(Value::Null);
+        }
+        "quit" => {
+            app.state::<crate::session::Store>().unsaved(Vec::new());
+            crate::lifecycle::request_close(&app);
+            return Ok(Value::Null);
         }
         "session_set" | "session_close" => {
             let session: crate::session::Session = serde_json::from_value(args)?;
@@ -203,6 +214,7 @@ pub async fn dispatch<R: tauri::Runtime>(
     let mutating = matches!(
         command.as_str(),
         "refresh"
+            | "file_write"
             | "files_action"
             | "hunk_action"
             | "commit"
@@ -246,6 +258,13 @@ pub async fn dispatch<R: tauri::Runtime>(
                 .await?;
                 return with_patches(path, result);
             }
+            "file_read" => return Ok(serde_json::to_value(edit::read(&repo, path)?)?),
+            "file_write" => json!(edit::write(
+                &repo,
+                path,
+                string(&args, "content")?,
+                args.get("expected").and_then(Value::as_str),
+            )?),
             "file_lines" => {
                 return Ok(serde_json::to_value(
                     diff::text(

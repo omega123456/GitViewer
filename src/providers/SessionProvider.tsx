@@ -1,6 +1,8 @@
 import { listen } from '@tauri-apps/api/event';
+import { confirm } from '@tauri-apps/plugin-dialog';
 import { useEffect, useState, type ReactNode } from 'react';
 import { invoke, reportAppError } from '../lib/ipc';
+import { unsavedNames, useEditor } from '../stores/editor';
 import { useTabs } from '../stores/tabs';
 import { tabLayout, useLayout } from '../stores/layout';
 import type { Session } from '../lib/types';
@@ -13,6 +15,29 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     let unsubscribeLayout = () => {};
     let unlisten = () => {};
     let stopCancelled = () => {};
+    let stopUnsaved = () => {};
+    let unsubscribeEditor = () => {};
+    let reported = '';
+    let asking = false;
+    const confirmQuit = async () => {
+      if (asking) return;
+      asking = true;
+      try {
+        const names = unsavedNames();
+        if (
+          !names.length ||
+          (await confirm(
+            `Quit and discard unsaved edits to ${names.join(', ')}?`,
+            { title: 'Unsaved edits' },
+          ))
+        )
+          await invoke('quit', {});
+      } catch (error) {
+        reportAppError(error);
+      } finally {
+        asking = false;
+      }
+    };
     let settle: ReturnType<typeof setTimeout>;
     const restore = async () => {
       try {
@@ -95,6 +120,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           return;
         save();
       });
+      stopUnsaved = await listen('session://unsaved-edits', () => {
+        void confirmQuit();
+      }).catch((error) => {
+        if (!cancelled) reportAppError(error);
+        return () => {};
+      });
+      unsubscribeEditor = useEditor.subscribe(() => {
+        const names = unsavedNames();
+        if (names.join('\n') === reported) return;
+        reported = names.join('\n');
+        invoke('unsaved_set', { paths: names }).catch(reportAppError);
+      });
       unsubscribeLayout = useLayout.subscribe(() => {
         clearTimeout(settle);
         settle = setTimeout(save, 200);
@@ -109,6 +146,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       unsubscribeLayout();
       unlisten();
       stopCancelled();
+      stopUnsaved();
+      unsubscribeEditor();
     };
   }, []);
   return ready ? children : null;

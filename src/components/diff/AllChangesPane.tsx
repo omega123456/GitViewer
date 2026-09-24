@@ -5,6 +5,7 @@ import {
   ChevronRight,
   ExternalLink,
   Loader2,
+  Pencil,
 } from 'lucide-react';
 import { perform, useBackend } from '../../lib/query';
 import type {
@@ -22,7 +23,7 @@ import {
 import { groupEntries, treeOrder } from '../sidebar/nodes';
 import { useDiffView } from '../../stores/diff-view';
 import { useFilter } from '../../stores/filter';
-import type { Stack } from '../../stores/selection';
+import { useSelection, type Stack } from '../../stores/selection';
 import { Button } from '../shared/Button';
 import { CopyButton } from '../shared/CopyButton';
 import { Spinner } from '../shared/Spinner';
@@ -34,6 +35,7 @@ import { ImageDiff } from '../image/ImageDiff';
 import { DiffSourcePill } from './DiffSourcePill';
 import { DiffSurface } from './DiffSurface';
 import { FullFileButton } from './DiffToolbar';
+import { canEdit } from './editable';
 import { useExpansion } from './expansion';
 import { runHunkAction } from './hunks';
 import { diffRows } from './rows';
@@ -392,6 +394,19 @@ function FileDiff({
           <ExternalLink className="size-4" />
           <span>Open</span>
         </Button>
+        {canEdit(selection.source, badge, data) && (
+          <Button
+            title="Edit this file"
+            onClick={() =>
+              useSelection
+                .getState()
+                .select(repo, { ...selection, editing: true })
+            }
+          >
+            <Pencil className="size-4" />
+            <span>Edit</span>
+          </Button>
+        )}
       </div>
       {open &&
         (message ? (

@@ -52,6 +52,31 @@ export const test = base.extend({
         const scenario = new URLSearchParams(window.location.search).get(
           'scenario',
         );
+        const editorText = [
+          "import { createHighlighter, bundledLanguages } from 'shiki';",
+          'const aliases: Record<string, string> = {',
+          "  ts: 'typescript',",
+          "  rs: 'rust',",
+          '};',
+          'let highlighter: ReturnType<typeof createHighlighter> | undefined;',
+          'export async function highlight(content: string, path: string, dark: boolean) {',
+          "  const extension = path.split('.').pop()?.toLowerCase() ?? '';",
+          "  const theme = dark ? 'github-dark' : 'github-light';",
+          '  const language = aliases[extension] ?? extension;',
+          '  if (!(language in bundledLanguages))',
+          "    return content.split('\\n');",
+          '  highlighter ??= createHighlighter({ themes: [theme], langs: [] });',
+          '  return highlighter;',
+          '}',
+          '',
+        ].join('\n');
+        const editorIndex = editorText
+          .replace("  rs: 'rust',\n", "  rs: 'rust',\n  py: 'python',\n")
+          .replace(', dark: boolean) {', ') {')
+          .replace(
+            "  const theme = dark ? 'github-dark' : 'github-light';\n",
+            '',
+          );
         if (scenario === 'ai') {
           settings.keyStored = true;
           settings.ai = {
@@ -317,7 +342,19 @@ export const test = base.extend({
                   case 'diff':
                     return diff;
                   case 'file_lines':
-                    return gappedText;
+                    return scenario === 'editor' ? editorIndex : gappedText;
+                  case 'file_read':
+                    return {
+                      text: editorText,
+                      version: 'v1',
+                      bom: false,
+                      crlf: false,
+                    };
+                  case 'file_write':
+                    return { saved: 'v2' };
+                  case 'unsaved_set':
+                  case 'quit':
+                    return null;
                   case 'diff_stack':
                     return {
                       files: Object.fromEntries(

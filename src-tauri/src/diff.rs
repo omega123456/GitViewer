@@ -489,8 +489,8 @@ pub fn is_image(path: &str) -> bool {
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "ico" | "svg" | "avif"
     )
 }
-const LINE_LIMIT: usize = 50000;
-fn size_limit(image: bool) -> usize {
+pub const LINE_LIMIT: usize = 50000;
+pub fn size_limit(image: bool) -> usize {
     if image {
         20 * 1024 * 1024
     } else {

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronUp,
@@ -10,6 +10,8 @@ import {
   FileCog,
   History,
   Image,
+  Pencil,
+  Save,
   Trash2,
   SquareMinus,
   SquarePlus,
@@ -20,6 +22,7 @@ import {
 import { useActions } from '../../lib/actions';
 import { useBackend, perform } from '../../lib/query';
 import { useDiffView } from '../../stores/diff-view';
+import { save, useDirty } from '../../stores/editor';
 import { useLayout } from '../../stores/layout';
 import { useSelection } from '../../stores/selection';
 import type { Selection, Settings } from '../../lib/types';
@@ -35,10 +38,12 @@ import { DiffToolbar } from './DiffToolbar';
 import { DiffSurface, type DiffSurfaceHandle } from './DiffSurface';
 import { MarkdownView, isMarkdown } from './Markdown';
 import { runHunkAction } from './hunks';
+import { canEdit } from './editable';
 import { useExpansion } from './expansion';
 import { diffRows } from './rows';
 import { cachedEntry } from './stack';
 import { useTokens } from './tokens';
+const EditSurface = lazy(() => import('../editor/EditSurface'));
 export function DiffPane({
   repo,
   selection,
@@ -110,6 +115,9 @@ function SelectedDiff({
   const added = lines.filter((line) => line.kind === 'add').length;
   const removed = lines.filter((line) => line.kind === 'remove').length;
   const tokens = useTokens(data, selection.path, true, expansion.reveal.lines);
+  const editable = canEdit(selection.source, entry?.worktree, data);
+  const editing = Boolean(selection.editing) && editable;
+  const dirty = useDirty(repo, selection.path);
   const preview = useMemo(() => {
     if (!data) return { text: '', deleted: false };
     if (data.content !== null) return { text: data.content, deleted: false };
@@ -126,11 +134,20 @@ function SelectedDiff({
       ...selection,
       rendered: !selection.rendered,
       blame: false,
+      editing: false,
     });
   const toggleBlame = () =>
     useSelection.getState().select(repo, {
       ...selection,
       blame: !selection.blame,
+      rendered: false,
+      editing: false,
+    });
+  const toggleEdit = () =>
+    useSelection.getState().select(repo, {
+      ...selection,
+      editing: !editing,
+      blame: false,
       rendered: false,
     });
   const move = (direction: number) => {
@@ -195,6 +212,22 @@ function SelectedDiff({
       run: () => hunkAction(selectedHunk, 'discard'),
       disabled:
         disabled || !data?.hunks.length || selection.source !== 'unstaged',
+    },
+    {
+      id: 'edit',
+      icon: <Pencil className="size-3.5" />,
+      label: 'Toggle edit mode',
+      key: 'Mod+Alt+e',
+      run: toggleEdit,
+      disabled: !editable,
+    },
+    {
+      id: 'save-file',
+      icon: <Save className="size-3.5" />,
+      label: 'Save file',
+      key: 'Mod+s',
+      run: () => save(repo),
+      disabled: !editing || !dirty,
     },
     {
       id: 'open-file',
@@ -264,6 +297,13 @@ function SelectedDiff({
           <span className="text-muted">{directory}</span>
           <span className="font-semibold">{name}</span>
         </span>
+        {dirty && (
+          <span
+            role="img"
+            aria-label="Unsaved changes"
+            className="size-status-dot shrink-0 rounded-full bg-accent dark:bg-accent-dark"
+          />
+        )}
         <CopyButton
           text={selection.path}
           label="Copy file path"
@@ -317,6 +357,25 @@ function SelectedDiff({
               {selection.blame ? 'Diff' : 'Blame'}
             </span>
           </Button>
+          {editable ? (
+            <Button
+              aria-pressed={editing}
+              className={
+                editing
+                  ? 'bg-selected text-accent dark:bg-selected-dark dark:text-accent-dark'
+                  : ''
+              }
+              onClick={toggleEdit}
+            >
+              <Pencil className="size-4" />
+              <span className="min-w-7">{editing ? 'Diff' : 'Edit'}</span>
+            </Button>
+          ) : (
+            <Button aria-hidden tabIndex={-1} disabled className="invisible">
+              <Pencil className="size-4" />
+              <span className="min-w-7">Edit</span>
+            </Button>
+          )}
         </div>
         <span className="flex w-3.5 shrink-0">
           {letter && <StatusBadge status={letter} />}
@@ -332,6 +391,10 @@ function SelectedDiff({
         />
       ) : !data ? (
         <State title="Loading file…" />
+      ) : editing ? (
+        <Suspense fallback={<State title="Loading editor…" />}>
+          <EditSurface repo={repo} path={selection.path} />
+        </Suspense>
       ) : data.tooLarge ? (
         <State
           icon={Image}

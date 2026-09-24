@@ -486,3 +486,28 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(palette).toHaveScreenshot(`palette-commands-${theme}.png`);
   });
 }
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`working-tree editor ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto('/?scenario=editor');
+    await page
+      .getByRole('button', { name: 'Open repository', exact: true })
+      .last()
+      .click();
+    await page
+      .getByRole('tree', { name: 'Changes', exact: true })
+      .getByText('app.ts')
+      .click();
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await expect(page.getByText('TypeScript', { exact: true })).toBeVisible();
+    const content = page.locator('.cm-content');
+    await content.click();
+    await page.keyboard.press('ControlOrMeta+End');
+    await page.keyboard.type('export { aliases };');
+    await expect(page.getByLabel('Unsaved changes')).toBeVisible();
+    await expect(
+      page.getByRole('region', { name: 'Diff viewer', exact: true }),
+    ).toHaveScreenshot(`editor-${theme}.png`);
+  });
+}

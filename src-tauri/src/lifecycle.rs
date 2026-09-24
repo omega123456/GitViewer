@@ -45,6 +45,16 @@ pub fn request_close<R: Runtime>(app: &tauri::AppHandle<R>) -> bool {
     if store.close_allowed() {
         return true;
     }
+    let unsaved = store.unsaved_paths();
+    if !unsaved.is_empty() {
+        if let Err(error) = app.emit(
+            "session://unsaved-edits",
+            serde_json::json!({"paths":unsaved}),
+        ) {
+            tracing::warn!(%error, "Unable to report unsaved edits");
+        }
+        return false;
+    }
     if store.begin_close() {
         flush(app);
         if let Err(error) = app.emit("session://save-requested", ()) {

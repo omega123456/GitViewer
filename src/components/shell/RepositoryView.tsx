@@ -214,7 +214,7 @@ export function RepositoryView({
       id: 'all',
       icon: <ListChecks className="size-3.5" />,
       label: 'Stage all changes',
-      key: 'Mod+s',
+      key: 'Mod+Shift+a',
       disabled,
       run: () =>
         perform('files_action', {

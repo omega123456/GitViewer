@@ -1,7 +1,7 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/typography';
 @custom-variant dark (&:where(.dark, .dark *));
-@theme inline {
+@theme inline static {
   --spacing-settings-width: clamp(720px, 80vw, 1200px);
   --spacing-settings-height: clamp(480px, 80vh, 900px);
   --spacing-settings-nav: 168px;
@@ -105,6 +105,20 @@
   --color-lane-8: #cc79a7;
   --color-lane-8-dark: #cc79a7;
   --color-syntax: var(--syntax-color);
+  --color-code-keyword: #cf222e;
+  --color-code-keyword-dark: #ff7b72;
+  --color-code-string: #0a3069;
+  --color-code-string-dark: #a5d6ff;
+  --color-code-function: #8250df;
+  --color-code-function-dark: #d2a8ff;
+  --color-code-constant: #0550ae;
+  --color-code-constant-dark: #79c0ff;
+  --color-code-comment: #6e7781;
+  --color-code-comment-dark: #8b949e;
+  --color-code-type: #953800;
+  --color-code-type-dark: #ffa657;
+  --color-code-tag: #116329;
+  --color-code-tag-dark: #7ee787;
   --font-sans:
     'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;

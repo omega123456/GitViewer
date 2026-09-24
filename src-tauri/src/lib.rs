@@ -5,6 +5,7 @@ pub mod ai;
 pub mod blob;
 pub mod branch;
 pub mod diff;
+pub mod edit;
 pub mod error;
 pub mod git;
 pub mod graph;

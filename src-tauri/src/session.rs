@@ -38,6 +38,7 @@ pub struct Store {
     state: Mutex<Session>,
     path: Option<PathBuf>,
     closing: AtomicU8,
+    unsaved: Mutex<Vec<String>>,
 }
 
 impl Store {
@@ -58,6 +59,7 @@ impl Store {
             state: Mutex::new(state),
             path: Some(path),
             closing: AtomicU8::new(0),
+            unsaved: Mutex::default(),
         }
     }
 
@@ -95,6 +97,17 @@ impl Store {
 
     pub fn close_allowed(&self) -> bool {
         self.closing.load(Ordering::SeqCst) == 2
+    }
+
+    pub fn unsaved(&self, paths: Vec<String>) {
+        *self.unsaved.lock().unwrap_or_else(|e| e.into_inner()) = paths;
+    }
+
+    pub fn unsaved_paths(&self) -> Vec<String> {
+        self.unsaved
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     pub fn cancel_close(&self) {

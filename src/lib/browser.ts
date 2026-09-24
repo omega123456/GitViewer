@@ -34,7 +34,7 @@ export function useBrowserRestrictions() {
       if (
         event.target instanceof Element &&
         event.target.closest(
-          'textarea, input:not([type="checkbox"], [type="range"])',
+          'textarea, input:not([type="checkbox"], [type="range"]), [contenteditable="true"]',
         )
       )
         void invoke('edit_menu', {}).catch(() => {});

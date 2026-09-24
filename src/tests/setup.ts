@@ -12,6 +12,7 @@ import { useLayout } from '../stores/layout';
 import { useSelection } from '../stores/selection';
 import { useFilterStore } from '../stores/filter';
 import { useDiffView } from '../stores/diff-view';
+import { useEditor } from '../stores/editor';
 import { useImageViews } from '../stores/image-view';
 import { usePalette } from '../stores/palette';
 import { useSettingsNav } from '../stores/settings-nav';
@@ -34,6 +35,12 @@ const rect = {
 };
 Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', {
   value: () => rect,
+});
+Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+  value: () => rect,
+});
+Object.defineProperty(Range.prototype, 'getClientRects', {
+  value: () => [],
 });
 Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
   get: () => 600,
@@ -130,6 +137,7 @@ beforeEach(() => {
   });
   useFilterStore.setState({ text: {} });
   useDiffView.setState({ mode: null });
+  useEditor.setState({ buffers: {} });
   useImageViews.setState({ tabs: {} });
   usePalette.setState({ open: false, settings: false, ignored: null });
   useSettingsNav.setState({ pane: 'general' });

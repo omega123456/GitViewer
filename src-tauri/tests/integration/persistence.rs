@@ -226,3 +226,54 @@ async fn close_timeout_preserves_saved_state_and_failed_saves_cancel_exit() {
     assert!(!store.close_allowed());
     lifecycle::flush(app.handle());
 }
+
+#[tokio::test]
+async fn unsaved_edits_block_close_until_quit_discards_them() {
+    use gitviewer_lib::{ipc, lifecycle};
+    use serde_json::json;
+    use tauri::{Listener, Manager};
+    let directory = tempfile::tempdir().unwrap();
+    let app = tauri::test::mock_builder()
+        .manage(Store::load(directory.path().join("session.json")))
+        .manage(gitviewer_lib::repo::Registry::default())
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    let store = app.state::<Store>();
+    let reported = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let captured = reported.clone();
+    app.listen("session://unsaved-edits", move |event| {
+        captured.lock().unwrap().push(event.payload().to_string());
+    });
+    let saves = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = saves.clone();
+    app.listen("session://save-requested", move |_| {
+        counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    });
+    ipc::dispatch(
+        app.handle().clone(),
+        "unsaved_set".into(),
+        json!({"paths":["src/main.rs"]}),
+    )
+    .await
+    .unwrap();
+    assert!(!lifecycle::request_close(app.handle()));
+    assert_eq!(
+        reported.lock().unwrap().as_slice(),
+        [json!({"paths":["src/main.rs"]}).to_string()]
+    );
+    assert_eq!(saves.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert!(store.begin_close());
+    store.cancel_close();
+    ipc::dispatch(app.handle().clone(), "quit".into(), json!({}))
+        .await
+        .unwrap();
+    assert!(store.unsaved_paths().is_empty());
+    assert_eq!(saves.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert!(ipc::dispatch(
+        app.handle().clone(),
+        "unsaved_set".into(),
+        json!({"paths":7})
+    )
+    .await
+    .is_err());
+}

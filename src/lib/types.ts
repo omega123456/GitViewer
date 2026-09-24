@@ -60,7 +60,15 @@ export interface Selection {
   base?: string;
   blame?: boolean;
   rendered?: boolean;
+  editing?: boolean;
 }
+export interface Opened {
+  text: string;
+  version: string;
+  bom: boolean;
+  crlf: boolean;
+}
+export type Written = { saved: string } | { conflict: Opened | null };
 export interface ChangedFile {
   path: string;
   status: string;
@@ -233,6 +241,13 @@ export interface Commands {
     },
     Diff
   >;
+  file_read: Command<FileArgs, Opened | null>;
+  file_write: Command<
+    FileArgs & { content: string; expected: string | null },
+    Written
+  >;
+  unsaved_set: Command<{ paths: string[] }, null>;
+  quit: Command<Record<string, never>, null>;
   file_lines: Command<
     FileArgs & { source: Source; revision?: string; base?: string },
     string | null
@@ -300,6 +315,7 @@ export interface Events {
   'update://changed': null;
   'session://close-cancelled': null;
   'session://save-requested': null;
+  'session://unsaved-edits': { paths: string[] };
   'repo://closed': RepoArgs;
   'repo://status-changed': RepoArgs;
   'repo://head-changed': RepoArgs;
