@@ -30,14 +30,14 @@ export function useBrowserRestrictions() {
     window.addEventListener('unhandledrejection', rejection);
     const prevent = (event: Event) => event.preventDefault();
     const context = (event: Event) => {
+      event.preventDefault();
       if (
         event.target instanceof Element &&
         event.target.closest(
-          'input, textarea, [contenteditable="true"], .file-content',
+          'textarea, input:not([type="checkbox"], [type="range"])',
         )
       )
-        return;
-      event.preventDefault();
+        void invoke('edit_menu', {}).catch(() => {});
     };
     const wheel = (event: WheelEvent) => {
       if (event.ctrlKey || event.metaKey) event.preventDefault();

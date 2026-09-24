@@ -130,6 +130,11 @@ async fn session_commands_are_isolated_and_preserve_native_geometry() {
     )
     .await
     .unwrap();
+    assert!(
+        ipc::dispatch(app.handle().clone(), "edit_menu".into(), json!({}))
+            .await
+            .is_err()
+    );
     lifecycle::flush(app.handle());
     assert_eq!(store.get().tabs.len(), 1);
 }

@@ -212,6 +212,7 @@ export interface Commands {
   update_install: Command<Record<string, never>, UpdateSnapshot>;
   update_quit: Command<Record<string, never>, UpdateSnapshot>;
   frontend_log: Command<{ message: string }, null>;
+  edit_menu: Command<Record<string, never>, null>;
   session_get: Command<Record<string, never>, Session>;
   session_set: Command<Session, null>;
   session_close: Command<Session, null>;

@@ -1,4 +1,10 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { SessionProvider } from '../providers/SessionProvider';
 import { useTabs } from '../stores/tabs';
@@ -174,6 +180,38 @@ it('forwards uncaught frontend errors to native logs', async () => {
       args: { message: 'Unexpected failure' },
     }),
   );
+  unmount();
+});
+
+it('replaces the native context menu with the edit menu only on text fields', async () => {
+  mockCommand('edit_menu', () => null);
+  const { useBrowserRestrictions } = await import('../lib/browser');
+  function Browser() {
+    useBrowserRestrictions();
+    return (
+      <>
+        <code className="file-content">line</code>
+        <input aria-label="Toggle" type="checkbox" />
+        <input aria-label="Field" />
+        <textarea aria-label="Message" />
+      </>
+    );
+  }
+  const { unmount } = render(<Browser />);
+  const menus = () =>
+    calls.filter(({ command }) => command === 'edit_menu').length;
+  for (const target of [
+    screen.getByText('line'),
+    screen.getByLabelText('Toggle'),
+  ])
+    expect(fireEvent.contextMenu(target)).toBe(false);
+  expect(menus()).toBe(0);
+  for (const target of [
+    screen.getByLabelText('Field'),
+    screen.getByLabelText('Message'),
+  ])
+    expect(fireEvent.contextMenu(target)).toBe(false);
+  expect(menus()).toBe(2);
   unmount();
 });
 

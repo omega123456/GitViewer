@@ -70,6 +70,28 @@ pub async fn dispatch<R: tauri::Runtime>(
             tracing::error!(target: "frontend", message = %message.chars().take(4096).collect::<String>(), "Frontend error");
             return Ok(Value::Null);
         }
+        "edit_menu" => {
+            #[cfg(feature = "test-utils")]
+            return Err(Error::refused("Native menus are unavailable in tests"));
+            #[cfg(not(feature = "test-utils"))]
+            {
+                use tauri::menu::{Menu, PredefinedMenuItem};
+                let window = app
+                    .get_webview_window("main")
+                    .ok_or_else(|| Error::refused("Main window is unavailable"))?;
+                let menu = Menu::with_items(
+                    &app,
+                    &[
+                        &PredefinedMenuItem::cut(&app, None).map_err(Error::from)?,
+                        &PredefinedMenuItem::copy(&app, None).map_err(Error::from)?,
+                        &PredefinedMenuItem::paste(&app, None).map_err(Error::from)?,
+                    ],
+                )
+                .map_err(Error::from)?;
+                window.popup_menu(&menu).map_err(Error::from)?;
+                return Ok(Value::Null);
+            }
+        }
         "session_get" => {
             return Ok(serde_json::to_value(
                 app.state::<crate::session::Store>().get(),
