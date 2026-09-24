@@ -43,7 +43,7 @@ function refreshes(name: string, key: readonly unknown[]) {
   )
     return false;
   return !(
-    ['diff', 'diff_stack'].includes(command) &&
+    ['diff', 'diff_stack', 'file_lines'].includes(command) &&
     immutable.includes(String(args?.source))
   );
 }

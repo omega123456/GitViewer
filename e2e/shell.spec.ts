@@ -356,6 +356,31 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`diff context gaps ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto('/?scenario=context');
+    await page
+      .getByRole('button', { name: 'Open repository', exact: true })
+      .last()
+      .click();
+    await page
+      .getByRole('tree', { name: 'Changes', exact: true })
+      .getByText('app.ts')
+      .click();
+    await expect(page.getByText('26 hidden lines above')).toBeVisible();
+    await expect(
+      page.getByLabel('Show 20 more lines above hunk 1'),
+    ).toBeVisible();
+    await expect(
+      page.getByText('13 hidden lines', { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('region', { name: 'Diff viewer', exact: true }),
+    ).toHaveScreenshot(`diff-context-gaps-${theme}.png`);
+  });
+}
+
+for (const theme of ['light', 'dark'] as const) {
   test(`rendered markdown ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme });
     await page.goto('/?scenario=markdown');

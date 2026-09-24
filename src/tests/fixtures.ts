@@ -121,3 +121,48 @@ export const update: import('../lib/types').UpdateSnapshot = {
   error: null,
   canQuitWithoutUpdating: false,
 };
+const numbered = (number: number) =>
+  number === 30 || number === 50 ? `changed ${number}` : `line ${number}`;
+const context = (from: number, count: number) =>
+  Array.from({ length: count }, (_, index) => ({
+    kind: 'context',
+    content: numbered(from + index),
+    old: from + index,
+    new: from + index,
+    noNewline: false,
+    marks: [],
+  }));
+export const gapped: Diff = {
+  ...diff,
+  patches: ['patch', 'patch'],
+  hunks: [30, 50].map((changed) => ({
+    header: `@@ -${changed - 3},7 +${changed - 3},7 @@`,
+    oldStart: changed - 3,
+    oldCount: 7,
+    newStart: changed - 3,
+    newCount: 7,
+    lines: [
+      ...context(changed - 3, 3),
+      {
+        kind: 'remove',
+        content: `line ${changed}`,
+        old: changed,
+        new: null,
+        noNewline: false,
+        marks: [],
+      },
+      {
+        kind: 'add',
+        content: `changed ${changed}`,
+        old: null,
+        new: changed,
+        noNewline: false,
+        marks: [],
+      },
+      ...context(changed + 1, 3),
+    ],
+  })),
+};
+export const gappedText =
+  Array.from({ length: 100 }, (_, index) => numbered(index + 1)).join('\n') +
+  '\n';

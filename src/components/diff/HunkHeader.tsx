@@ -1,7 +1,9 @@
 import { Minus, Plus, Trash2 } from 'lucide-react';
 import type { Source } from '../../lib/types';
 import { Button } from '../shared/Button';
+import { focusInset } from '../shared/styles';
 export function HunkHeader({
+  index,
   header,
   source,
   disabled,
@@ -9,6 +11,7 @@ export function HunkHeader({
   stage,
   discard,
 }: {
+  index: number;
   header: string;
   source: Source;
   disabled: boolean;
@@ -17,7 +20,11 @@ export function HunkHeader({
   discard: () => void;
 }) {
   return (
-    <div className="group flex h-6 items-center gap-2 border-y border-line bg-chrome px-2 text-label text-muted dark:border-line-dark dark:bg-chrome-dark">
+    <div
+      tabIndex={-1}
+      data-hunk={index}
+      className={`group flex h-6 items-center gap-2 border-y border-line bg-chrome px-2 text-label text-muted dark:border-line-dark dark:bg-chrome-dark ${focusInset}`}
+    >
       <span className="sticky left-2">{header}</span>
       {actions && (
         <div className="ml-auto flex opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">

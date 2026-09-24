@@ -232,6 +232,10 @@ export interface Commands {
     },
     Diff
   >;
+  file_lines: Command<
+    FileArgs & { source: Source; revision?: string; base?: string },
+    string | null
+  >;
   diff_stack: Command<
     RepoArgs & { source: StackSource; revision?: string; base?: string },
     DiffStack
@@ -247,7 +251,6 @@ export interface Commands {
     FileArgs & {
       source: Source;
       hunk: number;
-      context?: number;
       patch: string;
       action: string;
     },

@@ -62,6 +62,13 @@ async fn typed_commands_events_and_protocol_are_wired() {
     call("diff", json!({"repo":id,"path":"file.txt","source":"file"}))
         .await
         .unwrap();
+    assert!(call(
+        "file_lines",
+        json!({"repo":id,"path":"file.txt","source":"commit","revision":"HEAD"})
+    )
+    .await
+    .unwrap()
+    .is_string());
     let stack = call(
         "diff_stack",
         json!({"repo":id,"source":"commit","revision":"HEAD"}),

@@ -2,6 +2,8 @@ import { getUnixTime, parseISO, subDays, subHours, subWeeks } from 'date-fns';
 import { test as base, expect } from '@playwright/test';
 import {
   diff,
+  gapped,
+  gappedText,
   repository,
   settings,
   status,
@@ -31,7 +33,16 @@ const stashes = [
 export const test = base.extend({
   page: async ({ page }, use) => {
     await page.addInitScript(
-      ({ diff, repository, settings, status, stashes, update }) => {
+      ({
+        diff,
+        gapped,
+        gappedText,
+        repository,
+        settings,
+        status,
+        stashes,
+        update,
+      }) => {
         Object.defineProperty(window, '__TAURI_EVENT_PLUGIN_INTERNALS__', {
           value: { unregisterListener: () => {} },
         });
@@ -50,6 +61,7 @@ export const test = base.extend({
           };
         }
         if (scenario === 'compare') status.branch = 'feature';
+        if (scenario === 'context') Object.assign(diff, gapped);
         if (scenario === 'merge') {
           status.conflicted = true;
           status.merging = 'feature';
@@ -304,6 +316,8 @@ export const test = base.extend({
                         ];
                   case 'diff':
                     return diff;
+                  case 'file_lines':
+                    return gappedText;
                   case 'diff_stack':
                     return {
                       files: Object.fromEntries(
@@ -340,6 +354,8 @@ export const test = base.extend({
       },
       {
         diff,
+        gapped,
+        gappedText,
         repository,
         settings: { ...settings, theme: 'system' },
         status,

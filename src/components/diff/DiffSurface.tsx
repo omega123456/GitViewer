@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -11,6 +12,8 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { markedTokens } from '../../lib/highlight';
 import type { Hunk, DiffLine, Source } from '../../lib/types';
 import { dynamic, focusInset } from '../shared/styles';
+import type { Expansion } from './expansion';
+import { BlankGapRow, GapRow } from './GapRow';
 import { HunkHeader } from './HunkHeader';
 import type { Row } from './rows';
 import type { Tokens } from './tokens';
@@ -38,6 +41,7 @@ export function DiffSurface({
   source,
   disabled,
   hunkAction,
+  expansion,
   scroller,
 }: {
   ref?: Ref<DiffSurfaceHandle>;
@@ -51,6 +55,7 @@ export function DiffSurface({
   source: Source;
   disabled: boolean;
   hunkAction: (hunk: number, action: string) => void;
+  expansion: Expansion;
   scroller?: RefObject<HTMLDivElement | null>;
 }) {
   const primary = useRef<HTMLDivElement>(null);
@@ -60,14 +65,20 @@ export function DiffSurface({
     if (!(event.target as HTMLElement).closest('button'))
       (scroller?.current ?? primary.current)?.focus({ preventScroll: true });
   };
+  const itemKey = useCallback(
+    (index: number) => rows[index].gap?.key ?? index,
+    [rows],
+  );
   const virtual = useVirtualizer({
     count: rows.length,
+    getItemKey: itemKey,
     getScrollElement: () => scroller?.current ?? primary.current,
     initialOffset: () => scroller?.current?.scrollTop ?? 0,
     scrollMargin: scroller
       ? offsetWithin(primary.current, scroller.current)
       : 0,
-    estimateSize: (index) => (rows[index].hunk !== undefined ? 24 : 20),
+    estimateSize: (index) =>
+      rows[index].hunk !== undefined || rows[index].gap ? 24 : 20,
     overscan: 20,
   });
   useImperativeHandle(ref, () => ({
@@ -87,6 +98,7 @@ export function DiffSurface({
   );
   const header = (index: number, actions: boolean, label: boolean) => (
     <HunkHeader
+      index={index}
       header={label ? hunks[index].header : ''}
       actions={actions}
       source={source}
@@ -110,7 +122,7 @@ export function DiffSurface({
         </span>
         {markedTokens(
           tokens[
-            `${old || line?.kind === 'remove' ? 'old' : 'new'}:${old || line?.kind === 'remove' ? line?.old : line?.new}`
+            line?.kind === 'remove' ? `old:${line.old}` : `new:${line?.new}`
           ] ?? [{ content: line?.content ?? '' }],
           line?.marks ?? [],
         ).map((token, index) => (
@@ -164,6 +176,7 @@ export function DiffSurface({
     return (
       <div
         ref={primary}
+        data-diff
         tabIndex={scroller ? undefined : -1}
         role={scroller ? undefined : 'region'}
         aria-label={scroller ? undefined : 'Diff content'}
@@ -172,7 +185,9 @@ export function DiffSurface({
         className={`font-mono text-diff ${focusInset} ${scroller ? 'overflow-x-auto' : 'min-h-0 flex-1 overflow-auto'}`}
       >
         {stack('right', (value) =>
-          value.hunk !== undefined ? (
+          value.gap ? (
+            <GapRow gap={value.gap} expansion={expansion} />
+          ) : value.hunk !== undefined ? (
             header(value.hunk, true, true)
           ) : (
             <div
@@ -187,6 +202,7 @@ export function DiffSurface({
     );
   return (
     <div
+      data-diff
       onPointerUp={focusScroller}
       className={`flex font-mono text-diff ${scroller ? '' : 'min-h-0 flex-1'}`}
     >
@@ -199,9 +215,13 @@ export function DiffSurface({
         }}
       >
         {stack('left', (value) =>
-          value.hunk !== undefined
-            ? header(value.hunk, false, true)
-            : cell(value.left, true),
+          value.gap ? (
+            <GapRow gap={value.gap} expansion={expansion} />
+          ) : value.hunk !== undefined ? (
+            header(value.hunk, false, true)
+          ) : (
+            cell(value.left, true)
+          ),
         )}
       </div>
       <div
@@ -216,9 +236,13 @@ export function DiffSurface({
         }}
       >
         {stack('right', (value) =>
-          value.hunk !== undefined
-            ? header(value.hunk, true, false)
-            : cell(value.right, false),
+          value.gap ? (
+            <BlankGapRow />
+          ) : value.hunk !== undefined ? (
+            header(value.hunk, true, false)
+          ) : (
+            cell(value.right, false)
+          ),
         )}
       </div>
     </div>

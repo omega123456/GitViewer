@@ -131,12 +131,12 @@ async fn hunk_stage_unstage_discard_and_staleness() {
         .unwrap();
     assert!(d.hunks[0].lines.last().unwrap().no_newline);
     assert!(
-        diff::apply_hunk(&mut repo, "file.txt", "unstaged", 0, 3, "outdated", "stage")
+        diff::apply_hunk(&mut repo, "file.txt", "unstaged", 0, "outdated", "stage")
             .await
             .is_err()
     );
     let patch = diff::patch("file.txt", &d.hunks[0]).unwrap();
-    diff::apply_hunk(&mut repo, "file.txt", "unstaged", 0, 3, &patch, "stage")
+    diff::apply_hunk(&mut repo, "file.txt", "unstaged", 0, &patch, "stage")
         .await
         .unwrap();
     repo.refresh().await.unwrap();
@@ -144,10 +144,10 @@ async fn hunk_stage_unstage_discard_and_staleness() {
         .await
         .unwrap();
     let patch = diff::patch("file.txt", &staged.hunks[0]).unwrap();
-    diff::apply_hunk(&mut repo, "file.txt", "staged", 0, 3, &patch, "unstage")
+    diff::apply_hunk(&mut repo, "file.txt", "staged", 0, &patch, "unstage")
         .await
         .unwrap();
-    diff::apply_hunk(&mut repo, "file.txt", "unstaged", 0, 3, &patch, "discard")
+    diff::apply_hunk(&mut repo, "file.txt", "unstaged", 0, &patch, "discard")
         .await
         .unwrap();
     assert_eq!(
@@ -155,7 +155,7 @@ async fn hunk_stage_unstage_discard_and_staleness() {
         "one\ntwo\nthree\n"
     );
     assert!(
-        diff::apply_hunk(&mut repo, "file.txt", "commit", 0, 3, "", "stage")
+        diff::apply_hunk(&mut repo, "file.txt", "commit", 0, "", "stage")
             .await
             .is_err()
     );
@@ -663,7 +663,7 @@ async fn rename_hunks_preserve_identity_and_file_unstage_restores_both_paths() {
         .unwrap();
     assert_eq!(staged.hunks.len(), 1);
     let patch = diff::patch("renamed.txt", &staged.hunks[0]).unwrap();
-    diff::apply_hunk(&mut repo, "renamed.txt", "staged", 0, 3, &patch, "unstage")
+    diff::apply_hunk(&mut repo, "renamed.txt", "staged", 0, &patch, "unstage")
         .await
         .unwrap();
     let status = repo.refresh().await.unwrap();
@@ -709,7 +709,7 @@ async fn one_of_three_hunks_and_new_file_hunks_match_the_index() {
         .unwrap();
     assert_eq!(result.hunks.len(), 3);
     let patch = diff::patch("file.txt", &result.hunks[1]).unwrap();
-    diff::apply_hunk(&mut repo, "file.txt", "unstaged", 1, 3, &patch, "stage")
+    diff::apply_hunk(&mut repo, "file.txt", "unstaged", 1, &patch, "stage")
         .await
         .unwrap();
     assert_eq!(
@@ -721,7 +721,7 @@ async fn one_of_three_hunks_and_new_file_hunks_match_the_index() {
         changed
     );
     assert!(
-        diff::apply_hunk(&mut repo, "file.txt", "unstaged", 99, 3, "", "stage")
+        diff::apply_hunk(&mut repo, "file.txt", "unstaged", 99, "", "stage")
             .await
             .is_err()
     );
@@ -987,47 +987,64 @@ async fn remote_checkout_creates_tracking_branches_and_never_detaches() {
 }
 
 #[tokio::test]
-async fn expanded_context_hunks_stage_unstage_and_discard_exactly_the_displayed_change() {
+async fn file_text_reads_the_new_side_of_every_source_within_the_limits() {
     let (dir, handle) = fixture().await;
-    let original = (0..200)
-        .map(|line| format!("line {line}\n"))
-        .collect::<String>();
-    std::fs::write(dir.path().join("file.txt"), &original).unwrap();
     let mut repo = handle.lock().await;
+    std::fs::write(dir.path().join("file.txt"), "base\n").unwrap();
     actions::files(&mut repo, &["file.txt".into()], "stage")
         .await
         .unwrap();
     actions::commit(&mut repo, "Base").await.unwrap();
-    let changed = original
-        .replace("line 40\n", "forty\n")
-        .replace("line 150\n", "one fifty\n");
-    std::fs::write(dir.path().join("file.txt"), &changed).unwrap();
-    for (source, action) in [
-        ("unstaged", "stage"),
-        ("staged", "unstage"),
-        ("unstaged", "discard"),
-    ] {
-        let result = diff::read(&repo, "file.txt", source, "", "", 30, false)
-            .await
-            .unwrap();
-        let patch = diff::patch("file.txt", &result.hunks[0]).unwrap();
-        diff::apply_hunk(&mut repo, "file.txt", source, 0, 30, &patch, action)
-            .await
-            .unwrap();
-        let indexed = command(dir.path(), &["show", ":file.txt"]).await;
-        assert_eq!(
-            indexed,
-            if action == "stage" {
-                original.replace("line 40\n", "forty\n")
-            } else {
-                original.clone()
-            }
-        );
-    }
+    let base = command(dir.path(), &["rev-parse", "HEAD"]).await;
+    std::fs::write(dir.path().join("file.txt"), "indexed\n").unwrap();
+    actions::files(&mut repo, &["file.txt".into()], "stage")
+        .await
+        .unwrap();
+    std::fs::write(dir.path().join("file.txt"), "working\n").unwrap();
+    let text = |source: &'static str, revision: String, base: String| {
+        let repo = &repo;
+        async move {
+            diff::text(repo, "file.txt", source, &revision, &base)
+                .await
+                .unwrap()
+        }
+    };
     assert_eq!(
-        std::fs::read_to_string(dir.path().join("file.txt")).unwrap(),
-        original.replace("line 150\n", "one fifty\n")
+        text("unstaged", String::new(), String::new())
+            .await
+            .as_deref(),
+        Some("working\n")
     );
+    assert_eq!(
+        text("staged", String::new(), String::new())
+            .await
+            .as_deref(),
+        Some("indexed\n")
+    );
+    assert_eq!(
+        text("commit", base.trim().into(), String::new())
+            .await
+            .as_deref(),
+        Some("base\n")
+    );
+    assert_eq!(
+        text("compare", "HEAD".into(), base.trim().into())
+            .await
+            .as_deref(),
+        Some("base\n")
+    );
+    std::fs::write(dir.path().join("file.txt"), b"bin\0ary").unwrap();
+    assert!(text("unstaged", String::new(), String::new())
+        .await
+        .is_none());
+    std::fs::write(dir.path().join("file.txt"), "x\n".repeat(50001)).unwrap();
+    assert!(text("unstaged", String::new(), String::new())
+        .await
+        .is_none());
+    std::fs::write(dir.path().join("file.txt"), "x".repeat(2 * 1024 * 1024 + 1)).unwrap();
+    assert!(text("unstaged", String::new(), String::new())
+        .await
+        .is_none());
 }
 
 #[tokio::test]
@@ -1095,7 +1112,7 @@ async fn crlf_hunks_preserve_exact_bytes_without_git_normalization() {
             .await
             .unwrap();
         let patch = diff::patch("file.txt", &result.hunks[0]).unwrap();
-        diff::apply_hunk(&mut repo, "file.txt", source, 0, 3, &patch, action)
+        diff::apply_hunk(&mut repo, "file.txt", source, 0, &patch, action)
             .await
             .unwrap();
         assert_eq!(
@@ -2058,12 +2075,12 @@ async fn stacked_hunk_patches_apply() {
     repo.refresh().await.unwrap();
     let unstaged = diff::stack::read(&repo, "unstaged", "", "").await.unwrap();
     let patch = diff::patch("file.txt", &unstaged.files["file.txt"].hunks[0]).unwrap();
-    diff::apply_hunk(&mut repo, "file.txt", "unstaged", 0, 3, &patch, "stage")
+    diff::apply_hunk(&mut repo, "file.txt", "unstaged", 0, &patch, "stage")
         .await
         .unwrap();
     let staged = diff::stack::read(&repo, "staged", "", "").await.unwrap();
     let patch = diff::patch("file.txt", &staged.files["file.txt"].hunks[0]).unwrap();
-    diff::apply_hunk(&mut repo, "file.txt", "staged", 0, 3, &patch, "unstage")
+    diff::apply_hunk(&mut repo, "file.txt", "staged", 0, &patch, "unstage")
         .await
         .unwrap();
     assert!(diff::stack::read(&repo, "staged", "", "")

@@ -23,7 +23,7 @@ import { useDensity } from '../stores/density';
 import { matches, runShortcut } from '../lib/keyboard';
 import { highlight } from '../lib/highlight';
 import { fuzzyFilter, fuzzyScore } from '../lib/fuzzy';
-import { diffRows } from '../components/diff/rows';
+import { diffRows, gaps } from '../components/diff/rows';
 import { fileCategory, folderGlyph, type FileCategory } from '../lib/file-type';
 import {
   changeNodes,
@@ -48,7 +48,7 @@ import { useErrors } from '../stores/errors';
 import { describeSuccess, type Before } from '../lib/success';
 import { useSuccesses } from '../stores/successes';
 import { answer, ask, useDecision } from '../stores/decision';
-import { diff, status } from './fixtures';
+import { diff, gapped, gappedText, status } from './fixtures';
 describe('IPC and events', () => {
   it('rejects unmocked commands honestly', async () => {
     await expect(invoke('env', {})).rejects.toMatchObject({
@@ -396,6 +396,45 @@ describe('presentation state', () => {
       '__proto__',
     ]);
     expect(nodes.__proto__.children).toEqual(['__proto__/file.ts']);
+  });
+  it('derives gaps from hunk headers and numbers revealed lines on both sides', () => {
+    expect(gaps(diff)).toEqual([]);
+    expect(gaps({ ...gapped, content: 'text' })).toEqual([]);
+    expect(gaps(gapped).map((gap) => gap.key)).toEqual([
+      '1:26',
+      '34:46',
+      '54:',
+    ]);
+    const grown = {
+      ...gapped,
+      hunks: [
+        { ...gapped.hunks[0], newCount: 8 },
+        { ...gapped.hunks[1], newStart: 48 },
+      ],
+    };
+    const [, mid] = gaps(grown);
+    expect(mid).toMatchObject({ key: '35:47', offset: -1, hunk: 1 });
+    const lines = gappedText.split('\n').slice(0, -1);
+    const revealed = diffRows(grown, true, {
+      lines,
+      open: { '35:47': { down: 1, up: 0 } },
+    }).find((row) => row.left?.new === 35);
+    expect(revealed?.left).toMatchObject({
+      kind: 'context',
+      old: 34,
+      new: 35,
+      content: 'line 35',
+    });
+    const closed = diffRows(gapped, false, {
+      lines,
+      open: { '1:26': { down: 0, up: Infinity } },
+    });
+    expect(closed.filter((row) => row.gap).map((row) => row.gap?.key)).toEqual([
+      '34:46',
+      '54:',
+    ]);
+    expect(closed.find((row) => row.gap?.kind === 'end')?.gap?.hidden).toBe(47);
+    expect(diffRows(gapped, false)[0].gap?.hidden).toBe(26);
   });
   it('pairs split rows and preserves unified content', () => {
     expect(diffRows(diff, true)).toHaveLength(3);

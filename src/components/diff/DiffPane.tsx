@@ -35,6 +35,7 @@ import { DiffToolbar } from './DiffToolbar';
 import { DiffSurface, type DiffSurfaceHandle } from './DiffSurface';
 import { MarkdownView, isMarkdown } from './Markdown';
 import { runHunkAction } from './hunks';
+import { useExpansion } from './expansion';
 import { diffRows } from './rows';
 import { cachedEntry } from './stack';
 import { useTokens } from './tokens';
@@ -76,7 +77,6 @@ function SelectedDiff({
   settings: Settings;
   disabled: boolean;
 }) {
-  const [context, setContext] = useState(3);
   const [overrideLimit, setOverride] = useState(false);
   const status = useBackend('status', { repo });
   const entry = status.data?.entries.find(
@@ -90,11 +90,9 @@ function SelectedDiff({
   const rendered = markdown && Boolean(selection.rendered);
   const query = useBackend(
     'diff',
-    { repo, ...selection, context: rendered ? 50000 : context, overrideLimit },
+    { repo, ...selection, context: rendered ? 50000 : 3, overrideLimit },
     !selection.blame,
-    context === 3 && !overrideLimit && !rendered
-      ? cachedEntry(repo, selection)
-      : undefined,
+    !overrideLimit && !rendered ? cachedEntry(repo, selection) : undefined,
   );
   const mode = useDiffView((s) => s.mode) ?? settings.diffMode;
   const [wrap, setWrap] = useState(false);
@@ -103,14 +101,15 @@ function SelectedDiff({
   const surface = useRef<DiffSurfaceHandle>(null);
   const data = query.data;
   const split = mode === 'split' && data?.content === null;
+  const expansion = useExpansion(repo, selection, data);
   const rows = useMemo(
-    () => (data ? diffRows(data, split) : []),
-    [data, split],
+    () => (data ? diffRows(data, split, expansion.reveal) : []),
+    [data, split, expansion.reveal],
   );
   const lines = data?.hunks.flatMap((hunk) => hunk.lines) ?? [];
   const added = lines.filter((line) => line.kind === 'add').length;
   const removed = lines.filter((line) => line.kind === 'remove').length;
-  const tokens = useTokens(data, selection.path);
+  const tokens = useTokens(data, selection.path, true, expansion.reveal.lines);
   const preview = useMemo(() => {
     if (!data) return { text: '', deleted: false };
     if (data.content !== null) return { text: data.content, deleted: false };
@@ -145,7 +144,7 @@ function SelectedDiff({
     }
   };
   const hunkAction = (hunk: number, action: string) =>
-    runHunkAction(repo, selection, data!, context, hunk, action);
+    runHunkAction(repo, selection, data!, hunk, action);
   const selectedHunk = Math.min(
     currentHunk,
     Math.max(0, (data?.hunks.length ?? 0) - 1),
@@ -155,7 +154,6 @@ function SelectedDiff({
       selectedHunk,
       selection.source === 'staged' ? 'unstage' : 'stage',
     );
-  const toggleContext = () => setContext((value) => (value === 3 ? 30 : 3));
   useActions(`${repo}:diff`, [
     {
       id: 'next-hunk',
@@ -244,9 +242,10 @@ function SelectedDiff({
     {
       id: 'context',
       icon: <UnfoldVertical className="size-3.5" />,
-      label: 'Expand or collapse diff context',
+      label: 'Show or hide full file',
       key: 'Mod+Alt+c',
-      run: toggleContext,
+      run: expansion.toggleFull,
+      disabled: !expansion.available,
     },
     {
       id: 'diff-mode',
@@ -380,11 +379,10 @@ function SelectedDiff({
             mode={mode}
             wrap={wrap}
             whitespace={whitespace}
-            context={context}
-            setContext={setContext}
+            full={expansion.available ? expansion.full : undefined}
             toggleWrap={() => setWrap(!wrap)}
             toggleWhitespace={() => setWhitespace(!whitespace)}
-            toggleContext={toggleContext}
+            toggleFull={expansion.toggleFull}
             move={move}
           />
           <DiffSurface
@@ -399,6 +397,7 @@ function SelectedDiff({
             source={selection.source}
             disabled={disabled}
             hunkAction={(hunk, action) => void hunkAction(hunk, action)}
+            expansion={expansion}
           />
         </>
       )}

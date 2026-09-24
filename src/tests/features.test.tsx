@@ -36,7 +36,15 @@ import {
   pendingActivity,
 } from './harness';
 import { intersect, intersecting } from './setup';
-import { settings, status, repository, diff, stack } from './fixtures';
+import {
+  settings,
+  status,
+  repository,
+  diff,
+  stack,
+  gapped,
+  gappedText,
+} from './fixtures';
 import type { Diff, DiffStack } from '../lib/types';
 import type { Stack } from '../stores/selection';
 
@@ -974,6 +982,135 @@ describe('file context menu', () => {
   });
 });
 
+describe('diff context gaps', () => {
+  function gaps(text: string | null = gappedText) {
+    setup();
+    mockCommand('diff', () => gapped);
+    mockCommand('file_lines', () => text);
+  }
+  it('labels every gap from the hunk headers before fetching the file', async () => {
+    gaps();
+    const pane = renderFile({ path: 'src/app.ts', source: 'unstaged' });
+    expect(await screen.findByText('26 hidden lines above')).toBeVisible();
+    expect(screen.getByText('13 hidden lines')).toBeVisible();
+    expect(screen.getByText('Rest of file hidden')).toBeVisible();
+    expect(
+      screen.getByLabelText('Show 20 more lines above hunk 1'),
+    ).toBeVisible();
+    expect(
+      screen.queryByLabelText('Show 20 more lines below hunk 0'),
+    ).toBeNull();
+    expect(screen.getByLabelText('Show all 13 lines')).toBeVisible();
+    expect(
+      screen.queryByLabelText('Show 20 more lines above hunk 2'),
+    ).toBeNull();
+    expect(count('file_lines')).toBe(0);
+    pane.unmount();
+  });
+  it('reveals twenty lines per step and fetches the file text once', async () => {
+    gaps();
+    const user = userEvent.setup();
+    renderFile({ path: 'src/app.ts', source: 'unstaged' });
+    await user.click(
+      await screen.findByLabelText('Show 20 more lines below hunk 2'),
+    );
+    await waitFor(() =>
+      expect(shown(document.body, 'line 54')).toBeGreaterThan(0),
+    );
+    expect(shown(document.body, 'line 73')).toBeGreaterThan(0);
+    await user.click(screen.getByLabelText('Show 20 more lines above hunk 1'));
+    expect(await screen.findByText('6 hidden lines above')).toBeVisible();
+    expect(shown(document.body, 'line 7')).toBeGreaterThan(0);
+    expect(
+      screen.queryByLabelText('Show 20 more lines above hunk 1'),
+    ).toBeNull();
+    expect(calls).toContainEqual({
+      command: 'file_lines',
+      args: { repo: repository.id, path: 'src/app.ts', source: 'unstaged' },
+    });
+    expect(count('file_lines')).toBe(1);
+  });
+  it('closes a gap with show all and moves focus to its hunk header', async () => {
+    gaps();
+    const user = userEvent.setup();
+    renderFile({ path: 'src/app.ts', source: 'unstaged' });
+    await user.click(await screen.findByLabelText('Show all remaining lines'));
+    await waitFor(() =>
+      expect(screen.queryByText('47 hidden lines below')).toBeNull(),
+    );
+    expect(screen.queryByText('Rest of file hidden')).toBeNull();
+    await waitFor(() =>
+      expect(document.activeElement).toHaveAttribute('data-hunk', '1'),
+    );
+  });
+  it('toggles the full file from the toolbar and the palette', async () => {
+    gaps();
+    const user = userEvent.setup();
+    renderFile({ path: 'src/app.ts', source: 'unstaged' });
+    await user.click(await screen.findByTitle('Show full file'));
+    expect(await screen.findByTitle('Collapse to changes')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.queryByText('26 hidden lines above')).toBeNull();
+    await action('context');
+    expect(await screen.findByText('26 hidden lines above')).toBeVisible();
+    expect(screen.getByTitle('Show full file')).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+  });
+  it('explains a file too large to expand', async () => {
+    gaps(null);
+    const user = userEvent.setup();
+    renderFile({ path: 'src/app.ts', source: 'unstaged' });
+    await user.click(await screen.findByLabelText('Show all 13 lines'));
+    expect(await screen.findAllByText('File too large to expand')).toHaveLength(
+      3,
+    );
+    expect(screen.queryByText('Show all')).toBeNull();
+  });
+  it('spans split columns with one labelled row', async () => {
+    gaps();
+    useDiffView.getState().setMode('split');
+    renderFile({ path: 'src/app.ts', source: 'unstaged' });
+    expect(await screen.findAllByText('13 hidden lines')).toHaveLength(1);
+    expect(screen.getByLabelText('Previous version')).toContainElement(
+      screen.getByText('13 hidden lines'),
+    );
+  });
+  it('shows no toggle for a diff without gaps', async () => {
+    setup();
+    renderFile({ path: 'src/app.ts', source: 'unstaged' });
+    await screen.findByTitle('Stage hunk');
+    expect(screen.queryByTitle('Show full file')).toBeNull();
+  });
+  it('expands one stacked file without touching its neighbours', async () => {
+    gaps();
+    mockCommand('commit_files', () => ({ 'src/app.ts': 'M', 'lib.ts': 'M' }));
+    mockCommand('diff_stack', () => ({
+      files: { 'src/app.ts': gapped, 'lib.ts': gapped },
+      truncated: false,
+    }));
+    const user = userEvent.setup();
+    const pane = await renderStack();
+    const toggles = await within(pane).findAllByTitle('Show full file');
+    expect(toggles).toHaveLength(2);
+    await user.click(toggles[0]);
+    expect(await within(pane).findByTitle('Collapse to changes')).toBeVisible();
+    expect(within(pane).getAllByTitle('Show full file')).toHaveLength(1);
+    expect(calls).toContainEqual({
+      command: 'file_lines',
+      args: {
+        repo: repository.id,
+        path: 'src/app.ts',
+        source: 'commit',
+        revision: commit.hash,
+      },
+    });
+  });
+});
+
 describe('diff interaction', () => {
   it('copies the file path from the diff header', async () => {
     setup();
@@ -1004,7 +1141,6 @@ describe('diff interaction', () => {
       'wrap',
       'whitespace',
       'diff-mode',
-      'context',
     ])
       await action(id);
     expect(calls.filter((call) => call.command === 'hunk_action')).toHaveLength(
@@ -1013,11 +1149,8 @@ describe('diff interaction', () => {
     await screen.findByTitle('Stage hunk');
     expect(screen.getByTitle('Stage hunk')).toBeEnabled();
     await action('stage-hunk');
-    expect(calls.at(-1)).toMatchObject({
-      command: 'hunk_action',
-      args: { context: 30 },
-    });
-    await action('context');
+    expect(calls.at(-1)?.command).toBe('hunk_action');
+    expect(calls.at(-1)?.args).not.toHaveProperty('context');
     dialog.approved = false;
     await action('discard-hunk');
     expect(calls.filter((call) => call.command === 'hunk_action')).toHaveLength(
@@ -1561,7 +1694,7 @@ describe('all changes pane', () => {
     spy
       .mockImplementationOnce(() => new Promise(() => {}))
       .mockImplementationOnce(() => new Promise(() => {}));
-    await action('context');
+    act(() => emit('repo://status-changed', { repo: repository.id }));
     await waitFor(() => expect(count('diff')).toBe(2));
     await waitFor(() => expect(shown(pane, 'new value')).toBe(1));
     expect(colored(pane)).toBeGreaterThan(0);
@@ -1579,21 +1712,19 @@ describe('all changes pane', () => {
     const pane = await screen.findByRole('region', { name: 'Diff viewer' });
     expect(shown(pane, 'new value')).toBe(1);
     expect(count('diff')).toBe(0);
-    await action('context');
-    await waitFor(() => expect(count('diff')).toBe(1));
     selected.unmount();
     const working = await renderStack('unstaged');
     await waitFor(() => expect(count('diff_stack')).toBe(2));
     working.unmount();
     renderFile({ path: 'src/app.ts', source: 'unstaged' }).unmount();
-    await waitFor(() => expect(count('diff')).toBe(2));
+    await waitFor(() => expect(count('diff')).toBe(1));
     act(() => {
       void client.invalidateQueries({
         queryKey: [repository.id, 'diff_stack'],
       });
     });
     renderFile({ path: 'new.txt', source: 'commit', revision: commit.hash });
-    await waitFor(() => expect(count('diff')).toBe(3));
+    await waitFor(() => expect(count('diff')).toBe(2));
   });
   it('stacks every file of a group, collapses files, and returns on selection', async () => {
     setup();
@@ -1638,7 +1769,6 @@ describe('all changes pane', () => {
         path: 'src/app.ts',
         source: 'unstaged',
         hunk: 0,
-        context: 3,
         patch: 'patch',
         action: 'stage',
       },

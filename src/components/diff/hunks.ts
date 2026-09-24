@@ -5,7 +5,6 @@ export async function runHunkAction(
   repo: string,
   selection: Selection,
   data: Diff,
-  context: number,
   hunk: number,
   action: string,
 ) {
@@ -22,7 +21,6 @@ export async function runHunkAction(
     path: selection.path,
     source: selection.source,
     hunk,
-    context,
     patch: data.patches[hunk],
     action,
   });

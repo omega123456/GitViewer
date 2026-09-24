@@ -33,6 +33,8 @@ import { StatusBadge } from '../sidebar/StatusBadge';
 import { ImageDiff } from '../image/ImageDiff';
 import { DiffSourcePill } from './DiffSourcePill';
 import { DiffSurface } from './DiffSurface';
+import { FullFileButton } from './DiffToolbar';
+import { useExpansion } from './expansion';
 import { runHunkAction } from './hunks';
 import { diffRows } from './rows';
 import { viewStack } from './stack';
@@ -318,12 +320,13 @@ function FileDiff({
     ? null
     : (batch.error ?? (missing ? fallback.error : null));
   const version = entry ? batch.version : fallback.dataUpdatedAt;
-  const tokens = useTokens(data, selection.path, near);
+  const expansion = useExpansion(repo, selection, data);
+  const tokens = useTokens(data, selection.path, near, expansion.reveal.lines);
   const mode = useDiffView((s) => s.mode) ?? settings.diffMode;
   const split = mode === 'split' && data?.content === null;
   const rows = useMemo(
-    () => (data ? diffRows(data, split) : []),
-    [data, split],
+    () => (data ? diffRows(data, split, expansion.reveal) : []),
+    [data, split, expansion.reveal],
   );
   const { added, removed } = useMemo(() => {
     const lines = data?.hunks.flatMap((hunk) => hunk.lines) ?? [];
@@ -336,7 +339,10 @@ function FileDiff({
   const message = note(data, error);
   const estimate = data?.image
     ? null
-    : rows.reduce((sum, row) => sum + (row.hunk === undefined ? 20 : 24), 0);
+    : rows.reduce(
+        (sum, row) => sum + (row.hunk === undefined && !row.gap ? 20 : 24),
+        0,
+      );
   const reserved = height.current ?? estimate;
   return (
     <div ref={box} className="border-b border-line dark:border-line-dark">
@@ -369,6 +375,9 @@ function FileDiff({
           )}
           {badge && <StatusBadge status={badge} />}
         </button>
+        {open && expansion.available && (
+          <FullFileButton full={expansion.full} toggle={expansion.toggleFull} />
+        )}
         <CopyButton
           text={selection.path}
           label="Copy file path"
@@ -427,15 +436,9 @@ function FileDiff({
                 disabled={disabled}
                 scroller={scroller}
                 hunkAction={(hunk, action) =>
-                  void runHunkAction(
-                    repo,
-                    selection,
-                    data!,
-                    context,
-                    hunk,
-                    action,
-                  )
+                  void runHunkAction(repo, selection, data!, hunk, action)
                 }
+                expansion={expansion}
               />
             )}
           </div>

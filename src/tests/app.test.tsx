@@ -278,7 +278,6 @@ describe('diff and images', () => {
     await user.click(screen.getByTitle('Word wrap'));
     await user.click(screen.getByTitle('Next change'));
     await user.click(screen.getByTitle('Previous change'));
-    await user.click(screen.getByTitle('Expand context'));
   });
   it('explains binary and oversize files', async () => {
     setup();

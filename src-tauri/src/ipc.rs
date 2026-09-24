@@ -224,6 +224,18 @@ pub async fn dispatch<R: tauri::Runtime>(
                 .await?;
                 return with_patches(path, result);
             }
+            "file_lines" => {
+                return Ok(serde_json::to_value(
+                    diff::text(
+                        &repo,
+                        path,
+                        string(&args, "source")?,
+                        revision,
+                        optional(&args, "base"),
+                    )
+                    .await?,
+                )?);
+            }
             "diff_stack" => {
                 let stack = diff::stack::read(
                     &repo,
@@ -254,10 +266,6 @@ pub async fn dispatch<R: tauri::Runtime>(
                     path,
                     string(&args, "source")?,
                     args["hunk"].as_u64().unwrap_or_default() as usize,
-                    args.get("context")
-                        .and_then(Value::as_u64)
-                        .unwrap_or(3)
-                        .min(50000) as u32,
                     string(&args, "patch")?,
                     string(&args, "action")?,
                 )

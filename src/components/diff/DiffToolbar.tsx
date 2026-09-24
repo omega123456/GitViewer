@@ -1,8 +1,7 @@
-import { Popover, ToggleGroup } from 'radix-ui';
+import { ToggleGroup } from 'radix-ui';
 import {
   ArrowDown,
   ArrowUp,
-  ChevronDown,
   Columns2,
   Pilcrow,
   Rows3,
@@ -14,9 +13,30 @@ import { useDiffView } from '../../stores/diff-view';
 import { Button } from '../shared/Button';
 import { Segment } from '../shared/Segment';
 import { focus } from '../shared/styles';
-const presets = [3, 10, 30];
 function toggle(pressed: boolean) {
   return `grid size-control place-items-center rounded ${pressed ? 'bg-selected text-accent dark:bg-selected-dark dark:text-accent-dark' : 'text-muted'} ${focus}`;
+}
+export function FullFileButton({
+  full,
+  toggle,
+}: {
+  full: boolean;
+  toggle: () => void;
+}) {
+  return (
+    <Button
+      title={full ? 'Collapse to changes' : 'Show full file'}
+      aria-pressed={full}
+      className={
+        full
+          ? 'bg-selected text-accent dark:bg-selected-dark dark:text-accent-dark'
+          : 'text-muted'
+      }
+      onClick={toggle}
+    >
+      <UnfoldVertical className="size-4" />
+    </Button>
+  );
 }
 function Divider() {
   return <span className="h-4 w-px shrink-0 bg-line dark:bg-line-dark" />;
@@ -25,21 +45,19 @@ export function DiffToolbar({
   mode,
   wrap,
   whitespace,
-  context,
-  setContext,
+  full,
   toggleWrap,
   toggleWhitespace,
-  toggleContext,
+  toggleFull,
   move,
 }: {
   mode: Settings['diffMode'];
   wrap: boolean;
   whitespace: boolean;
-  context: number;
-  setContext: (value: number) => void;
+  full?: boolean;
   toggleWrap: () => void;
   toggleWhitespace: () => void;
-  toggleContext: () => void;
+  toggleFull: () => void;
   move: (direction: number) => void;
 }) {
   const pressed: string[] = [];
@@ -91,41 +109,12 @@ export function DiffToolbar({
           <ArrowDown className="size-4" />
         </Button>
       </div>
-      <Divider />
-      <Popover.Root>
-        <div className="flex text-muted">
-          <Button
-            title="Expand context"
-            aria-pressed={context !== 3}
-            className={`rounded-r-none pr-1 ${context === 3 ? '' : 'bg-selected text-accent dark:bg-selected-dark dark:text-accent-dark'}`}
-            onClick={toggleContext}
-          >
-            <UnfoldVertical className="size-4" />
-          </Button>
-          <Popover.Trigger asChild>
-            <Button title="Context lines" className="rounded-l-none px-1">
-              <ChevronDown className="size-3" />
-            </Button>
-          </Popover.Trigger>
-        </div>
-        <Popover.Portal>
-          <Popover.Content
-            align="end"
-            className="z-30 flex flex-col rounded-md border border-line bg-surface p-1 text-ink shadow-lg dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark"
-          >
-            {presets.map((preset) => (
-              <Button
-                key={preset}
-                aria-pressed={context === preset}
-                className={`justify-start ${context === preset ? 'bg-selected dark:bg-selected-dark' : ''}`}
-                onClick={() => setContext(preset)}
-              >
-                {preset} context lines
-              </Button>
-            ))}
-          </Popover.Content>
-        </Popover.Portal>
-      </Popover.Root>
+      {full !== undefined && (
+        <>
+          <Divider />
+          <FullFileButton full={full} toggle={toggleFull} />
+        </>
+      )}
     </div>
   );
 }

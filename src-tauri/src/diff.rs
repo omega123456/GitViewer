@@ -497,6 +497,26 @@ fn size_limit(image: bool) -> usize {
         2 * 1024 * 1024
     }
 }
+pub async fn text(
+    repo: &Repo,
+    path: &str,
+    source: &str,
+    revision: &str,
+    base: &str,
+) -> Result<Option<String>> {
+    if size(repo, path, source, revision, base, false).await? > size_limit(false) {
+        return Ok(None);
+    }
+    let bytes = bytes(repo, path, source, revision, base, false).await?;
+    if bytes.contains(&0) {
+        return Ok(None);
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    if text.lines().count() > LINE_LIMIT {
+        return Ok(None);
+    }
+    Ok(Some(text.into_owned()))
+}
 fn missing_object(stderr: &str) -> bool {
     stderr.contains("does not exist")
         || stderr.contains("not in")
@@ -762,7 +782,6 @@ pub async fn apply_hunk(
     path: &str,
     source: &str,
     hunk: usize,
-    context: u32,
     expected: &str,
     action: &str,
 ) -> Result<()> {
@@ -775,7 +794,7 @@ pub async fn apply_hunk(
             "This action is not permitted for this diff source",
         ));
     }
-    let diff = read(repo, path, source, "", "", context, true).await?;
+    let diff = read(repo, path, source, "", "", 3, true).await?;
     let hunk = diff
         .hunks
         .get(hunk)
