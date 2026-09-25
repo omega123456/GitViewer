@@ -149,6 +149,11 @@ pub fn setup<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), Box<dyn std::err
         app.manage(Store::load(
             app.path().app_config_dir()?.join("session.json"),
         ));
+        let config = app.path().app_config_dir()?;
+        crate::settings::apply_zoom(
+            app.handle(),
+            crate::settings::read(&config.join("settings.json")).zoom,
+        )?;
         if let Some(window) = app.get_webview_window("main") {
             if let Some(geometry) = app.state::<Store>().get().window {
                 window.set_size(tauri::PhysicalSize::new(

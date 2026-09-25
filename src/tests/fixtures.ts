@@ -21,6 +21,7 @@ export const settings: SettingsResponse = {
   installUpdateOnQuit: true,
   searchIgnoredFiles: false,
   smartCommit: 'ask',
+  zoom: 100,
   ai,
   keyStored: false,
 };

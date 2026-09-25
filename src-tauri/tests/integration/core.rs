@@ -199,6 +199,33 @@ fn settings_roundtrip_and_invalid_values() {
     assert_eq!(settings::read(&path).density, "comfortable");
 }
 #[test]
+fn zoom_is_limited_to_the_presets_and_applies_to_the_main_window() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let defaults = settings::read(&path);
+    assert_eq!(defaults.zoom, 100);
+    for zoom in settings::ZOOM_LEVELS {
+        let preset = settings::Settings {
+            zoom,
+            ..defaults.clone()
+        };
+        assert_eq!(settings::write(&path, preset).unwrap().zoom, zoom);
+    }
+    let odd = settings::Settings {
+        zoom: 105,
+        ..defaults
+    };
+    assert!(settings::write(&path, odd).is_err());
+    let app = tauri::test::mock_builder()
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    settings::apply_zoom(app.handle(), 125).unwrap();
+    tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    settings::apply_zoom(app.handle(), 125).unwrap();
+}
+#[test]
 fn settings_carry_ai_defaults_validation_and_a_legacy_file() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("settings.json");

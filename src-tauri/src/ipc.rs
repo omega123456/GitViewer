@@ -175,6 +175,7 @@ pub async fn dispatch<R: tauri::Runtime>(
             if let Some(service) = app.try_state::<std::sync::Arc<crate::updater::Service>>() {
                 service.preferences(settings.clone());
             }
+            settings::apply_zoom(&app, settings.zoom)?;
             app.emit("settings://changed", ()).map_err(Error::from)?;
             return Ok(serde_json::to_value(settings)?);
         }

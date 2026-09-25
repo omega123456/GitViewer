@@ -2,6 +2,8 @@ use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+pub const ZOOM_LEVELS: [u32; 6] = [80, 90, 100, 110, 125, 150];
+
 pub const DEFAULT_PROMPT: &str = "Write a commit message for this diff. One short imperative subject line under 60 characters. Add a body only when needed.";
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -31,6 +33,7 @@ pub struct Settings {
     pub install_update_on_quit: bool,
     pub search_ignored_files: bool,
     pub smart_commit: String,
+    pub zoom: u32,
     pub ai: Ai,
 }
 impl Default for Settings {
@@ -43,6 +46,7 @@ impl Default for Settings {
             install_update_on_quit: true,
             search_ignored_files: false,
             smart_commit: "ask".into(),
+            zoom: 100,
             ai: Ai::default(),
         }
     }
@@ -54,6 +58,13 @@ pub struct Response {
     #[serde(flatten)]
     pub settings: Settings,
     pub key_stored: bool,
+}
+pub fn apply_zoom<R: tauri::Runtime>(app: &tauri::AppHandle<R>, zoom: u32) -> Result<()> {
+    use tauri::Manager;
+    if let Some(window) = app.get_webview_window("main") {
+        window.set_zoom(f64::from(zoom) / 100.0)?;
+    }
+    Ok(())
 }
 pub fn endpoint_supported(base_url: &str) -> bool {
     reqwest::Url::parse(base_url).is_ok_and(|url| matches!(url.scheme(), "http" | "https"))
@@ -70,6 +81,7 @@ pub fn write(path: &Path, settings: Settings) -> Result<Settings> {
         || !["compact", "comfortable"].contains(&settings.density.as_str())
         || !["split", "unified"].contains(&settings.diff_mode.as_str())
         || !["ask", "always", "never"].contains(&settings.smart_commit.as_str())
+        || !ZOOM_LEVELS.contains(&settings.zoom)
     {
         return Err(Error::refused("Invalid settings"));
     }

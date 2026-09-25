@@ -663,6 +663,8 @@ describe('repository workflows', () => {
     await user.click(screen.getByRole('radio', { name: 'compact' }));
     await user.click(screen.getByRole('radio', { name: 'unified' }));
     await user.click(screen.getByLabelText('Search ignored files'));
+    await user.click(screen.getByLabelText('Zoom'));
+    await user.click(await screen.findByRole('option', { name: '125%' }));
     await waitFor(() =>
       expect(preferences).toEqual({
         ...settings,
@@ -670,6 +672,7 @@ describe('repository workflows', () => {
         density: 'compact',
         diffMode: 'unified',
         searchIgnoredFiles: true,
+        zoom: 125,
       }),
     );
     const rail = screen.getByRole('navigation', { name: 'Settings sections' });

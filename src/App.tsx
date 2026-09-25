@@ -13,6 +13,7 @@ const defaults: SettingsResponse = {
   installUpdateOnQuit: true,
   searchIgnoredFiles: false,
   smartCommit: 'ask',
+  zoom: 100,
   ai: {
     baseUrl: '',
     model: '',

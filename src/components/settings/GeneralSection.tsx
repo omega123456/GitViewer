@@ -2,6 +2,8 @@ import type { ReactNode } from 'react';
 import { perform } from '../../lib/query';
 import type { Settings } from '../../lib/types';
 import { Segment } from '../shared/Segment';
+import { Select } from '../shared/Select';
+const zoomLevels = [80, 90, 100, 110, 125, 150];
 export function SettingRow({
   title,
   description,
@@ -39,6 +41,22 @@ export function GeneralSection({ settings }: { settings: Settings }) {
             void perform('settings_set', { ...settings, theme })
           }
         />
+      </SettingRow>
+      <SettingRow title="Zoom" description="Scales the whole window">
+        <span className="block w-24">
+          <Select
+            label="Zoom"
+            placeholder="100%"
+            value={`${settings.zoom}%`}
+            options={zoomLevels.map((level) => `${level}%`)}
+            onChange={(level) =>
+              void perform('settings_set', {
+                ...settings,
+                zoom: parseInt(level, 10),
+              })
+            }
+          />
+        </span>
       </SettingRow>
       <SettingRow title="Density" description="Row height in both trees">
         <Segment

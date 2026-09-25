@@ -116,6 +116,7 @@ export interface Settings {
   installUpdateOnQuit: boolean;
   searchIgnoredFiles: boolean;
   smartCommit: 'ask' | 'always' | 'never';
+  zoom: number;
   ai: AiSettings;
 }
 export interface SettingsResponse extends Settings {
