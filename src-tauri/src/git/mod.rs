@@ -147,6 +147,11 @@ pub fn command(binary: &str, root: &Path, args: &[&str]) -> Command {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
     #[cfg(feature = "test-utils")]
     {
         command.env("GIT_CONFIG_NOSYSTEM", "1").env(
