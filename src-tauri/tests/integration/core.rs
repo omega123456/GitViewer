@@ -189,6 +189,21 @@ fn settings_roundtrip_and_invalid_values() {
     let mut always = defaults.clone();
     always.smart_commit = "always".into();
     assert_eq!(settings::write(&path, always.clone()).unwrap(), always);
+    assert_eq!(defaults.max_file_tabs, 8);
+    for max_file_tabs in [3, 20] {
+        let limit = settings::Settings {
+            max_file_tabs,
+            ..defaults.clone()
+        };
+        assert_eq!(settings::write(&path, limit.clone()).unwrap(), limit);
+    }
+    for max_file_tabs in [2, 21] {
+        let limit = settings::Settings {
+            max_file_tabs,
+            ..defaults.clone()
+        };
+        assert!(settings::write(&path, limit).is_err());
+    }
     let mut unknown = defaults;
     unknown.smart_commit = "sometimes".into();
     assert_eq!(

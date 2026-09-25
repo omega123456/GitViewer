@@ -4,6 +4,7 @@ import type { Settings } from '../../lib/types';
 import { Segment } from '../shared/Segment';
 import { Select } from '../shared/Select';
 const zoomLevels = [80, 90, 100, 110, 125, 150];
+const fileTabLimits = Array.from({ length: 18 }, (_, index) => index + 3);
 export function SettingRow({
   title,
   description,
@@ -80,6 +81,25 @@ export function GeneralSection({ settings }: { settings: Settings }) {
             void perform('settings_set', { ...settings, diffMode })
           }
         />
+      </SettingRow>
+      <SettingRow
+        title="File tabs"
+        description="The oldest tab without unsaved edits closes past this"
+      >
+        <span className="block w-24">
+          <Select
+            label="File tabs"
+            placeholder="8"
+            value={String(settings.maxFileTabs)}
+            options={fileTabLimits.map(String)}
+            onChange={(limit) =>
+              void perform('settings_set', {
+                ...settings,
+                maxFileTabs: parseInt(limit, 10),
+              })
+            }
+          />
+        </span>
       </SettingRow>
       <SettingRow
         title="Commit with nothing staged"

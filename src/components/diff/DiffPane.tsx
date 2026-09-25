@@ -226,7 +226,7 @@ function SelectedDiff({
       icon: <Save className="size-3.5" />,
       label: 'Save file',
       key: 'Mod+s',
-      run: () => save(repo),
+      run: () => save(repo, selection.path),
       disabled: !editing || !dirty,
     },
     {

@@ -22,6 +22,7 @@ export const settings: SettingsResponse = {
   searchIgnoredFiles: false,
   smartCommit: 'ask',
   zoom: 100,
+  maxFileTabs: 8,
   ai,
   keyStored: false,
 };

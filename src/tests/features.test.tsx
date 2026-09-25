@@ -665,6 +665,8 @@ describe('repository workflows', () => {
     await user.click(screen.getByLabelText('Search ignored files'));
     await user.click(screen.getByLabelText('Zoom'));
     await user.click(await screen.findByRole('option', { name: '125%' }));
+    await user.click(screen.getByLabelText('File tabs'));
+    await user.click(await screen.findByRole('option', { name: '5' }));
     await waitFor(() =>
       expect(preferences).toEqual({
         ...settings,
@@ -673,6 +675,7 @@ describe('repository workflows', () => {
         diffMode: 'unified',
         searchIgnoredFiles: true,
         zoom: 125,
+        maxFileTabs: 5,
       }),
     );
     const rail = screen.getByRole('navigation', { name: 'Settings sections' });

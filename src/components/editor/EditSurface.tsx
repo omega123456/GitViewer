@@ -45,9 +45,8 @@ export default function EditSurface({
 }) {
   const opened = useBackend('file_read', { repo, path });
   const base = useBackend('file_lines', { repo, path, source: 'staged' });
-  const buffer = useBuffer(repo);
+  const ready = useBuffer(repo, path);
   const dark = useDark();
-  const ready = buffer?.path === path ? buffer : undefined;
   const seen = useRef(opened.data);
   useEffect(() => {
     const data = opened.data;
@@ -80,10 +79,10 @@ export default function EditSurface({
     if (data === seen.current) return;
     seen.current = data;
     if ((data?.version ?? null) === ready.version) return;
-    if (ready.dirty) conflict(repo, data);
-    else if (data) reload(repo, data);
-    else drop(repo);
-  }, [opened.isSuccess, opened.data, ready, repo]);
+    if (ready.dirty) conflict(repo, path, data);
+    else if (data) reload(repo, path, data);
+    else drop(repo, path);
+  }, [opened.isSuccess, opened.data, ready, repo, path]);
   if (opened.error)
     return (
       <ErrorState
@@ -134,12 +133,12 @@ function Editor({
       parent: host.current!,
       dispatchTransactions: (transactions: readonly Transaction[], target) => {
         target.update(transactions);
-        track(repo, target.state);
+        track(repo, path, target.state);
       },
     });
     setView(created);
     return () => created.destroy();
-  }, [repo]);
+  }, [repo, path]);
   useEffect(() => {
     if (view && view.state !== buffer.state) view.setState(buffer.state);
   }, [view, buffer.state]);
@@ -188,7 +187,7 @@ function Editor({
             className="text-muted dark:text-muted-dark"
             disabled={!view || !buffer.dirty || buffer.saving}
             onClick={async () => {
-              if (!view || !(await approveDiscard(repo))) return;
+              if (!view || !(await approveDiscard(repo, path))) return;
               view.dispatch({
                 changes: {
                   from: 0,
@@ -211,7 +210,7 @@ function Editor({
             <Button
               variant="primary"
               disabled={!buffer.dirty}
-              onClick={() => void save(repo)}
+              onClick={() => void save(repo, path)}
             >
               Save
             </Button>
@@ -221,6 +220,7 @@ function Editor({
       {buffer.conflict && (
         <ConflictBanner
           repo={repo}
+          path={path}
           name={fileName(path)}
           current={buffer.conflict.current}
         />
@@ -231,10 +231,12 @@ function Editor({
 }
 function ConflictBanner({
   repo,
+  path,
   name,
   current,
 }: {
   repo: string;
+  path: string;
   name: string;
   current: Opened | null;
 }) {
@@ -255,21 +257,24 @@ function ConflictBanner({
       )}
       <span className="ml-auto flex gap-1.5">
         {current ? (
-          <Button className={outline} onClick={() => reload(repo, current)}>
+          <Button
+            className={outline}
+            onClick={() => reload(repo, path, current)}
+          >
             Reload from disk
           </Button>
         ) : (
           <Button
             className={outline}
             onClick={() => {
-              drop(repo);
+              drop(repo, path);
               stopEditing(repo);
             }}
           >
             Discard edits
           </Button>
         )}
-        <Button variant="primary" onClick={() => keepEdits(repo)}>
+        <Button variant="primary" onClick={() => keepEdits(repo, path)}>
           Keep my edits
         </Button>
       </span>

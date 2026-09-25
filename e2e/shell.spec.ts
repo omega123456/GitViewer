@@ -495,10 +495,9 @@ for (const theme of ['light', 'dark'] as const) {
       .getByRole('button', { name: 'Open repository', exact: true })
       .last()
       .click();
-    await page
-      .getByRole('tree', { name: 'Changes', exact: true })
-      .getByText('app.ts')
-      .click();
+    const changes = page.getByRole('tree', { name: 'Changes', exact: true });
+    await changes.getByText('new.txt').click();
+    await changes.getByText('app.ts').click();
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await expect(page.getByText('TypeScript', { exact: true })).toBeVisible();
     const content = page.locator('.cm-content');
@@ -509,5 +508,9 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(
       page.getByRole('region', { name: 'Diff viewer', exact: true }),
     ).toHaveScreenshot(`editor-${theme}.png`);
+    const tabs = page.getByRole('tablist', { name: 'Open files' });
+    await tabs.getByRole('tab', { name: 'new.txt' }).click();
+    await expect(tabs.getByLabel('Unsaved edits')).toBeVisible();
+    await expect(tabs).toHaveScreenshot(`file-tabs-${theme}.png`);
   });
 }

@@ -536,7 +536,27 @@ describe('modifier labels and syntax overlays', () => {
         'Mod+o',
       ),
     ).toBe(false);
+    expect(shortcutLabel('Ctrl+Shift+Tab')).toBe('⌃+⇧+⇥');
+    expect(
+      matches(
+        new KeyboardEvent('keydown', { key: 'Tab', ctrlKey: true }),
+        'Ctrl+Tab',
+      ),
+    ).toBe(true);
+    expect(
+      matches(
+        new KeyboardEvent('keydown', { key: 'Tab', metaKey: true }),
+        'Ctrl+Tab',
+      ),
+    ).toBe(false);
     host.platform = 'windows';
+    expect(shortcutLabel('Ctrl+Tab')).toBe('Ctrl+⇥');
+    expect(
+      matches(
+        new KeyboardEvent('keydown', { key: 'Tab', ctrlKey: true }),
+        'Ctrl+Tab',
+      ),
+    ).toBe(true);
     expect(shortcutLabel('Mod+o')).toBe('Ctrl+o');
     expect(
       matches(

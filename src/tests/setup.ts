@@ -134,6 +134,7 @@ beforeEach(() => {
     compare: {},
     all: {},
     paths: {},
+    tabs: { working: {}, history: {}, compare: {} },
   });
   useFilterStore.setState({ text: {} });
   useDiffView.setState({ mode: null });

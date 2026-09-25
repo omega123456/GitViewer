@@ -11,10 +11,11 @@ export interface Action {
 export function matches(event: KeyboardEvent, key: string): boolean {
   const parts = key.toLowerCase().split('+');
   const modifier = parts.includes('mod');
+  const control = parts.includes('ctrl');
   return (
     (platform() === 'macos'
-      ? event.metaKey === modifier && !event.ctrlKey
-      : event.ctrlKey === modifier && !event.metaKey) &&
+      ? event.metaKey === modifier && event.ctrlKey === control
+      : event.ctrlKey === (modifier || control) && !event.metaKey) &&
     event.shiftKey === parts.includes('shift') &&
     event.altKey === parts.includes('alt') &&
     event.key.toLowerCase() === parts.at(-1)
@@ -30,7 +31,7 @@ export function runShortcut(event: KeyboardEvent, actions: Action[]) {
     (action) =>
       !action.disabled &&
       matches(event, action.key) &&
-      (!editable || action.key.includes('Mod') || /^F\d+$/.test(action.key)),
+      (!editable || /^(Mod|Ctrl)\+|^F\d+$/.test(action.key)),
   );
   if (action) {
     event.preventDefault();
@@ -40,6 +41,7 @@ export function runShortcut(event: KeyboardEvent, actions: Action[]) {
 
 const glyphs: Record<string, string> = {
   Shift: '⇧',
+  Tab: '⇥',
   Alt: '⌥',
   Enter: '↵',
   Backspace: '⌫',
@@ -56,7 +58,9 @@ export function shortcutLabel(key: string) {
         ? platform() === 'macos'
           ? '⌘'
           : 'Ctrl'
-        : (glyphs[part] ?? part),
+        : part === 'Ctrl' && platform() === 'macos'
+          ? '⌃'
+          : (glyphs[part] ?? part),
     )
     .join('+');
 }

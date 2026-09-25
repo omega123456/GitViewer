@@ -98,8 +98,28 @@ function gutter(view: EditorView) {
     });
   return marks;
 }
-function buffer() {
-  return useEditor.getState().buffers[repository.id];
+function buffer(path = 'src/app.ts') {
+  return useEditor.getState().buffers[repository.id]?.[path];
+}
+function open(path: string, editing?: boolean) {
+  return act(async () => {
+    useSelection
+      .getState()
+      .select(repository.id, { path, source: 'unstaged', editing });
+  });
+}
+function openTabs() {
+  return useSelection
+    .getState()
+    .tabs.working[repository.id]?.map((tab) => tab.selection.path);
+}
+function strip() {
+  return screen.getByRole('tablist', { name: 'Open files' });
+}
+async function editFile(path: string, text: string) {
+  await open(path, true);
+  await waitFor(() => expect(buffer(path)).toBeDefined());
+  type(await editor(), text);
 }
 const writes = () => calls.filter((call) => call.command === 'file_write');
 const key = (init: KeyboardEventInit) =>
@@ -291,71 +311,198 @@ describe('working-tree editor', () => {
       expected: 'v9',
     });
   });
-  it('asks before leaving unsaved edits and keeps them when declined', async () => {
+  it('keeps unsaved edits across tabs and asks only when leaving edit mode', async () => {
     setup();
     mount();
     const { view } = await startEditing();
     type(view, 'x');
-    dialog.approved = false;
     await act(async () => {
       useSelection
         .getState()
         .select(repository.id, { path: 'new.txt', source: 'file' });
       useSelection.getState().viewAll(repository.id, 'unstaged');
     });
-    expect(useSelection.getState().working[repository.id]?.path).toBe(
-      'src/app.ts',
-    );
+    expect(dialog.asked).toBe(0);
     expect(buffer()?.dirty).toBe(true);
     await act(async () => {
       useSelection.getState().select(repository.id, { ...selection });
     });
     expect(useSelection.getState().working[repository.id]?.editing).toBe(true);
+    expect((await editor()).state.doc.toString()).toBe(`x${working}`);
+    dialog.approved = false;
+    await act(async () => {
+      useSelection
+        .getState()
+        .select(repository.id, { ...selection, editing: false });
+    });
+    expect(dialog.asked).toBe(1);
+    expect(useSelection.getState().working[repository.id]?.editing).toBe(true);
     dialog.approved = true;
     await act(async () => {
       useSelection
         .getState()
-        .select(repository.id, { path: 'new.txt', source: 'file' });
+        .select(repository.id, { ...selection, editing: false });
     });
     await waitFor(() =>
-      expect(useSelection.getState().working[repository.id]?.path).toBe(
-        'new.txt',
+      expect(useSelection.getState().working[repository.id]?.editing).toBe(
+        false,
       ),
     );
     expect(buffer()).toBeUndefined();
   });
-  it('asks once when a sidebar click selects another file', async () => {
+  it('opens a sidebar click in its own tab without asking', async () => {
     setup();
     mount();
     const { user, view } = await startEditing();
     type(view, 'x');
-    const row = within(screen.getByRole('tree', { name: 'Changes' })).getByRole(
-      'treeitem',
-      { name: 'new.txt' },
+    await user.click(
+      within(screen.getByRole('tree', { name: 'Changes' })).getByRole(
+        'treeitem',
+        { name: 'new.txt' },
+      ),
     );
-    dialog.approved = false;
-    await user.click(row);
-    await waitFor(() => expect(dialog.asked).toBe(1));
-    await act(async () => {});
-    expect(dialog.asked).toBe(1);
+    expect(dialog.asked).toBe(0);
+    const tabs = within(strip()).getAllByRole('tab');
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['app.ts', 'new.txt']);
+    expect(tabs[1]).toHaveAttribute('aria-selected', 'true');
+    expect(
+      within(strip()).getByRole('img', { name: 'Unsaved edits' }),
+    ).toBeInTheDocument();
+    await user.click(tabs[0]);
+    expect((await editor()).state.doc.toString()).toBe(`x${working}`);
+  });
+  it('closes the oldest tab without unsaved edits past the limit', async () => {
+    setup();
+    mockCommand('settings_get', () => ({ ...settings, maxFileTabs: 3 }));
+    mount();
+    const { view } = await startEditing();
+    type(view, 'x');
+    await open('a.ts');
+    await open('b.ts');
+    await open('a.ts');
+    expect(openTabs()).toEqual(['src/app.ts', 'a.ts', 'b.ts']);
+    await open('c.ts');
+    expect(openTabs()).toEqual(['src/app.ts', 'a.ts', 'c.ts']);
+    await editFile('c.ts', 'y');
+    await open('d.ts');
+    expect(openTabs()).toEqual(['src/app.ts', 'c.ts', 'd.ts']);
+    await editFile('d.ts', 'z');
+    await open('e.ts');
+    expect(openTabs()).toEqual(['src/app.ts', 'c.ts', 'd.ts', 'e.ts']);
+    expect(buffer('a.ts')).toBeUndefined();
+    expect(buffer('c.ts')?.dirty).toBe(true);
+  });
+  it('closes tabs by button, middle click and shortcut, asking only for unsaved edits', async () => {
+    setup();
+    mount();
+    const { user, view } = await startEditing();
+    type(view, 'x');
+    await open('a.ts');
+    await open('b.ts');
+    const middle = within(strip()).getByRole('tab', { name: 'a.ts' });
+    fireEvent.mouseDown(middle, { button: 1 });
+    fireEvent(middle, new MouseEvent('auxclick', { bubbles: true, button: 1 }));
+    await waitFor(() => expect(openTabs()).toEqual(['src/app.ts', 'b.ts']));
+    key({ key: 'w', metaKey: true });
+    await waitFor(() => expect(openTabs()).toEqual(['src/app.ts']));
     expect(useSelection.getState().working[repository.id]?.path).toBe(
       'src/app.ts',
     );
+    dialog.approved = false;
+    await user.click(screen.getByRole('button', { name: 'Close app.ts' }));
+    expect(dialog.asked).toBe(1);
+    expect(openTabs()).toEqual(['src/app.ts']);
     dialog.approved = true;
-    await user.click(row);
-    await waitFor(() =>
-      expect(useSelection.getState().working[repository.id]?.path).toBe(
-        'new.txt',
-      ),
-    );
-    expect(dialog.asked).toBe(2);
+    await user.click(screen.getByRole('button', { name: 'Close app.ts' }));
+    expect(await screen.findByText('Select a file to review')).toBeVisible();
+    expect(
+      screen.queryByRole('tablist', { name: 'Open files' }),
+    ).not.toBeInTheDocument();
     expect(buffer()).toBeUndefined();
+  });
+  it('keeps a buffer while another tab still edits the same file', async () => {
+    setup();
+    mount();
+    const { view } = await startEditing();
+    type(view, 'x');
+    await act(async () => {
+      useSelection.getState().select(repository.id, {
+        path: 'src/app.ts',
+        source: 'staged',
+        editing: true,
+      });
+    });
+    expect(
+      within(strip())
+        .getAllByRole('tab')
+        .map((tab) => tab.textContent),
+    ).toEqual(['app.tsunstaged', 'app.tsstaged']);
+    await act(() =>
+      useSelection
+        .getState()
+        .closeTab(repository.id, 'working', 'staged:::src/app.ts'),
+    );
+    expect(dialog.asked).toBe(0);
+    expect(buffer()?.dirty).toBe(true);
+  });
+  it('cycles and moves between tabs from the keyboard', async () => {
+    setup();
+    mount();
+    await screen.findByRole('button', { name: 'Edit' });
+    await open('a.ts');
+    await open('b.ts');
+    const active = () => useSelection.getState().working[repository.id]?.path;
+    key({ key: 'Tab', ctrlKey: true });
+    expect(active()).toBe('src/app.ts');
+    key({ key: 'Tab', ctrlKey: true, shiftKey: true });
+    expect(active()).toBe('b.ts');
+    const tab = within(strip()).getByRole('tab', { name: 'b.ts' });
+    fireEvent.keyDown(tab, { key: 'ArrowLeft' });
+    expect(active()).toBe('a.ts');
+    await waitFor(() =>
+      expect(within(strip()).getByRole('tab', { name: 'a.ts' })).toHaveFocus(),
+    );
+    fireEvent.keyDown(tab, { key: 'End' });
+    expect(active()).toBe('b.ts');
+    fireEvent.keyDown(tab, { key: 'Home' });
+    expect(active()).toBe('src/app.ts');
+    fireEvent.keyDown(tab, { key: 'ArrowRight' });
+    expect(active()).toBe('a.ts');
+    fireEvent.keyDown(tab, { key: 'x' });
+    expect(active()).toBe('a.ts');
+  });
+  it('falls back to the commit overview after closing the last commit tab', async () => {
+    setup();
+    useSelection.getState().select(repository.id, {
+      path: 'src/app.ts',
+      source: 'commit',
+      revision: 'abc',
+    });
+    await act(() =>
+      useSelection
+        .getState()
+        .closeTab(repository.id, 'working', 'commit:abc::src/app.ts'),
+    );
+    expect(useSelection.getState().working[repository.id]).toEqual({
+      path: '',
+      source: 'commit',
+      revision: 'abc',
+      base: undefined,
+    });
+    expect(useSelection.getState().all[repository.id]).toBe('commit');
   });
   it('confirms closing a tab and quitting with unsaved edits', async () => {
     setup();
     mount();
     const { view } = await startEditing();
     type(view, 'x');
+    await editFile('a.ts', 'y');
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        command: 'unsaved_set',
+        args: { paths: ['app.ts', 'a.ts'] },
+      }),
+    );
     dialog.approved = false;
     await act(() => closeRepository(useTabs.getState().tabs[0]));
     expect(calls.some((call) => call.command === 'repo_close')).toBe(false);

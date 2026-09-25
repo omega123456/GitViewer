@@ -34,6 +34,7 @@ pub struct Settings {
     pub search_ignored_files: bool,
     pub smart_commit: String,
     pub zoom: u32,
+    pub max_file_tabs: u32,
     pub ai: Ai,
 }
 impl Default for Settings {
@@ -47,6 +48,7 @@ impl Default for Settings {
             search_ignored_files: false,
             smart_commit: "ask".into(),
             zoom: 100,
+            max_file_tabs: 8,
             ai: Ai::default(),
         }
     }
@@ -82,6 +84,7 @@ pub fn write(path: &Path, settings: Settings) -> Result<Settings> {
         || !["split", "unified"].contains(&settings.diff_mode.as_str())
         || !["ask", "always", "never"].contains(&settings.smart_commit.as_str())
         || !ZOOM_LEVELS.contains(&settings.zoom)
+        || !(3..=20).contains(&settings.max_file_tabs)
     {
         return Err(Error::refused("Invalid settings"));
     }

@@ -48,7 +48,7 @@ export function CommandProvider({ children }: { children: ReactNode }) {
       id: 'close-repository',
       icon: <X className="size-3.5" />,
       label: 'Close repository',
-      key: 'Mod+w',
+      key: 'Mod+Shift+w',
       disabled: !active,
       run: () => {
         const tab = useTabs.getState().tabs.find((tab) => tab.id === active);

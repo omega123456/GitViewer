@@ -1,7 +1,7 @@
 import { open, confirm } from '@tauri-apps/plugin-dialog';
 import { reportAppError } from './ipc';
 import { perform } from './query';
-import { useEditor, fileName } from '../stores/editor';
+import { unsavedNames } from '../stores/editor';
 import { useTabs, type Tab } from '../stores/tabs';
 export async function openRepository() {
   try {
@@ -19,10 +19,10 @@ export async function openRepository() {
   }
 }
 function unsavedWork(tab: Tab) {
-  const buffer = useEditor.getState().buffers[tab.id];
+  const names = unsavedNames(tab.id);
   return [
     tab.message ? 'its unsaved commit message' : '',
-    buffer?.dirty ? `unsaved edits to ${fileName(buffer.path)}` : '',
+    names.length ? `unsaved edits to ${names.join(', ')}` : '',
   ].filter(Boolean);
 }
 export async function closeRepository(tab: Tab) {

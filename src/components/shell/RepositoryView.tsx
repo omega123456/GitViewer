@@ -17,6 +17,7 @@ import {
   SquareMinus,
   SquarePlus,
   Upload,
+  X,
 } from 'lucide-react';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { useActions } from '../../lib/actions';
@@ -29,8 +30,10 @@ import { useGenerate, useGenerateState } from '../../stores/generate';
 import { type CommitMode, useMessage, useTabs } from '../../stores/tabs';
 import { useLayout, useTabLayout } from '../../stores/layout';
 import {
+  tabKey,
   useAllChanges,
   useCurrentSelection,
+  useFileTabs,
   useSelection,
 } from '../../stores/selection';
 import { useFilter } from '../../stores/filter';
@@ -40,6 +43,7 @@ import { ErrorState } from '../states/Errors';
 import { State } from '../states/State';
 import { AllChangesPane } from '../diff/AllChangesPane';
 import { DiffPane } from '../diff/DiffPane';
+import { FileTabStrip } from '../diff/FileTabStrip';
 import { CommitList } from '../history/CommitList';
 import { ChangesSection } from '../sidebar/ChangesSection';
 import {
@@ -71,6 +75,7 @@ export function RepositoryView({
   const layout = useTabLayout(repo);
   const select = useCurrentSelection(repo, layout.mode);
   const all = useAllChanges(repo);
+  const fileTabs = useFileTabs(repo, layout.mode);
   const status = query.data;
   const disabled = busy || !status || status.conflicted;
   const conflicts = (status?.entries ?? []).filter(
@@ -303,6 +308,32 @@ export function RepositoryView({
         perform('stash_save', { repo, message: 'Saved from GitViewer' }),
     },
     {
+      id: 'close-file-tab',
+      icon: <X className="size-3.5" />,
+      label: 'Close file tab',
+      key: 'Mod+w',
+      disabled: !select?.path,
+      run: () =>
+        select &&
+        useSelection.getState().closeTab(repo, layout.mode, tabKey(select)),
+    },
+    {
+      id: 'next-file-tab',
+      icon: <ChevronRight className="size-3.5" />,
+      label: 'Next file tab',
+      key: 'Ctrl+Tab',
+      disabled: fileTabs.length < 2,
+      run: () => useSelection.getState().cycleTab(repo, layout.mode, 1),
+    },
+    {
+      id: 'previous-file-tab',
+      icon: <ChevronLeft className="size-3.5" />,
+      label: 'Previous file tab',
+      key: 'Ctrl+Shift+Tab',
+      disabled: fileTabs.length < 2,
+      run: () => useSelection.getState().cycleTab(repo, layout.mode, -1),
+    },
+    {
       id: 'next-tab',
       icon: <PanelRight className="size-3.5" />,
       label: 'Next repository',
@@ -423,29 +454,32 @@ export function RepositoryView({
               )
           }
         />
-        <div className="min-w-0 flex-1">
-          {all &&
-          (all === 'commit'
-            ? layout.mode !== 'compare' && select?.revision
-            : all === 'compare'
-              ? layout.mode === 'compare'
-              : layout.mode === 'working') ? (
-            <AllChangesPane
-              repo={repo}
-              stack={all}
-              commit={select}
-              status={status}
-              settings={settings}
-              disabled={disabled}
-            />
-          ) : (
-            <DiffPane
-              repo={repo}
-              selection={select?.path ? select : undefined}
-              settings={settings}
-              disabled={disabled}
-            />
-          )}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <FileTabStrip repo={repo} mode={layout.mode} />
+          <div className="min-h-0 flex-1">
+            {all &&
+            (all === 'commit'
+              ? layout.mode !== 'compare' && select?.revision
+              : all === 'compare'
+                ? layout.mode === 'compare'
+                : layout.mode === 'working') ? (
+              <AllChangesPane
+                repo={repo}
+                stack={all}
+                commit={select}
+                status={status}
+                settings={settings}
+                disabled={disabled}
+              />
+            ) : (
+              <DiffPane
+                repo={repo}
+                selection={select?.path ? select : undefined}
+                settings={settings}
+                disabled={disabled}
+              />
+            )}
+          </div>
         </div>
       </div>
       <StatusBar repo={repo} status={status} version={version} />

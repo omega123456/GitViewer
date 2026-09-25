@@ -117,6 +117,7 @@ export interface Settings {
   searchIgnoredFiles: boolean;
   smartCommit: 'ask' | 'always' | 'never';
   zoom: number;
+  maxFileTabs: number;
   ai: AiSettings;
 }
 export interface SettingsResponse extends Settings {
