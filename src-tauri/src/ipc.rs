@@ -154,11 +154,7 @@ pub async fn dispatch<R: tauri::Runtime>(
             let preferences = settings::read(&settings_path(&app)?);
             let endpoint =
                 ai::Endpoint::new(&preferences.ai.base_url, &ai::key()?.unwrap_or_default());
-            let handle = registry.get(string(&args, "repo")?).await?;
-            let material = {
-                let repo = handle.lock().await;
-                ai::material(&repo.root).await?
-            };
+            let material = ai::material(&registry.get(string(&args, "repo")?).await?.root).await?;
             return Ok(serde_json::to_value(
                 ai::draft(
                     &endpoint,
@@ -181,18 +177,19 @@ pub async fn dispatch<R: tauri::Runtime>(
         }
         "repo_open" => {
             let info = registry.open(string(&args, "path")?).await?;
-            let handle = registry.get(&info.id).await?;
-            let mut repo = handle.lock().await;
-            if repo.watchers.is_empty() {
-                let app = app.clone();
-                let id = info.id.clone();
-                watch::start(&mut repo, move |head_changed| {
-                    let _ = app.emit("repo://status-changed", json!({"repo":id}));
-                    if head_changed {
-                        let _ = app.emit("repo://head-changed", json!({"repo":id}));
-                    }
-                })?;
-            }
+            let repo = registry.get(&info.id).await?;
+            let watcher = app.clone();
+            let id = info.id.clone();
+            watch::start(&repo, move |change| {
+                if change == watch::Change::Files {
+                    let _ = watcher.emit("repo://files-changed", json!({"repo":id}));
+                    return;
+                }
+                let _ = watcher.emit("repo://status-changed", json!({"repo":id}));
+                if change == watch::Change::Head {
+                    let _ = watcher.emit("repo://head-changed", json!({"repo":id}));
+                }
+            })?;
             app.emit("repo://head-changed", json!({"repo":info.id}))
                 .map_err(Error::from)?;
             return Ok(serde_json::to_value(info)?);
@@ -207,9 +204,7 @@ pub async fn dispatch<R: tauri::Runtime>(
         _ => {}
     }
     let id = string(&args, "repo")?;
-    let handle = registry.get(id).await?;
-    let mut repo = handle.lock().await;
-    repo.snapshot().await?;
+    let repo = registry.get(id).await?;
     let path = optional(&args, "path");
     let revision = optional(&args, "revision");
     let mutating = matches!(
@@ -231,7 +226,17 @@ pub async fn dispatch<R: tauri::Runtime>(
             | "stash_drop"
             | "stash_restore"
     );
-    let previous_head = (repo.status.oid.clone(), repo.status.branch.clone());
+    let _write = if mutating {
+        Some(repo.writes.lock().await)
+    } else {
+        None
+    };
+    let previous_head = if mutating {
+        let status = repo.snapshot().await?;
+        (status.oid, status.branch)
+    } else {
+        Default::default()
+    };
     let outcome: Result<Value> = async {
         let value = match command.as_str() {
             "status" => return Ok(serde_json::to_value(repo.snapshot().await?)?),
@@ -239,7 +244,7 @@ pub async fn dispatch<R: tauri::Runtime>(
                 repo.refresh().await?;
                 Value::Null
             }
-            "tree" => return Ok(serde_json::to_value(tree::list(&mut repo, path).await?)?),
+            "tree" => return Ok(serde_json::to_value(tree::list(&repo, path).await?)?),
             "files" => {
                 return Ok(serde_json::to_value(
                     tree::files(&repo, flag(&args, "ignored")).await?,
@@ -295,7 +300,7 @@ pub async fn dispatch<R: tauri::Runtime>(
             }
             "files_action" => {
                 actions::files(
-                    &mut repo,
+                    &repo,
                     &serde_json::from_value::<Vec<String>>(args["paths"].clone())?,
                     string(&args, "action")?,
                 )
@@ -304,7 +309,7 @@ pub async fn dispatch<R: tauri::Runtime>(
             }
             "hunk_action" => {
                 diff::apply_hunk(
-                    &mut repo,
+                    &repo,
                     path,
                     string(&args, "source")?,
                     args["hunk"].as_u64().unwrap_or_default() as usize,
@@ -314,7 +319,7 @@ pub async fn dispatch<R: tauri::Runtime>(
                 .await?;
                 Value::Null
             }
-            "commit" => json!(actions::commit(&mut repo, string(&args, "message")?).await?),
+            "commit" => json!(actions::commit(&repo, string(&args, "message")?).await?),
             "branches" => return Ok(serde_json::to_value(branch::list(&repo).await?)?),
             "default_branch" => {
                 return Ok(serde_json::to_value(branch::default_branch(&repo).await?)?)
@@ -331,18 +336,18 @@ pub async fn dispatch<R: tauri::Runtime>(
                 )?)
             }
             "branch_switch" => {
-                branch::switch(&mut repo, string(&args, "name")?).await?;
+                branch::switch(&repo, string(&args, "name")?).await?;
                 Value::Null
             }
             "branch_create" => {
-                branch::create(&mut repo, string(&args, "name")?, string(&args, "base")?).await?;
+                branch::create(&repo, string(&args, "name")?, string(&args, "base")?).await?;
                 if flag(&args, "checkout") {
-                    branch::switch(&mut repo, string(&args, "name")?).await?;
+                    branch::switch(&repo, string(&args, "name")?).await?;
                 }
                 Value::Null
             }
             "branch_delete" => {
-                branch::delete(&mut repo, string(&args, "name")?).await?;
+                branch::delete(&repo, string(&args, "name")?).await?;
                 Value::Null
             }
             "merge_preview" => {
@@ -350,20 +355,20 @@ pub async fn dispatch<R: tauri::Runtime>(
                     branch::merge_preview(&repo, string(&args, "name")?).await?,
                 )?)
             }
-            "branch_merge" => json!(branch::merge(&mut repo, string(&args, "name")?).await?),
+            "branch_merge" => json!(branch::merge(&repo, string(&args, "name")?).await?),
             "merge_abort" => {
-                branch::abort(&mut repo).await?;
+                branch::abort(&repo).await?;
                 Value::Null
             }
             "smart_checkout" => {
-                stash::smart_checkout(&mut repo, string(&args, "name")?).await?;
+                stash::smart_checkout(&repo, string(&args, "name")?).await?;
                 Value::Null
             }
             "sync" => {
                 let action = string(&args, "action")?;
                 let reporter = app.clone();
                 let reported = id.to_string();
-                let outcome = branch::sync(&mut repo, action, move |line| {
+                let outcome = branch::sync(&repo, action, move |line| {
                     let _ = reporter.emit(
                         "sync://progress",
                         json!({"repo":reported,"message":line,"done":false}),
@@ -383,7 +388,7 @@ pub async fn dispatch<R: tauri::Runtime>(
             }
             "history" => {
                 return Ok(serde_json::to_value(
-                    history::page(&mut repo, optional(&args, "cursor"), path).await?,
+                    history::page(&repo, optional(&args, "cursor"), path).await?,
                 )?)
             }
             "commit_files" => {
@@ -397,10 +402,10 @@ pub async fn dispatch<R: tauri::Runtime>(
             }
             "blame" => return Ok(serde_json::to_value(history::blame(&repo, path).await?)?),
             "stashes" => return Ok(serde_json::to_value(stash::list(&repo).await?)?),
-            "stash_save" => json!(stash::save(&mut repo, optional(&args, "message")).await?),
+            "stash_save" => json!(stash::save(&repo, optional(&args, "message")).await?),
             "stash_apply" => {
                 stash::apply(
-                    &mut repo,
+                    &repo,
                     string(&args, "hash")?,
                     flag(&args, "pop"),
                     flag(&args, "smart"),
@@ -409,11 +414,11 @@ pub async fn dispatch<R: tauri::Runtime>(
                 Value::Null
             }
             "stash_drop" => {
-                stash::drop(&mut repo, string(&args, "hash")?).await?;
+                stash::drop(&repo, string(&args, "hash")?).await?;
                 Value::Null
             }
             "stash_restore" => {
-                stash::store(&mut repo, string(&args, "hash")?, string(&args, "message")?).await?;
+                stash::store(&repo, string(&args, "hash")?, string(&args, "message")?).await?;
                 Value::Null
             }
             "system_open" => {
@@ -440,10 +445,13 @@ pub async fn dispatch<R: tauri::Runtime>(
         return outcome;
     }
     let refreshed = repo.refresh().await;
-    let head_changed = previous_head != (repo.status.oid.clone(), repo.status.branch.clone())
+    let head_changed = refreshed
+        .as_ref()
+        .is_ok_and(|status| previous_head != (status.oid.clone(), status.branch.clone()))
         || matches!(command.as_str(), "branch_create" | "branch_delete" | "sync");
     if head_changed {
-        repo.histories.clear();
+        repo.history_stale
+            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
     app.emit("repo://status-changed", json!({"repo":id}))
         .map_err(Error::from)?;

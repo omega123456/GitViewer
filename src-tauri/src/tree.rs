@@ -4,7 +4,7 @@ use crate::{
     repo::Repo,
 };
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::{collections::HashMap, sync::atomic::Ordering};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -15,10 +15,10 @@ pub struct TreeEntry {
     pub ignored: bool,
     pub status: String,
 }
-pub async fn list(repo: &mut Repo, path: &str) -> Result<Vec<TreeEntry>> {
+pub async fn list(repo: &Repo, path: &str) -> Result<Vec<TreeEntry>> {
     let directory = repo.path(path)?;
     let status = repo.snapshot().await?;
-    repo.directory_reads += 1;
+    repo.directory_reads.fetch_add(1, Ordering::SeqCst);
     let mut entries = Vec::new();
     for result in std::fs::read_dir(directory)? {
         let entry = result?;
@@ -45,15 +45,7 @@ pub async fn list(repo: &mut Repo, path: &str) -> Result<Vec<TreeEntry>> {
     if entries.is_empty() {
         return Ok(entries);
     }
-    let input: Vec<u8> = entries
-        .iter()
-        .flat_map(|e| e.path.bytes().chain([0]))
-        .collect();
-    let ignored = git::run(&repo.root, &["check-ignore", "--stdin", "-z"], Some(&input))
-        .await?
-        .accept(&[0, 1])?
-        .text();
-    let ignored: HashSet<&str> = ignored.split('\0').collect();
+    let ignored = git::ignored(&repo.root, entries.iter().map(|e| e.path.as_str())).await?;
     let prefix = if path.is_empty() {
         String::new()
     } else {
@@ -72,7 +64,7 @@ pub async fn list(repo: &mut Repo, path: &str) -> Result<Vec<TreeEntry>> {
         }
     }
     for entry in &mut entries {
-        entry.ignored = ignored.contains(entry.path.as_str());
+        entry.ignored = ignored.contains(&entry.path);
         if !entry.ignored {
             if let Some(code) = decorations.get(entry.name.as_str()) {
                 entry.status = (*code).into();

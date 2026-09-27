@@ -37,9 +37,8 @@ pub async fn list(repo: &Repo) -> Result<Vec<Stash>> {
         })
         .collect())
 }
-pub async fn save(repo: &mut Repo, message: &str) -> Result<String> {
-    repo.writable().await?;
-    if repo.status.entries.is_empty() {
+pub async fn save(repo: &Repo, message: &str) -> Result<String> {
+    if repo.writable().await?.entries.is_empty() {
         return Err(Error::refused("There are no changes to stash"));
     }
     git::run(
@@ -51,7 +50,7 @@ pub async fn save(repo: &mut Repo, message: &str) -> Result<String> {
     .accept(&[0])?;
     resolve(repo, "refs/stash").await
 }
-pub async fn drop(repo: &mut Repo, hash: &str) -> Result<()> {
+pub async fn drop(repo: &Repo, hash: &str) -> Result<()> {
     repo.writable().await?;
     let stashes = list(repo).await?;
     let stash = stashes
@@ -63,7 +62,7 @@ pub async fn drop(repo: &mut Repo, hash: &str) -> Result<()> {
         .accept(&[0])?;
     Ok(())
 }
-pub async fn store(repo: &mut Repo, hash: &str, message: &str) -> Result<()> {
+pub async fn store(repo: &Repo, hash: &str, message: &str) -> Result<()> {
     repo.writable().await?;
     git::run(
         &repo.root,
@@ -187,19 +186,19 @@ pub async fn precheck(repo: &Repo, hash: &str) -> Result<()> {
     }
     Ok(())
 }
-async fn restore(repo: &mut Repo, hash: &str) -> Result<()> {
+async fn restore(repo: &Repo, hash: &str) -> Result<()> {
     precheck(repo, hash).await?;
     git::run(&repo.root, &["stash", "apply", "--index", hash], None)
         .await?
         .accept(&[0])?;
     Ok(())
 }
-pub async fn apply(repo: &mut Repo, hash: &str, pop: bool, smart: bool) -> Result<()> {
-    repo.writable().await?;
+pub async fn apply(repo: &Repo, hash: &str, pop: bool, smart: bool) -> Result<()> {
+    let status = repo.writable().await?;
     if !list(repo).await?.iter().any(|s| s.hash == hash) {
         return Err(Error::refused("Stash no longer exists"));
     }
-    if !repo.status.entries.is_empty() {
+    if !status.entries.is_empty() {
         if !smart {
             return Err(Error::new(
                 "smart_apply",
@@ -207,8 +206,7 @@ pub async fn apply(repo: &mut Repo, hash: &str, pop: bool, smart: bool) -> Resul
             ));
         }
         let target = changed_paths(repo, hash).await?;
-        let overlap: Vec<_> = repo
-            .status
+        let overlap: Vec<_> = status
             .entries
             .iter()
             .filter(|e| {
@@ -249,12 +247,12 @@ pub async fn apply(repo: &mut Repo, hash: &str, pop: bool, smart: bool) -> Resul
     }
     Ok(())
 }
-pub async fn smart_checkout(repo: &mut Repo, name: &str) -> Result<()> {
-    repo.writable().await?;
-    let original = if repo.status.branch == "(detached)" {
-        repo.status.oid.clone()
+pub async fn smart_checkout(repo: &Repo, name: &str) -> Result<()> {
+    let status = repo.writable().await?;
+    let original = if status.branch == "(detached)" {
+        status.oid
     } else {
-        repo.status.branch.clone()
+        status.branch
     };
     let temporary = save(repo, "GitViewer: smart checkout").await?;
     let switched = branch::switch(repo, name).await;

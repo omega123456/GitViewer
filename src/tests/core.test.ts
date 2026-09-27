@@ -180,6 +180,26 @@ describe('IPC and events', () => {
     stop();
     expect(queryKey('env', {})).toEqual(['app', 'env', {}]);
   });
+  it('refreshes only file listings when ignored files change', async () => {
+    const listings = [
+      queryKey('files', { repo: 'one', ignored: true }),
+      queryKey('tree', { repo: 'one', path: '' }),
+    ];
+    const others = [
+      queryKey('status', { repo: 'one' }),
+      queryKey('stashes', { repo: 'one' }),
+      queryKey('diff', { repo: 'one', path: 'a', source: 'unstaged' }),
+      queryKey('tree', { repo: 'two', path: '' }),
+    ];
+    for (const key of [...listings, ...others]) client.setQueryData(key, []);
+    const stop = await connectEvents();
+    emit('repo://files-changed', { repo: 'one' });
+    for (const key of listings)
+      expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+    for (const key of others)
+      expect(client.getQueryState(key)?.isInvalidated).toBe(false);
+    stop();
+  });
   it('keeps commit, stash and compare diffs valid on working-tree events', async () => {
     const sources = [
       'unstaged',

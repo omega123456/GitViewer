@@ -15,7 +15,7 @@ fn saved(written: Written) -> String {
 #[tokio::test]
 async fn reads_normalise_line_endings_and_refuse_non_text() {
     let (dir, handle) = fixture().await;
-    let repo = handle.lock().await;
+    let repo = handle.clone();
     std::fs::write(dir.path().join("plain.txt"), "one\ntwo\n").unwrap();
     std::fs::write(dir.path().join("windows.txt"), "\u{feff}one\r\ntwo\r\n").unwrap();
     std::fs::write(dir.path().join("binary.bin"), [0x61, 0, 0x62]).unwrap();
@@ -45,7 +45,7 @@ async fn reads_normalise_line_endings_and_refuse_non_text() {
 #[tokio::test]
 async fn writes_keep_the_file_shape_and_detect_conflicts() {
     let (dir, handle) = fixture().await;
-    let repo = handle.lock().await;
+    let repo = handle.clone();
     let path = dir.path().join("windows.txt");
     std::fs::write(&path, "\u{feff}one\r\ntwo\r\n").unwrap();
     let opened = edit::read(&repo, "windows.txt").unwrap().unwrap();

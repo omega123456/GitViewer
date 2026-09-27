@@ -6,7 +6,7 @@ use crate::{
     repo::Repo,
 };
 use serde::Serialize;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::atomic::Ordering};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Page {
@@ -123,15 +123,19 @@ impl Session {
         Ok(page)
     }
 }
-pub async fn page(repo: &mut Repo, cursor: &str, path: &str) -> Result<Page> {
+pub async fn page(repo: &Repo, cursor: &str, path: &str) -> Result<Page> {
     if !path.is_empty() {
         repo.path(path)?;
     }
-    if cursor.is_empty() && !repo.histories.contains_key(path) {
-        let session = Session::start(repo, path)?;
-        repo.histories.insert(path.into(), session);
+    let mut histories = repo.histories.lock().await;
+    if repo.history_stale.swap(false, Ordering::SeqCst) {
+        histories.clear();
     }
-    repo.histories
+    if cursor.is_empty() && !histories.contains_key(path) {
+        let session = Session::start(repo, path)?;
+        histories.insert(path.into(), session);
+    }
+    histories
         .get_mut(path)
         .ok_or_else(|| Error::refused("History cursor expired; reload the first page"))?
         .page(cursor)

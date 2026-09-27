@@ -33,8 +33,10 @@ export function useBackend<K extends keyof Commands>(
   });
 }
 const immutable = ['commit', 'stash', 'compare'];
+const listings = ['files', 'tree'];
 function refreshes(name: string, key: readonly unknown[]) {
   const [, command, args] = key as [unknown, string, { source?: string }?];
+  if (name === 'repo://files-changed') return listings.includes(command);
   if (name === 'repo://head-changed') return true;
   if (
     ['history', 'commit_files', 'compare_files', 'default_branch'].includes(
@@ -123,6 +125,7 @@ export async function connectEvents() {
     'repo://closed',
     'repo://status-changed',
     'repo://head-changed',
+    'repo://files-changed',
     'settings://changed',
     'sync://progress',
   ];

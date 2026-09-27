@@ -1,8 +1,12 @@
 use super::workflows::{base, fixture};
 use gitviewer_lib::{blob, ipc, repo::Registry};
 use serde_json::{json, Value};
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tauri::{Listener, Manager};
+use tokio::time::timeout;
 
 #[tokio::test]
 async fn typed_commands_events_and_protocol_are_wired() {
@@ -274,4 +278,58 @@ async fn typed_commands_events_and_protocol_are_wired() {
     .starts_with("File exceeds"));
     call("repo_close", json!({"repo":id})).await.unwrap();
     assert!(app.state::<Registry>().get(id).await.is_err());
+}
+
+#[tokio::test]
+async fn reads_proceed_while_a_write_holds_the_repository() {
+    let (dir, handle) = fixture().await;
+    base(&dir, &handle).await;
+    std::fs::write(dir.path().join(".gitignore"), "generated/\n").unwrap();
+    std::fs::create_dir(dir.path().join("generated")).unwrap();
+    std::fs::write(dir.path().join("file.txt"), "changed\n").unwrap();
+    let app = gitviewer_lib::configure(tauri::test::mock_builder())
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    let call =
+        |command: &str, args: Value| ipc::dispatch(app.handle().clone(), command.to_string(), args);
+    let info = call("repo_open", json!({"path":dir.path()})).await.unwrap();
+    let id = info["id"].as_str().unwrap();
+    let repo = app.state::<Registry>().get(id).await.unwrap();
+    let files = Arc::new(Mutex::new(0));
+    let counted = files.clone();
+    app.handle().listen("repo://files-changed", move |_| {
+        *counted.lock().unwrap() += 1;
+    });
+    let write = repo.writes.lock().await;
+    let patient = Duration::from_secs(5);
+    for (command, args) in [
+        ("status", json!({"repo":id})),
+        ("tree", json!({"repo":id,"path":""})),
+        (
+            "diff",
+            json!({"repo":id,"path":"file.txt","source":"unstaged"}),
+        ),
+        ("stashes", json!({"repo":id})),
+    ] {
+        timeout(patient, call(command, args))
+            .await
+            .unwrap()
+            .unwrap();
+    }
+    assert!(timeout(
+        Duration::from_millis(200),
+        call("refresh", json!({"repo":id}))
+    )
+    .await
+    .is_err());
+    drop(write);
+    timeout(patient, async {
+        let mut interval = tokio::time::interval(Duration::from_millis(500));
+        while *files.lock().unwrap() == 0 {
+            interval.tick().await;
+            std::fs::write(dir.path().join("generated").join("out.js"), "out").unwrap();
+        }
+    })
+    .await
+    .unwrap();
 }

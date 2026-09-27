@@ -335,12 +335,31 @@ export function FilesTree({ repo, status }: { repo: string; status: Status }) {
     features: [asyncDataLoaderFeature, selectionFeature, hotkeysCoreFeature],
   });
   useEffect(() => {
-    const visible = [
-      tree.getItemInstance(treeRoot),
-      ...tree.getItems().filter((item) => item.isFolder() && item.isExpanded()),
-    ];
-    for (const item of visible) void item.invalidateChildrenIds(true);
-  }, [tree, status]);
+    let pending = false;
+    const relist = () => {
+      pending = false;
+      const visible = [
+        tree.getItemInstance(treeRoot),
+        ...tree
+          .getItems()
+          .filter((item) => item.isFolder() && item.isExpanded()),
+      ];
+      for (const item of visible) void item.invalidateChildrenIds(true);
+    };
+    return client.getQueryCache().subscribe((event) => {
+      const [scope, command] = event.query.queryKey;
+      if (
+        pending ||
+        event.type !== 'updated' ||
+        event.action.type !== 'invalidate' ||
+        scope !== repo ||
+        command !== 'tree'
+      )
+        return;
+      pending = true;
+      queueMicrotask(relist);
+    });
+  }, [tree, repo]);
   const items = tree
     .getItems()
     .filter(

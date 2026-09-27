@@ -321,6 +321,7 @@ export interface Events {
   'repo://closed': RepoArgs;
   'repo://status-changed': RepoArgs;
   'repo://head-changed': RepoArgs;
+  'repo://files-changed': RepoArgs;
   'settings://changed': null;
   'sync://progress': RepoArgs & { message: string; done: boolean };
 }

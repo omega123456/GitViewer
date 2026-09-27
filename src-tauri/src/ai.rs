@@ -192,10 +192,11 @@ pub async fn models(endpoint: &Endpoint) -> Result<Vec<String>> {
 }
 
 async fn patch(root: &Path, staged: bool) -> Result<String> {
-    let mut arguments = vec!["diff"];
-    if staged {
-        arguments.push("--cached");
-    }
+    let mut arguments = if staged {
+        vec!["diff", "--cached"]
+    } else {
+        vec!["diff-files", "-p"]
+    };
     arguments.extend(PINNED);
     git::text(root, &arguments).await
 }

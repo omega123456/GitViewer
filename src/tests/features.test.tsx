@@ -980,6 +980,38 @@ describe('file context menu', () => {
     );
     expect(await navigator.clipboard.readText()).toBe('app.ts');
   });
+  it('lists new ignored files in the all files tree without a status change', async () => {
+    setup();
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole('button', { name: /^Files/ }));
+    const files = await screen.findByRole('tree', { name: 'All files' });
+    expect(
+      await within(files).findByRole('treeitem', { name: 'app.ts' }),
+    ).toBeVisible();
+    mockCommand('tree', () => [
+      {
+        path: 'src/app.ts',
+        name: 'app.ts',
+        directory: false,
+        ignored: false,
+        status: 'M',
+      },
+      {
+        path: 'out.js',
+        name: 'out.js',
+        directory: false,
+        ignored: true,
+        status: '',
+      },
+    ]);
+    const statusReads = count('status');
+    act(() => emit('repo://files-changed', { repo: repository.id }));
+    expect(
+      await within(files).findByRole('treeitem', { name: 'out.js' }),
+    ).toBeVisible();
+    expect(count('status')).toBe(statusReads);
+  });
   it('builds native full paths for Windows roots', () => {
     expect(absolutePath('\\\\?\\C:\\repo', 'src/app.ts')).toBe(
       'C:\\repo\\src\\app.ts',

@@ -1,7 +1,7 @@
 pub mod detect;
 
 use crate::error::{Error, Result};
-use std::{path::Path, process::Stdio};
+use std::{collections::HashSet, path::Path, process::Stdio};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     process::Command,
@@ -115,6 +115,23 @@ pub async fn stream<F: Fn(&str)>(root: &Path, args: &[&str], progress: F) -> Res
 pub async fn text(root: &Path, args: &[&str]) -> Result<String> {
     Ok(run(root, args, None).await?.accept(&[0])?.text())
 }
+pub async fn ignored<'a>(
+    root: &Path,
+    paths: impl IntoIterator<Item = &'a str>,
+) -> Result<HashSet<String>> {
+    let input: Vec<u8> = paths
+        .into_iter()
+        .flat_map(|path| path.bytes().chain([0]))
+        .collect();
+    Ok(run(root, &["check-ignore", "--stdin", "-z"], Some(&input))
+        .await?
+        .accept(&[0, 1])?
+        .text()
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(String::from)
+        .collect())
+}
 
 pub fn command(binary: &str, root: &Path, args: &[&str]) -> Command {
     let mut command = Command::new(binary);
@@ -129,7 +146,17 @@ pub fn command(binary: &str, root: &Path, args: &[&str]) -> Command {
         ])
         .args(
             if args.first().is_some_and(|arg| {
-                ["diff", "add", "rm", "restore", "log", "blame", "diff-tree"].contains(arg)
+                [
+                    "diff",
+                    "diff-files",
+                    "add",
+                    "rm",
+                    "restore",
+                    "log",
+                    "blame",
+                    "diff-tree",
+                ]
+                .contains(arg)
             }) {
                 vec!["--literal-pathspecs"]
             } else {

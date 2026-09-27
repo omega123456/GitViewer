@@ -3,7 +3,7 @@ use crate::{
     error::{Error, Result},
     git,
     repo::Repo,
-    status::Entry,
+    status::{Entry, Status},
 };
 use serde::Serialize;
 use std::{
@@ -389,7 +389,16 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
         Vec::new()
     };
     let hidden: HashSet<&str> = untracked.iter().map(|(path, ..)| path.as_str()).collect();
-    let mut args = vec!["diff"];
+    let status = if matches!(source, "staged" | "unstaged") {
+        repo.snapshot().await?
+    } else {
+        Status::default()
+    };
+    let mut args = vec![if source == "unstaged" {
+        "diff-files"
+    } else {
+        "diff"
+    }];
     args.extend(PINNED);
     args.extend(range.iter().map(String::as_str));
     let (mut stream, raws) = match open(repo, &args).await {
@@ -415,8 +424,7 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
                 quoted("b/", &raw.path)
             );
             let paired = source != "staged" || {
-                let original = repo
-                    .status
+                let original = status
                     .entries
                     .iter()
                     .find(|entry| entry.path() == raw.path)
@@ -553,7 +561,7 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
         true
     };
     if source == "unstaged" {
-        for entry in &repo.status.entries {
+        for entry in &status.entries {
             let Entry::Untracked { path, .. } = entry else {
                 continue;
             };

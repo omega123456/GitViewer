@@ -364,6 +364,16 @@ pub async fn compare(
         files,
     })
 }
+async fn renamed_from(repo: &Repo, path: &str) -> Result<Option<String>> {
+    Ok(repo
+        .snapshot()
+        .await?
+        .entries
+        .iter()
+        .find(|entry| entry.path() == path)
+        .and_then(|entry| entry.original_path())
+        .map(String::from))
+}
 enum Blob {
     Working(std::path::PathBuf),
     Object(String),
@@ -412,16 +422,11 @@ async fn location(
         _ => return Err(Error::refused("Unknown diff source")),
     };
     let original = if old && source == "staged" {
-        repo.status
-            .entries
-            .iter()
-            .find(|e| e.path() == path)
-            .and_then(|e| e.original_path())
-            .unwrap_or(path)
+        renamed_from(repo, path).await?
     } else {
-        path
+        None
     };
-    let spec = format!("{reference}:{original}");
+    let spec = format!("{reference}:{}", original.as_deref().unwrap_or(path));
     let exists = git::run(&repo.root, &["cat-file", "-e", &spec], None).await?;
     if exists.code != 0 {
         if exists.stderr.contains("does not exist")
@@ -636,18 +641,17 @@ pub async fn read(
             .await?
             .iter()
             .any(|entry| entry == path);
-    let original = repo
-        .status
-        .entries
-        .iter()
-        .find(|e| e.path() == path && source == "staged")
-        .and_then(|e| e.original_path());
+    let original = if source == "staged" {
+        renamed_from(repo, path).await?
+    } else {
+        None
+    };
     let (old, new) = match source {
         "file" => (Side::Absent, Side::Working(full)),
         _ if untracked => (Side::Absent, Side::Object(format!("{sha}^3:{path}"))),
         "unstaged" => (Side::Object(format!(":{path}")), Side::Working(full)),
         "staged" => (
-            Side::Object(format!("HEAD:{}", original.unwrap_or(path))),
+            Side::Object(format!("HEAD:{}", original.as_deref().unwrap_or(path))),
             Side::Object(format!(":{path}")),
         ),
         _ => (
@@ -718,6 +722,8 @@ pub async fn read(
     ];
     if source == "staged" {
         args.push("--cached");
+    } else if source == "unstaged" {
+        args.splice(0..1, ["diff-files", "-p"]);
     } else if root {
         args = vec![
             "show",
@@ -728,11 +734,11 @@ pub async fn read(
             &context,
             &sha,
         ];
-    } else if source != "unstaged" {
+    } else {
         args.extend([parent.as_str(), sha.as_str()]);
     }
     args.extend(["--", path]);
-    if let Some(original) = original {
+    if let Some(original) = &original {
         args.push(original);
     }
     let output = git::text(&repo.root, &args).await?;
@@ -778,7 +784,7 @@ pub fn patch(path: &str, hunk: &Hunk) -> Result<String> {
     Ok(patch)
 }
 pub async fn apply_hunk(
-    repo: &mut Repo,
+    repo: &Repo,
     path: &str,
     source: &str,
     hunk: usize,

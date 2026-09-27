@@ -5,8 +5,8 @@ use crate::{
     repo::Repo,
 };
 
-pub async fn files(repo: &mut Repo, paths: &[String], action: &str) -> Result<()> {
-    repo.writable().await?;
+pub async fn files(repo: &Repo, paths: &[String], action: &str) -> Result<()> {
+    let status = repo.writable().await?;
     if paths.is_empty() {
         return Err(Error::refused("Select a file first"));
     }
@@ -15,7 +15,7 @@ pub async fn files(repo: &mut Repo, paths: &[String], action: &str) -> Result<()
     }
     let mut selected = paths.to_vec();
     if action == "unstage" || action == "revert" {
-        for entry in &repo.status.entries {
+        for entry in &status.entries {
             if paths.iter().any(|path| path == entry.path()) {
                 if let Some(original) = entry.original_path() {
                     if !selected.iter().any(|path| path == original) {
@@ -37,7 +37,7 @@ pub async fn files(repo: &mut Repo, paths: &[String], action: &str) -> Result<()
             .accept(&[0])?;
         }
         "unstage" => {
-            let unborn = repo.status.oid == "(initial)";
+            let unborn = status.oid == "(initial)";
             let args = if unborn {
                 vec![
                     "rm",
@@ -63,18 +63,13 @@ pub async fn files(repo: &mut Repo, paths: &[String], action: &str) -> Result<()
             let mut tracked = Vec::new();
             let mut added = Vec::new();
             for path in &selected {
-                let entry = repo
-                    .status
-                    .entries
-                    .iter()
-                    .find(|entry| entry.path() == path);
+                let entry = status.entries.iter().find(|entry| entry.path() == path);
                 if entry.is_some_and(|entry| entry.index() == "?" || entry.index() == "A") {
                     added.push(path.clone());
                 } else {
                     tracked.push(path.clone());
                 }
             }
-            // Restore both sides of renames and all tracked changes to HEAD.
             if !tracked.is_empty() {
                 let input: Vec<u8> = tracked.iter().flat_map(|p| p.bytes().chain([0])).collect();
                 git::run(
@@ -93,8 +88,7 @@ pub async fn files(repo: &mut Repo, paths: &[String], action: &str) -> Result<()
                 .accept(&[0])?;
             }
             for path in added {
-                if repo
-                    .status
+                if status
                     .entries
                     .iter()
                     .any(|entry| entry.path() == path && entry.index() == "A")
@@ -124,7 +118,7 @@ pub async fn files(repo: &mut Repo, paths: &[String], action: &str) -> Result<()
         }
         "discard" => {
             if paths.iter().any(|path| {
-                repo.status
+                status
                     .entries
                     .iter()
                     .any(|e| e.path() == path && e.index() == "?")
@@ -150,7 +144,7 @@ pub async fn files(repo: &mut Repo, paths: &[String], action: &str) -> Result<()
     }
     Ok(())
 }
-pub async fn commit(repo: &mut Repo, message: &str) -> Result<String> {
+pub async fn commit(repo: &Repo, message: &str) -> Result<String> {
     repo.writable().await?;
     if message.trim().is_empty() {
         return Err(Error::refused("Write a commit message first"));

@@ -50,7 +50,7 @@ pub async fn list(repo: &Repo) -> Result<Vec<Branch>> {
         })
         .collect())
 }
-pub async fn switch(repo: &mut Repo, name: &str) -> Result<()> {
+pub async fn switch(repo: &Repo, name: &str) -> Result<()> {
     repo.writable().await?;
     let branches = list(repo).await?;
     let branch = branches
@@ -81,7 +81,7 @@ pub async fn switch(repo: &mut Repo, name: &str) -> Result<()> {
     git::run(&repo.root, &args, None).await?.accept(&[0])?;
     Ok(())
 }
-pub async fn create(repo: &mut Repo, name: &str, base: &str) -> Result<()> {
+pub async fn create(repo: &Repo, name: &str, base: &str) -> Result<()> {
     repo.writable().await?;
     git::run(&repo.root, &["check-ref-format", "--branch", name], None)
         .await?
@@ -92,7 +92,7 @@ pub async fn create(repo: &mut Repo, name: &str, base: &str) -> Result<()> {
         .accept(&[0])?;
     Ok(())
 }
-pub async fn delete(repo: &mut Repo, name: &str) -> Result<()> {
+pub async fn delete(repo: &Repo, name: &str) -> Result<()> {
     repo.writable().await?;
     let branches = list(repo).await?;
     let branch = branches
@@ -141,8 +141,8 @@ async fn distance(repo: &Repo, from: Option<String>, to: Option<String>) -> Resu
     .await?;
     Ok(count.trim().parse().ok())
 }
-pub async fn sync<F: Fn(&str)>(repo: &mut Repo, action: &str, progress: F) -> Result<Option<u32>> {
-    repo.writable().await?;
+pub async fn sync<F: Fn(&str)>(repo: &Repo, action: &str, progress: F) -> Result<Option<u32>> {
+    let status = repo.writable().await?;
     #[cfg(feature = "test-utils")]
     {
         let remotes = git::text(&repo.root, &["remote", "-v"]).await?;
@@ -156,12 +156,12 @@ pub async fn sync<F: Fn(&str)>(repo: &mut Repo, action: &str, progress: F) -> Re
             ));
         }
     }
-    if action != "fetch" && repo.status.branch == "(detached)" {
+    if action != "fetch" && status.branch == "(detached)" {
         return Err(Error::refused("Detached HEAD has no upstream branch"));
     }
     let tracked = match action {
         "pull" => Some("HEAD".to_string()),
-        _ => repo.status.upstream.clone(),
+        _ => status.upstream.clone(),
     };
     let before = tip(repo, tracked.as_deref()).await;
     match action {
@@ -179,8 +179,7 @@ pub async fn sync<F: Fn(&str)>(repo: &mut Repo, action: &str, progress: F) -> Re
             git::stream(&repo.root, &["fetch", "--progress"], &progress)
                 .await?
                 .accept(&[0])?;
-            let upstream = repo
-                .status
+            let upstream = status
                 .upstream
                 .as_deref()
                 .ok_or_else(|| Error::refused("No upstream configured"))?;
@@ -217,7 +216,8 @@ pub async fn sync<F: Fn(&str)>(repo: &mut Repo, action: &str, progress: F) -> Re
     distance(repo, before, after).await
 }
 async fn mergeable(repo: &Repo, name: &str) -> Result<()> {
-    if repo.status.branch == "(detached)" {
+    let current = repo.snapshot().await?.branch;
+    if current == "(detached)" {
         return Err(Error::refused("Switch to a branch before merging"));
     }
     let branch = list(repo)
@@ -235,8 +235,7 @@ async fn mergeable(repo: &Repo, name: &str) -> Result<()> {
         == 1
     {
         return Err(Error::refused(format!(
-            "{name} shares no history with {}",
-            repo.status.branch
+            "{name} shares no history with {current}"
         )));
     }
     Ok(())
@@ -303,7 +302,7 @@ pub async fn merge_preview(repo: &Repo, name: &str) -> Result<MergePreview> {
             .collect(),
     })
 }
-pub async fn merge(repo: &mut Repo, name: &str) -> Result<bool> {
+pub async fn merge(repo: &Repo, name: &str) -> Result<bool> {
     repo.writable().await?;
     mergeable(repo, name).await?;
     let output = git::run(&repo.root, &["merge", "--no-edit", name], None)
@@ -326,7 +325,7 @@ async fn merging(repo: &Repo) -> Result<bool> {
     .code
         == 0)
 }
-pub async fn abort(repo: &mut Repo) -> Result<()> {
+pub async fn abort(repo: &Repo) -> Result<()> {
     if !merging(repo).await? {
         return Err(Error::refused("No merge is in progress"));
     }
@@ -367,5 +366,5 @@ pub async fn default_branch(repo: &Repo) -> Result<String> {
             return Ok(name.into());
         }
     }
-    Ok(repo.status.branch.clone())
+    Ok(repo.snapshot().await?.branch)
 }

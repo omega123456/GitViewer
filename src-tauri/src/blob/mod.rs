@@ -15,8 +15,7 @@ pub async fn serve<R: tauri::Runtime>(
         .map(|(k, v)| (k.into_owned(), v.into_owned()))
         .collect();
     let get = |key: &str| args.get(key).map(String::as_str).unwrap_or_default();
-    let handle = app.state::<Registry>().get(get("repo")).await?;
-    let repo = handle.lock().await;
+    let repo = app.state::<Registry>().get(get("repo")).await?;
     let path = get("path");
     if diff::size(
         &repo,
