@@ -18,7 +18,7 @@ pub struct Session {
     reader: tokio::io::BufReader<tokio::process::ChildStdout>,
     stderr: Option<tokio::task::JoinHandle<std::io::Result<String>>>,
     lanes: Vec<String>,
-    pages: std::collections::HashMap<String, Page>,
+    kept: Option<(String, Page)>,
     next: String,
 }
 impl Session {
@@ -52,13 +52,13 @@ impl Session {
             reader: tokio::io::BufReader::new(stdout),
             stderr: Some(stderr),
             lanes: Vec::new(),
-            pages: std::collections::HashMap::new(),
+            kept: None,
             next: String::new(),
         })
     }
     async fn page(&mut self, cursor: &str) -> Result<Page> {
         use tokio::io::AsyncBufReadExt;
-        if let Some(page) = self.pages.get(cursor) {
+        if let Some((_, page)) = self.kept.as_ref().filter(|(kept, _)| kept == cursor) {
             return Ok(page.clone());
         }
         if cursor != self.next {
@@ -119,7 +119,7 @@ impl Session {
             commits,
             cursor: next,
         };
-        self.pages.insert(cursor.into(), page.clone());
+        self.kept = Some((cursor.into(), page.clone()));
         Ok(page)
     }
 }
@@ -131,7 +131,7 @@ pub async fn page(repo: &Repo, cursor: &str, path: &str) -> Result<Page> {
     if repo.history_stale.swap(false, Ordering::SeqCst) {
         histories.clear();
     }
-    if cursor.is_empty() && !histories.contains_key(path) {
+    if cursor.is_empty() {
         let session = Session::start(repo, path)?;
         histories.insert(path.into(), session);
     }

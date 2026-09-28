@@ -1,4 +1,4 @@
-use crate::{error::Result, git, repo::Repo};
+use crate::{error::Result, git, repo::Repository};
 use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{
     new_debouncer_opt, DebounceEventResult, DebouncedEvent, Debouncer, NoCache,
@@ -64,7 +64,13 @@ pub fn ignored_only(root: &Path, events: &[DebouncedEvent]) -> bool {
         .is_ok_and(|ignored| paths.iter().all(|path| ignored.contains(path)))
 }
 
-pub fn start(repo: &Repo, changed: impl Fn(Change) + Send + Sync + 'static) -> Result<()> {
+pub fn metadata_only(root: &Path, events: &[DebouncedEvent]) -> bool {
+    let metadata = root.join(".git");
+    let mut paths = events.iter().flat_map(|event| &event.paths).peekable();
+    paths.peek().is_some() && paths.all(|path| path == &metadata)
+}
+
+pub fn start(repo: &Repository, changed: impl Fn(Change) + Send + Sync + 'static) -> Result<()> {
     let mut watchers = repo
         .watchers
         .lock()
@@ -74,22 +80,27 @@ pub fn start(repo: &Repo, changed: impl Fn(Change) + Send + Sync + 'static) -> R
     }
     let root = repo.root.clone();
     let stale = repo.stale.clone();
-    let history_stale = repo.history_stale.clone();
+    let shared = Arc::downgrade(repo);
     let metadata = repo.root.join(".git");
     let head = metadata.join("HEAD");
     let packed = metadata.join("packed-refs");
     let references = metadata.join("refs");
     let notify = Arc::new(changed);
     let working_tree_notify = notify.clone();
-    let working_tree_stale = stale.clone();
     let mut working_tree = debouncer(WORKING_TREE_INTERVAL, move |result: DebounceEventResult| {
+        if result
+            .as_ref()
+            .is_ok_and(|events| metadata_only(&root, events))
+        {
+            return;
+        }
         if result
             .as_ref()
             .is_ok_and(|events| ignored_only(&root, events))
         {
             working_tree_notify(Change::Files);
         } else {
-            working_tree_stale.store(true, Ordering::SeqCst);
+            stale.store(true, Ordering::SeqCst);
             working_tree_notify(Change::Status);
         }
     })?;
@@ -103,21 +114,29 @@ pub fn start(repo: &Repo, changed: impl Fn(Change) + Send + Sync + 'static) -> R
     }
     let referenced = references.clone();
     let mut git_metadata = debouncer(METADATA_INTERVAL, move |result: DebounceEventResult| {
+        let Some(repo) = shared.upgrade() else {
+            return;
+        };
         let head_changed = result.as_ref().map_or(true, |events| {
             events
                 .iter()
                 .flat_map(|event| &event.paths)
                 .any(|path| path == &head || path == &packed || path.starts_with(&referenced))
         });
-        stale.store(true, Ordering::SeqCst);
         if head_changed {
-            history_stale.store(true, Ordering::SeqCst);
+            repo.stale.store(true, Ordering::SeqCst);
+            repo.history_stale.store(true, Ordering::SeqCst);
+            notify(Change::Head);
+            return;
         }
-        notify(if head_changed {
-            Change::Head
-        } else {
-            Change::Status
-        });
+        match tauri::async_runtime::block_on(repo.reread()) {
+            Ok(reread) if !reread.changed => {}
+            Ok(_) => notify(Change::Status),
+            Err(_) => {
+                repo.stale.store(true, Ordering::SeqCst);
+                notify(Change::Status);
+            }
+        }
     })?;
     git_metadata.watch(&metadata, RecursiveMode::NonRecursive)?;
     if references.is_dir() {

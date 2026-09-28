@@ -1,3 +1,4 @@
+import './renders';
 import '@testing-library/jest-dom/vitest';
 import './harness';
 import { afterEach, beforeEach, vi } from 'vitest';
@@ -22,6 +23,14 @@ import { useTheme } from '../stores/theme';
 import { useDensity } from '../stores/density';
 import { useUpdate } from '../stores/update';
 import { resetHarness } from './harness';
+import { renders } from './renders';
+import { terminate } from '../lib/highlight';
+import {
+  highlightWorker,
+  type Job,
+  type Reply,
+  type Request,
+} from '../lib/highlight.worker';
 const rect = {
   width: 800,
   height: 600,
@@ -111,6 +120,74 @@ vi.stubGlobal(
     }
   },
 );
+function later(run: () => void) {
+  const channel = new MessageChannel();
+  channel.port1.onmessage = () => {
+    channel.port1.close();
+    run();
+  };
+  channel.port2.postMessage(null);
+}
+export const workers = {
+  created: 0,
+  jobs: [] as Job[],
+  cancels: [] as number[],
+  held: false,
+  queued: [] as (() => void)[],
+  failing: false,
+  live: undefined as HighlightWorkerStub | undefined,
+};
+export function release(count = Infinity) {
+  workers.queued.splice(0, count).forEach(later);
+}
+class HighlightWorkerStub extends EventTarget {
+  private handler = highlightWorker((reply) => this.reply(reply));
+  private open = new Set<number>();
+  private stopped = false;
+  constructor() {
+    super();
+    workers.created += 1;
+    workers.live = this;
+  }
+  postMessage(message: Request) {
+    if (message.type === 'cancel') {
+      workers.cancels.push(message.id);
+      this.open.delete(message.id);
+    } else {
+      workers.jobs.push(message);
+      this.open.add(message.id);
+    }
+    if (message.type === 'job' && workers.failing) {
+      this.reply({ id: message.id, failed: true });
+      return;
+    }
+    later(() => {
+      if (!this.stopped) this.handler.receive(message);
+    });
+  }
+  private reply(message: Reply) {
+    if ('failed' in message || message.done) this.open.delete(message.id);
+    const deliver = () => {
+      if (!this.stopped)
+        this.dispatchEvent(new MessageEvent('message', { data: message }));
+    };
+    if (workers.held) workers.queued.push(deliver);
+    else later(deliver);
+  }
+  terminate() {
+    this.stopped = true;
+    this.open.forEach((id) => this.handler.receive({ type: 'cancel', id }));
+    this.open.clear();
+    if (workers.live === this) workers.live = undefined;
+  }
+  fail(type: 'error' | 'messageerror') {
+    this.dispatchEvent(new Event(type));
+  }
+  languages() {
+    return this.handler.languages();
+  }
+}
+vi.stubGlobal('Worker', HighlightWorkerStub);
 vi.stubGlobal('matchMedia', () => ({
   matches: false,
   addEventListener: vi.fn(),
@@ -118,6 +195,15 @@ vi.stubGlobal('matchMedia', () => ({
 }));
 beforeEach(() => {
   resetHarness();
+  renders.reset();
+  Object.assign(workers, {
+    created: 0,
+    jobs: [],
+    cancels: [],
+    held: false,
+    queued: [],
+    failing: false,
+  });
   reports.clear();
   intersecting.initially = true;
   useUpdate.setState({ dismissedVersion: null });
@@ -149,6 +235,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  terminate();
   client.clear();
   vi.useRealTimers();
 });

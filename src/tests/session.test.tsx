@@ -72,6 +72,59 @@ describe('session persistence', () => {
     });
   });
 
+  it('opens every saved tab at once and applies them in session order', async () => {
+    mockCommand('session_get', () => ({
+      tabs: [
+        { path: '/a', message: 'first' },
+        { path: '/b', message: 'second' },
+        { path: '/missing', message: '' },
+        { path: '/c', message: 'third' },
+      ],
+      active: '/b',
+    }));
+    const pending = new Map<string, () => void>();
+    mockCommand(
+      'repo_open',
+      ({ path }) =>
+        new Promise((resolve, reject) => {
+          pending.set(path, () =>
+            path === '/missing'
+              ? reject(new Error('Repository unavailable'))
+              : resolve({ ...repository, id: path, name: path, root: path }),
+          );
+        }),
+    );
+    render(
+      <SessionProvider>
+        <div>Ready</div>
+      </SessionProvider>,
+    );
+    await waitFor(() => expect(pending.size).toBe(4));
+    expect(
+      calls
+        .filter(({ command }) => command === 'repo_open')
+        .map(({ args }) => (args as { path: string }).path),
+    ).toEqual(['/a', '/b', '/missing', '/c']);
+    expect(screen.queryByText('Ready')).not.toBeInTheDocument();
+    for (const path of ['/c', '/missing', '/b']) {
+      await act(async () => pending.get(path)?.());
+      expect(useTabs.getState().tabs).toEqual([]);
+      expect(screen.queryByText('Ready')).not.toBeInTheDocument();
+    }
+    await act(async () => pending.get('/a')?.());
+    await screen.findByText('Ready');
+    expect(
+      useTabs.getState().tabs.map(({ id, message }) => ({ id, message })),
+    ).toEqual([
+      { id: '/a', message: 'first' },
+      { id: '/b', message: 'second' },
+      { id: '/c', message: 'third' },
+    ]);
+    expect(useTabs.getState().active).toBe('/b');
+    expect(lastError('app')?.message).toBe('Repository unavailable');
+    expect(calls.some(({ command }) => command === 'refresh')).toBe(false);
+  });
+
   it('saves the sidebar size once a resize settles', async () => {
     render(
       <SessionProvider>

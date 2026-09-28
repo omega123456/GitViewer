@@ -97,7 +97,7 @@ fn logging_flushes_daily_files() {
 
 #[tokio::test]
 async fn session_commands_are_isolated_and_preserve_native_geometry() {
-    use gitviewer_lib::{ipc, lifecycle};
+    use gitviewer_lib::lifecycle;
     use serde_json::json;
     use tauri::Manager;
     let app = gitviewer_lib::configure(tauri::test::mock_builder())
@@ -111,27 +111,27 @@ async fn session_commands_are_isolated_and_preserve_native_geometry() {
         height: 800,
         maximized: false,
     });
-    ipc::dispatch(
+    super::ipc::dispatch(
         app.handle().clone(),
-        "session_set".into(),
+        "session_set",
         json!({"tabs":[{"path":"/repo","message":"draft"}],"active":"/repo"}),
     )
     .await
     .unwrap();
-    let state = ipc::dispatch(app.handle().clone(), "session_get".into(), json!({}))
+    let state = super::ipc::dispatch(app.handle().clone(), "session_get", json!({}))
         .await
         .unwrap();
     assert_eq!(state["active"], "/repo");
     assert_eq!(state["window"]["width"], 1200);
-    ipc::dispatch(
+    super::ipc::dispatch(
         app.handle().clone(),
-        "frontend_log".into(),
+        "frontend_log",
         json!({"message":"Test frontend error"}),
     )
     .await
     .unwrap();
     assert!(
-        ipc::dispatch(app.handle().clone(), "edit_menu".into(), json!({}))
+        super::ipc::dispatch(app.handle().clone(), "edit_menu", json!({}))
             .await
             .is_err()
     );
@@ -141,7 +141,7 @@ async fn session_commands_are_isolated_and_preserve_native_geometry() {
 
 #[tokio::test(start_paused = true)]
 async fn autosave_and_close_flush_the_latest_snapshot() {
-    use gitviewer_lib::{ipc, lifecycle};
+    use gitviewer_lib::lifecycle;
     use serde_json::json;
     use tauri::{Listener, Manager};
     let directory = tempfile::tempdir().unwrap();
@@ -152,9 +152,9 @@ async fn autosave_and_close_flush_the_latest_snapshot() {
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .unwrap();
     let store = app.state::<Store>();
-    ipc::dispatch(
+    super::ipc::dispatch(
         app.handle().clone(),
-        "session_set".into(),
+        "session_set",
         json!({"tabs":[{"path":"/repo","message":"autosaved"}],"active":"/repo"}),
     )
     .await
@@ -176,9 +176,9 @@ async fn autosave_and_close_flush_the_latest_snapshot() {
     assert!(!lifecycle::request_close(app.handle()));
     assert!(!lifecycle::request_close(app.handle()));
     assert_eq!(requests.load(std::sync::atomic::Ordering::SeqCst), 1);
-    ipc::dispatch(
+    super::ipc::dispatch(
         app.handle().clone(),
-        "session_close".into(),
+        "session_close",
         json!({"tabs":[{"path":"/repo","message":"final keystroke"}],"active":"/repo"}),
     )
     .await
@@ -229,7 +229,7 @@ async fn close_timeout_preserves_saved_state_and_failed_saves_cancel_exit() {
 
 #[tokio::test]
 async fn unsaved_edits_block_close_until_quit_discards_them() {
-    use gitviewer_lib::{ipc, lifecycle};
+    use gitviewer_lib::lifecycle;
     use serde_json::json;
     use tauri::{Listener, Manager};
     let directory = tempfile::tempdir().unwrap();
@@ -249,9 +249,9 @@ async fn unsaved_edits_block_close_until_quit_discards_them() {
     app.listen("session://save-requested", move |_| {
         counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     });
-    ipc::dispatch(
+    super::ipc::dispatch(
         app.handle().clone(),
-        "unsaved_set".into(),
+        "unsaved_set",
         json!({"paths":["src/main.rs"]}),
     )
     .await
@@ -264,16 +264,14 @@ async fn unsaved_edits_block_close_until_quit_discards_them() {
     assert_eq!(saves.load(std::sync::atomic::Ordering::SeqCst), 0);
     assert!(store.begin_close());
     store.cancel_close();
-    ipc::dispatch(app.handle().clone(), "quit".into(), json!({}))
+    super::ipc::dispatch(app.handle().clone(), "quit", json!({}))
         .await
         .unwrap();
     assert!(store.unsaved_paths().is_empty());
     assert_eq!(saves.load(std::sync::atomic::Ordering::SeqCst), 1);
-    assert!(ipc::dispatch(
-        app.handle().clone(),
-        "unsaved_set".into(),
-        json!({"paths":7})
-    )
-    .await
-    .is_err());
+    assert!(
+        super::ipc::dispatch(app.handle().clone(), "unsaved_set", json!({"paths":7}))
+            .await
+            .is_err()
+    );
 }

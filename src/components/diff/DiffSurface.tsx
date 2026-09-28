@@ -21,14 +21,6 @@ import { scrollPage } from './scroll';
 export interface DiffSurfaceHandle {
   scrollToRow: (index: number) => void;
 }
-function offsetWithin(block: HTMLElement | null, scroller: HTMLElement | null) {
-  if (!block || !scroller) return 0;
-  return (
-    block.getBoundingClientRect().top -
-    scroller.getBoundingClientRect().top +
-    scroller.scrollTop
-  );
-}
 export function DiffSurface({
   ref,
   rows,
@@ -43,6 +35,7 @@ export function DiffSurface({
   hunkAction,
   expansion,
   scroller,
+  scrollMargin = 0,
 }: {
   ref?: Ref<DiffSurfaceHandle>;
   rows: Row[];
@@ -57,6 +50,7 @@ export function DiffSurface({
   hunkAction: (hunk: number, action: string) => void;
   expansion: Expansion;
   scroller?: RefObject<HTMLDivElement | null>;
+  scrollMargin?: number;
 }) {
   const primary = useRef<HTMLDivElement>(null);
   const secondary = useRef<HTMLDivElement>(null);
@@ -74,9 +68,7 @@ export function DiffSurface({
     getItemKey: itemKey,
     getScrollElement: () => scroller?.current ?? primary.current,
     initialOffset: () => scroller?.current?.scrollTop ?? 0,
-    scrollMargin: scroller
-      ? offsetWithin(primary.current, scroller.current)
-      : 0,
+    scrollMargin,
     estimateSize: (index) =>
       rows[index].hunk !== undefined || rows[index].gap ? 24 : 20,
     overscan: 20,

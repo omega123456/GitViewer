@@ -67,6 +67,20 @@ test('large diffs keep a bounded DOM while scrolling', async ({ page }) => {
   ).toBeVisible();
   const viewer = page.getByLabel('Diff viewer');
   expect(await viewer.locator('code').count()).toBeLessThan(200);
+  await expect
+    .poll(() =>
+      viewer
+        .locator('.text-syntax')
+        .evaluateAll((spans) =>
+          spans.some(
+            (span) =>
+              !['', 'inherit'].includes(
+                (span as HTMLElement).style.getPropertyValue('--syntax-color'),
+              ),
+          ),
+        ),
+    )
+    .toBe(true);
   const after = page.getByLabel('Current version');
   await after.evaluate((element) => {
     element.scrollTop = element.scrollHeight / 2;

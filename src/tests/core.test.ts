@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createElement, type ReactNode } from 'react';
-import { renderHook } from '@testing-library/react';
-import { QueryClientProvider } from '@tanstack/react-query';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { QueryClientProvider, useInfiniteQuery } from '@tanstack/react-query';
 import { invoke, normalizeError } from '../lib/ipc';
 import {
   client,
@@ -21,7 +21,9 @@ import { usePalette } from '../stores/palette';
 import { useTheme } from '../stores/theme';
 import { useDensity } from '../stores/density';
 import { matches, runShortcut } from '../lib/keyboard';
-import { highlight } from '../lib/highlight';
+import { highlight, terminate, tokenize } from '../lib/highlight';
+import { highlightWorker, type Reply } from '../lib/highlight.worker';
+import { workers } from './setup';
 import { fuzzyFilter, fuzzyScore } from '../lib/fuzzy';
 import { diffRows, gaps } from '../components/diff/rows';
 import { fileCategory, folderGlyph, type FileCategory } from '../lib/file-type';
@@ -179,6 +181,114 @@ describe('IPC and events', () => {
     expect(client.getQueryState(['two', 'status'])).toBeDefined();
     stop();
     expect(queryKey('env', {})).toEqual(['app', 'env', {}]);
+  });
+  it('leaves reference-only queries alone on working-tree events', async () => {
+    const references = [
+      queryKey('stashes', { repo: 'one' }),
+      queryKey('branches', { repo: 'one' }),
+      queryKey('blame', { repo: 'one', path: 'a' }),
+      queryKey('merge_preview', { repo: 'one', name: 'feature' }),
+      queryKey('default_branch', { repo: 'one' }),
+      queryKey('commit_files', { repo: 'one', revision: 'a' }),
+    ];
+    for (const key of references) client.setQueryData(key, []);
+    client.setQueryData(queryKey('status', { repo: 'one' }), status);
+    const stop = await connectEvents();
+    emit('repo://status-changed', { repo: 'one' });
+    for (const key of references)
+      expect(client.getQueryState(key)?.isInvalidated, String(key[1])).toBe(
+        false,
+      );
+    expect(
+      client.getQueryState(queryKey('status', { repo: 'one' }))?.isInvalidated,
+    ).toBe(true);
+    emit('repo://head-changed', { repo: 'one' });
+    for (const key of references)
+      expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+    stop();
+  });
+  it('does not refetch mounted reference-only queries on a status change', async () => {
+    mockCommand('stashes', () => []);
+    mockCommand('branches', () => []);
+    mockCommand('blame', () => []);
+    mockCommand('merge_preview', () => ({
+      outcome: 'upToDate',
+      changed: 0,
+      conflicts: [],
+    }));
+    mockCommand('status', () => status);
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+    const { result } = renderHook(
+      () => [
+        useBackend('stashes', { repo: 'one' }),
+        useBackend('branches', { repo: 'one' }),
+        useBackend('blame', { repo: 'one', path: 'a' }),
+        useBackend('merge_preview', { repo: 'one', name: 'feature' }),
+        useBackend('status', { repo: 'one' }),
+      ],
+      { wrapper },
+    );
+    await waitFor(() =>
+      expect(result.current.every((query) => query.isSuccess)).toBe(true),
+    );
+    const stop = await connectEvents();
+    calls.length = 0;
+    act(() => emit('repo://status-changed', { repo: 'one' }));
+    await waitFor(() =>
+      expect(calls.map(({ command }) => command)).toEqual(['status']),
+    );
+    stop();
+  });
+  it('reloads only the first history page on a head change and keeps the list meanwhile', async () => {
+    const page = (cursor: string) => ({
+      commits: [{ hash: `after-${cursor || 'start'}` }],
+      cursor: cursor === 'two' ? null : cursor ? 'two' : 'one',
+    });
+    let release = () => {};
+    let hold = false;
+    mockCommand('history', ({ cursor }) =>
+      hold
+        ? new Promise((resolve) => {
+            release = () => resolve(page(cursor ?? '') as never);
+          })
+        : (page(cursor ?? '') as never),
+    );
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+    client.setQueryData(['one', 'history', ''], {
+      pages: [page(''), page('one'), page('two')],
+      pageParams: ['', 'one', 'two'],
+    });
+    const { result } = renderHook(
+      () =>
+        useInfiniteQuery({
+          queryKey: ['one', 'history', ''],
+          initialPageParam: '',
+          queryFn: ({ pageParam }) =>
+            invoke('history', { repo: 'one', path: '', cursor: pageParam }),
+          getNextPageParam: (last) => last.cursor ?? undefined,
+        }),
+      { wrapper },
+    );
+    expect(result.current.data?.pages).toHaveLength(3);
+    expect(calls).toHaveLength(0);
+    const stop = await connectEvents();
+    calls.length = 0;
+    hold = true;
+    act(() => emit('repo://head-changed', { repo: 'one' }));
+    await waitFor(() => expect(result.current.isFetching).toBe(true));
+    expect(result.current.data?.pages).toHaveLength(1);
+    expect(result.current.data?.pageParams).toEqual(['']);
+    expect(result.current.data?.pages[0].commits).toHaveLength(1);
+    expect(calls).toEqual([
+      { command: 'history', args: { repo: 'one', path: '', cursor: '' } },
+    ]);
+    await act(async () => release());
+    await waitFor(() => expect(result.current.isFetching).toBe(false));
+    expect(result.current.data?.pages).toHaveLength(1);
+    expect(calls).toHaveLength(1);
+    stop();
   });
   it('refreshes only file listings when ignored files change', async () => {
     const listings = [
@@ -599,15 +709,52 @@ describe('modifier labels and syntax overlays', () => {
           { content: 'const ', color: 'red' },
           { content: 'value', color: 'blue' },
         ],
-        [
-          { text: 'const va', changed: true },
-          { text: 'lue', changed: false },
-        ],
+        [[0, 8]],
       ),
     ).toEqual([
       { content: 'const ', color: 'red', changed: true },
       { content: 'va', color: 'blue', changed: true },
       { content: 'lue', color: 'blue', changed: false },
+    ]);
+  });
+  it('splits tokens at UTF-16 range boundaries around astral and multi-byte characters', async () => {
+    const { markedTokens } = await import('../lib/highlight');
+    const line = 'h\u00e9llo \u{1f389} w\u00f6rld';
+    const tokens = [
+      { content: 'h\u00e9llo ', color: 'a' },
+      { content: '\u{1f389} w', color: 'b' },
+      { content: '\u00f6rld' },
+    ];
+    const marked = markedTokens(tokens, [
+      [1, 2],
+      [6, 8],
+      [9, 14],
+    ]);
+    expect(marked.map((token) => token.content).join('')).toBe(line);
+    expect(marked).toEqual([
+      { content: 'h', color: 'a', changed: false },
+      { content: '\u00e9', color: 'a', changed: true },
+      { content: 'llo ', color: 'a', changed: false },
+      { content: '\u{1f389}', color: 'b', changed: true },
+      { content: ' ', color: 'b', changed: false },
+      { content: 'w', color: 'b', changed: true },
+      { content: '\u00f6rld', color: undefined, changed: true },
+    ]);
+    expect(markedTokens([{ content: 'plain' }], [])).toEqual([
+      { content: 'plain', color: undefined, changed: false },
+    ]);
+    expect(markedTokens([{ content: '' }], [[0, 0]])).toEqual([]);
+    expect(
+      markedTokens(
+        [{ content: 'abc' }],
+        [
+          [0, 1],
+          [1, 3],
+        ],
+      ),
+    ).toEqual([
+      { content: 'a', color: undefined, changed: true },
+      { content: 'bc', color: undefined, changed: true },
     ]);
   });
 });
@@ -814,5 +961,144 @@ describe('success notices', () => {
     expect(titles()).toEqual(['Pushed', 'A', 'B']);
     dismiss('r', useSuccesses.getState().scopes.r[0].id);
     expect(titles()).toEqual(['A', 'B']);
+  });
+});
+
+describe('highlighting worker', () => {
+  const code = (count: number) =>
+    Array.from(
+      { length: count },
+      (_, index) => `const row${index} = ${index};`,
+    );
+  function start(react: (reply: Reply) => void = () => {}) {
+    const replies: Reply[] = [];
+    const worker = highlightWorker((reply) => {
+      replies.push(reply);
+      react(reply);
+    });
+    const finished = (id: number) =>
+      replies.some(
+        (reply) => reply.id === id && ('failed' in reply || reply.done),
+      );
+    return { replies, worker, finished };
+  }
+  const chunksOf = (replies: Reply[], id: number) =>
+    replies.flatMap((reply) =>
+      reply.id === id && !('failed' in reply) ? [reply] : [],
+    );
+  it('delivers 500-line chunks and carries the grammar state across them', async () => {
+    const { replies, worker, finished } = start();
+    const lines = code(1200);
+    lines[498] = '/*';
+    lines[499] = 'still a comment';
+    lines[500] = 'still a comment';
+    lines[501] = '*/';
+    worker.receive({ type: 'job', id: 1, path: 'a.ts', dark: false, lines });
+    await waitFor(() => expect(finished(1)).toBe(true));
+    const chunks = chunksOf(replies, 1);
+    expect(
+      chunks.map(({ start, lines, done }) => [start, lines.length, done]),
+    ).toEqual([
+      [0, 500, false],
+      [500, 500, false],
+      [1000, 200, true],
+    ]);
+    const tokens = chunks.flatMap((chunk) => chunk.lines);
+    const comment = tokens[498][0].color;
+    expect(comment).toBeDefined();
+    expect(tokens[499][0].color).toBe(comment);
+    expect(tokens[500][0].color).toBe(comment);
+    expect(tokens[502].some((token) => token.color !== comment)).toBe(true);
+    expect(worker.languages()).toContain('typescript');
+  });
+  it('leaves an overlong line as one uncoloured token and plain text for unknown languages', async () => {
+    const { replies, worker, finished } = start();
+    const long = `const text = "${'a'.repeat(2500)}";`;
+    worker.receive({
+      type: 'job',
+      id: 1,
+      path: 'notes.unknown',
+      dark: true,
+      lines: ['plain', ''],
+    });
+    await waitFor(() => expect(finished(1)).toBe(true));
+    expect(chunksOf(replies, 1)[0].lines).toEqual([
+      [{ content: 'plain' }],
+      [{ content: '' }],
+    ]);
+    expect(worker.languages()).toEqual([]);
+    worker.receive({
+      type: 'job',
+      id: 2,
+      path: 'a.ts',
+      dark: false,
+      lines: ['const shown = 1;', long, 'const after = 2;'],
+    });
+    await waitFor(() => expect(finished(2)).toBe(true));
+    const [first, capped, after] = chunksOf(replies, 2)[0].lines;
+    expect(capped).toEqual([{ content: long }]);
+    expect(first.some((token) => token.color)).toBe(true);
+    expect(after.some((token) => token.color)).toBe(true);
+  });
+  it('interleaves queued jobs, stops cancelled ones at a chunk boundary, and reports failures', async () => {
+    const { replies, worker, finished } = start((reply) => {
+      if (reply.id === 3) worker.receive({ type: 'cancel', id: 3 });
+    });
+    const job = (id: number, lines: string[]) =>
+      worker.receive({ type: 'job', id, path: 'a.ts', dark: false, lines });
+    job(1, code(1500));
+    job(2, code(10));
+    job(3, code(1500));
+    job(4, code(10));
+    worker.receive({ type: 'cancel', id: 4 });
+    job(5, undefined as unknown as string[]);
+    await waitFor(() => expect(finished(1) && finished(5)).toBe(true));
+    const small = replies.findIndex((reply) => reply.id === 2);
+    const large = replies.findIndex(
+      (reply) => reply.id === 1 && !('failed' in reply) && reply.done,
+    );
+    expect(small).toBeGreaterThanOrEqual(0);
+    expect(small).toBeLessThan(large);
+    expect(chunksOf(replies, 3)).toHaveLength(1);
+    expect(replies.some((reply) => reply.id === 4)).toBe(false);
+    expect(replies).toContainEqual({ id: 5, failed: true });
+  });
+  it('serves one-shot requests and survives fake timers', async () => {
+    vi.useFakeTimers();
+    const lines = await highlight(code(1200).join('\n'), 'a.ts', true);
+    expect(lines).toHaveLength(1200);
+    expect(lines[1199].some((token) => token.color)).toBe(true);
+    vi.useRealTimers();
+    workers.failing = true;
+    expect(await highlight('const a = 1;\nb', 'a.ts', false)).toEqual([
+      [{ content: 'const a = 1;' }],
+      [{ content: 'b' }],
+    ]);
+  });
+  it('fails every pending job to plain tokens when the worker breaks, then starts afresh', async () => {
+    for (const type of ['error', 'messageerror'] as const) {
+      workers.held = true;
+      const streamed: [number, number, boolean][] = [];
+      tokenize(['a', 'b'], 'a.ts', false, (start, lines, done) =>
+        streamed.push([start, lines.length, done]),
+      );
+      const oneShot = highlight('x', 'a.ts', false);
+      const broken = workers.live!;
+      await waitFor(() => expect(workers.queued.length).toBe(2));
+      act(() => broken.fail(type));
+      expect(streamed).toEqual([[0, 2, true]]);
+      expect(await oneShot).toEqual([[{ content: 'x' }]]);
+      workers.held = false;
+      workers.queued = [];
+      const before = workers.created;
+      expect(await highlight('y', 'a.ts', false)).toHaveLength(1);
+      expect(workers.created).toBe(before + 1);
+      expect(workers.live).not.toBe(broken);
+    }
+    workers.held = true;
+    const pending = highlight('z', 'a.ts', false);
+    terminate();
+    expect(await pending).toEqual([[{ content: 'z' }]]);
+    expect(workers.live).toBeUndefined();
   });
 });

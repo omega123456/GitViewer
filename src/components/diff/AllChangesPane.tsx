@@ -1,4 +1,16 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type RefObject,
+  type SetStateAction,
+} from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   CheckCircle2,
   ChevronDown,
@@ -36,7 +48,7 @@ import { DiffSourcePill } from './DiffSourcePill';
 import { DiffSurface } from './DiffSurface';
 import { FullFileButton } from './DiffToolbar';
 import { canEdit } from './editable';
-import { useExpansion } from './expansion';
+import { useExpansion, type Openings } from './expansion';
 import { runHunkAction } from './hunks';
 import { diffRows } from './rows';
 import { viewStack } from './stack';
@@ -44,6 +56,7 @@ import { useTokens } from './tokens';
 import { scrollPage } from './scroll';
 const context = 3;
 const settle = 150;
+const shut: Openings = {};
 interface Batch {
   data?: DiffStack;
   error: Error | null;
@@ -59,6 +72,16 @@ function note(data: Diff | undefined, error: Error | null) {
     return 'No content change.';
   return null;
 }
+function estimate(data: Diff | undefined, open: boolean) {
+  const header = 35;
+  if (!open) return header;
+  if (!data || data.image || note(data, null)) return header + 128;
+  const lines =
+    data.content !== null
+      ? data.content.split('\n').length
+      : data.hunks.reduce((sum, hunk) => sum + hunk.lines.length, 0);
+  return header + lines * 20 + data.hunks.length * 24;
+}
 const titles = {
   staged: 'Staged changes',
   unstaged: 'Changes',
@@ -71,7 +94,7 @@ const labels = {
   commit: 'All changes in commit',
   compare: 'All changes between branches',
 };
-export function AllChangesPane({
+export const AllChangesPane = memo(function AllChangesPane({
   repo,
   stack,
   commit,
@@ -95,38 +118,43 @@ export function AllChangesPane({
   );
   const comparison = useComparison(repo, status, stack === 'compare');
   const compared = comparison.data;
-  const entries =
-    stack === 'commit'
-      ? Object.entries(files.data ?? {}).map(([path, badge]) => ({
-          selection: { ...commit!, path },
-          badge,
-        }))
-      : stack === 'compare'
-        ? (compared?.files ?? []).map((file) => ({
-            selection: {
-              path: file.path,
-              source: 'compare' as const,
-              base: compared!.base,
-              revision: compared!.target,
-            },
-            badge: file.status,
+  const entries = useMemo(
+    () =>
+      stack === 'commit'
+        ? Object.entries(files.data ?? {}).map(([path, badge]) => ({
+            selection: { ...commit!, path },
+            badge,
           }))
-        : groupEntries(status, stack, filter).map((entry) => ({
-            selection: {
-              path: entry.path,
-              source:
-                stack === 'staged'
-                  ? ('staged' as const)
-                  : entry.index === '?'
-                    ? ('file' as const)
-                    : ('unstaged' as const),
-            },
-            badge: stack === 'staged' ? entry.index : entry.worktree,
-          }));
-  const byPath = new Map(entries.map((entry) => [entry.selection.path, entry]));
-  const ordered = treeOrder([...byPath.keys()]).map((path) =>
-    byPath.get(path)!,
+        : stack === 'compare'
+          ? (compared?.files ?? []).map((file) => ({
+              selection: {
+                path: file.path,
+                source: 'compare' as const,
+                base: compared!.base,
+                revision: compared!.target,
+              },
+              badge: file.status,
+            }))
+          : groupEntries(status, stack, filter).map((entry) => ({
+              selection: {
+                path: entry.path,
+                source:
+                  stack === 'staged'
+                    ? ('staged' as const)
+                    : entry.index === '?'
+                      ? ('file' as const)
+                      : ('unstaged' as const),
+              },
+              badge: stack === 'staged' ? entry.index : entry.worktree,
+            })),
+    [stack, files.data, commit, compared, status, filter],
   );
+  const ordered = useMemo(() => {
+    const byPath = new Map(
+      entries.map((entry) => [entry.selection.path, entry]),
+    );
+    return treeOrder([...byPath.keys()]).map((path) => byPath.get(path)!);
+  }, [entries]);
   const listing =
     stack === 'commit'
       ? files.isPending
@@ -145,19 +173,40 @@ export function AllChangesPane({
     stackArgs ?? { repo, source: 'unstaged' },
     Boolean(stackArgs),
   );
-  const batch: Batch = {
-    data: stacked.data,
-    error: stacked.error,
-    settled: stacked.isSuccess && !stacked.isFetching,
-    version: stacked.dataUpdatedAt,
-  };
+  const settled = stacked.isSuccess && !stacked.isFetching;
+  const batch = useMemo<Batch>(
+    () => ({
+      data: stacked.data,
+      error: stacked.error,
+      settled,
+      version: stacked.dataUpdatedAt,
+    }),
+    [stacked.data, stacked.error, settled, stacked.dataUpdatedAt],
+  );
+  const [closed, setClosed] = useState<Record<string, boolean>>({});
+  const [openings, setOpenings] = useState<Record<string, Openings>>({});
   const scroller = useRef<HTMLDivElement>(null);
-  const [, relayout] = useState(0);
+  const eager = useRef(true);
+  const itemKey = useCallback(
+    (index: number) => ordered[index].selection.path,
+    [ordered],
+  );
+  const virtual = useVirtualizer({
+    count: ordered.length,
+    getItemKey: itemKey,
+    getScrollElement: () => scroller.current,
+    initialOffset: () => scroller.current?.scrollTop ?? 0,
+    estimateSize: (index) =>
+      estimate(
+        batch.data?.files[ordered[index].selection.path],
+        !closed[ordered[index].selection.path],
+      ),
+    overscan: 2,
+  });
+  const laidOut = (virtual.scrollRect?.height ?? 0) > 0;
   useEffect(() => {
-    const observer = new ResizeObserver(() => relayout((n) => n + 1));
-    if (scroller.current) observer.observe(scroller.current.firstElementChild!);
-    return () => observer.disconnect();
-  }, []);
+    if (laidOut && ordered.length) eager.current = false;
+  });
   return (
     <section
       className="flex h-full min-w-0 flex-col"
@@ -229,29 +278,52 @@ export function AllChangesPane({
               This group is empty.
             </State>
           ) : (
-            ordered.map((entry) => (
-              <FileDiff
-                key={entry.selection.path}
-                repo={repo}
-                selection={entry.selection}
-                badge={entry.badge}
-                batch={batch}
-                settings={settings}
-                disabled={disabled}
-                scroller={scroller}
-              />
-            ))
+            <div
+              className="relative h-virtual"
+              style={dynamic({
+                '--virtual-height': `${virtual.getTotalSize()}px`,
+              })}
+            >
+              {virtual.getVirtualItems().map((item) => {
+                const entry = ordered[item.index];
+                const path = entry.selection.path;
+                return (
+                  <div
+                    key={item.key}
+                    ref={virtual.measureElement}
+                    data-index={item.index}
+                    className="absolute top-0 left-0 w-full translate-y-row"
+                    style={dynamic({ '--row-offset': `${item.start}px` })}
+                  >
+                    <FileDiff
+                      repo={repo}
+                      selection={entry.selection}
+                      badge={entry.badge}
+                      batch={batch}
+                      settings={settings}
+                      disabled={disabled}
+                      scroller={scroller}
+                      start={item.start}
+                      closed={Boolean(closed[path])}
+                      setClosed={setClosed}
+                      opening={openings[path]}
+                      setOpenings={setOpenings}
+                      eager={eager}
+                    />
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       </div>
     </section>
   );
-}
+});
 function useGate(
   box: RefObject<HTMLDivElement | null>,
   scroller: RefObject<HTMLDivElement | null>,
-  margin: string,
-  delay: number,
+  eager: RefObject<boolean>,
   report: (visible: boolean) => void,
 ) {
   const latest = useRef(report);
@@ -260,25 +332,25 @@ function useGate(
   });
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let immediate = true;
+    let immediate = eager.current;
     const observer = new IntersectionObserver(
       (entries) => {
         const visible = entries[entries.length - 1].isIntersecting;
         clearTimeout(timer);
-        if (immediate || !delay) latest.current(visible);
-        else timer = setTimeout(() => latest.current(visible), delay);
+        if (immediate) latest.current(visible);
+        else timer = setTimeout(() => latest.current(visible), settle);
         immediate = false;
       },
-      { root: scroller.current, rootMargin: margin },
+      { root: scroller.current, rootMargin: '400px' },
     );
     observer.observe(box.current!);
     return () => {
       clearTimeout(timer);
       observer.disconnect();
     };
-  }, [box, scroller, margin, delay]);
+  }, [box, scroller, eager]);
 }
-function FileDiff({
+const FileDiff = memo(function FileDiff({
   repo,
   selection,
   badge,
@@ -286,6 +358,12 @@ function FileDiff({
   settings,
   disabled,
   scroller,
+  start,
+  closed,
+  setClosed,
+  opening,
+  setOpenings,
+  eager,
 }: {
   repo: string;
   selection: Selection;
@@ -294,23 +372,25 @@ function FileDiff({
   settings: Settings;
   disabled: boolean;
   scroller: RefObject<HTMLDivElement | null>;
+  start: number;
+  closed: boolean;
+  setClosed: Dispatch<SetStateAction<Record<string, boolean>>>;
+  opening?: Openings;
+  setOpenings: Dispatch<SetStateAction<Record<string, Openings>>>;
+  eager: RefObject<boolean>;
 }) {
-  const [open, setOpen] = useState(true);
+  const path = selection.path;
+  const open = !closed;
   const box = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
-  const height = useRef<number | null>(null);
   const [near, setNear] = useState(false);
   const [mounted, setMounted] = useState(false);
-  useGate(box, scroller, '400px', settle, (visible) => {
+  const [inner, setInner] = useState(0);
+  useGate(box, scroller, eager, (visible) => {
     setNear(visible);
     if (visible) setMounted(true);
   });
-  useGate(box, scroller, '2000px', 0, (visible) => {
-    if (visible) return;
-    if (body.current) height.current = body.current.offsetHeight;
-    setMounted(false);
-  });
-  const entry = batch.data?.files[selection.path];
+  const entry = batch.data?.files[path];
   const missing = batch.settled && !entry;
   const fallback = useBackend(
     'diff',
@@ -322,8 +402,20 @@ function FileDiff({
     ? null
     : (batch.error ?? (missing ? fallback.error : null));
   const version = entry ? batch.version : fallback.dataUpdatedAt;
-  const expansion = useExpansion(repo, selection, data);
-  const tokens = useTokens(data, selection.path, near, expansion.reveal.lines);
+  const setOpening = useCallback(
+    (action: SetStateAction<Openings>) =>
+      setOpenings((all) => ({
+        ...all,
+        [path]:
+          typeof action === 'function' ? action(all[path] ?? shut) : action,
+      })),
+    [path, setOpenings],
+  );
+  const expansion = useExpansion(repo, selection, data, [
+    opening ?? shut,
+    setOpening,
+  ]);
+  const tokens = useTokens(data, path, near, expansion.reveal.lines);
   const mode = useDiffView((s) => s.mode) ?? settings.diffMode;
   const split = mode === 'split' && data?.content === null;
   const rows = useMemo(
@@ -337,22 +429,30 @@ function FileDiff({
       removed: lines.filter((line) => line.kind === 'remove').length,
     };
   }, [data]);
-  const cut = selection.path.lastIndexOf('/') + 1;
+  const hunkAction = useCallback(
+    (hunk: number, action: string) =>
+      void runHunkAction(repo, selection, data!, hunk, action),
+    [repo, selection, data],
+  );
   const message = note(data, error);
-  const estimate = data?.image
+  const surface = open && !message && mounted;
+  useLayoutEffect(() => {
+    setInner(body.current?.offsetTop ?? 0);
+  }, [surface]);
+  const cut = selection.path.lastIndexOf('/') + 1;
+  const reserved = data?.image
     ? null
     : rows.reduce(
         (sum, row) => sum + (row.hunk === undefined && !row.gap ? 20 : 24),
         0,
       );
-  const reserved = height.current ?? estimate;
   return (
     <div ref={box} className="border-b border-line dark:border-line-dark">
       <div className="sticky top-0 z-10 flex h-tab items-center gap-1 bg-sub pr-3 dark:bg-sub-dark">
         <button
           type="button"
           aria-expanded={open}
-          onClick={() => setOpen(!open)}
+          onClick={() => setClosed((all) => ({ ...all, [path]: !all[path] }))}
           className={`flex h-full min-w-0 flex-1 items-center gap-2 pl-3 text-sm ${focus}`}
         >
           {open ? (
@@ -450,9 +550,8 @@ function FileDiff({
                 source={selection.source}
                 disabled={disabled}
                 scroller={scroller}
-                hunkAction={(hunk, action) =>
-                  void runHunkAction(repo, selection, data!, hunk, action)
-                }
+                scrollMargin={start + inner}
+                hunkAction={hunkAction}
                 expansion={expansion}
               />
             )}
@@ -460,4 +559,4 @@ function FileDiff({
         ))}
     </div>
   );
-}
+});

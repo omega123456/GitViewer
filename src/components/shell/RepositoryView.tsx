@@ -19,6 +19,7 @@ import {
   Upload,
   X,
 } from 'lucide-react';
+import { memo } from 'react';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { useActions } from '../../lib/actions';
 import { perform, useBackend } from '../../lib/query';
@@ -27,8 +28,17 @@ import type { SettingsResponse } from '../../lib/types';
 import { useBusy } from '../../stores/activity';
 import { useCommit } from '../../stores/commit';
 import { useGenerate, useGenerateState } from '../../stores/generate';
-import { type CommitMode, useMessage, useTabs } from '../../stores/tabs';
-import { useLayout, useTabLayout } from '../../stores/layout';
+import {
+  type CommitMode,
+  tabMessage,
+  useHasMessage,
+  useTabs,
+} from '../../stores/tabs';
+import {
+  useLayout,
+  useSidebarMode,
+  useSidebarWidth,
+} from '../../stores/layout';
 import {
   tabKey,
   useAllChanges,
@@ -36,7 +46,7 @@ import {
   useFileTabs,
   useSelection,
 } from '../../stores/selection';
-import { useFilter } from '../../stores/filter';
+import { useFilterStore } from '../../stores/filter';
 import { Button } from '../shared/Button';
 import { dynamic } from '../shared/styles';
 import { ErrorState } from '../states/Errors';
@@ -58,7 +68,7 @@ import { StashSection } from '../stash/StashSection';
 import { ResizeHandle } from './ResizeHandle';
 import { StatusBar } from './StatusBar';
 import { Toolbar } from './Toolbar';
-export function RepositoryView({
+export const RepositoryView = memo(function RepositoryView({
   repo,
   settings,
   version,
@@ -70,12 +80,12 @@ export function RepositoryView({
   const query = useBackend('status', { repo });
   const busy = useBusy(repo);
   const generate = useGenerateState(repo);
-  const message = useMessage(repo);
-  const filter = useFilter(repo);
-  const layout = useTabLayout(repo);
-  const select = useCurrentSelection(repo, layout.mode);
+  const hasMessage = useHasMessage(repo);
+  const mode = useSidebarMode(repo);
+  const sidebarWidth = useSidebarWidth(repo);
+  const select = useCurrentSelection(repo, mode);
   const all = useAllChanges(repo);
-  const fileTabs = useFileTabs(repo, layout.mode);
+  const fileTabs = useFileTabs(repo, mode);
   const status = query.data;
   const disabled = busy || !status || status.conflicted;
   const conflicts = (status?.entries ?? []).filter(
@@ -84,9 +94,8 @@ export function RepositoryView({
   const selectedEntry = status?.entries.find(
     (entry) => entry.path === select?.path,
   );
-  const sidebarWidth =
-    layout.mode === 'working' ? layout.width : layout.historyWidth;
   const moveFile = (direction: number) => {
+    const filter = (useFilterStore.getState().text[repo] ?? '').toLowerCase();
     const files =
       status?.entries
         .flatMap((entry) => [
@@ -105,9 +114,7 @@ export function RepositoryView({
               ]
             : []),
         ])
-        .filter((entry) =>
-          entry.path.toLowerCase().includes(filter.toLowerCase()),
-        ) ?? [];
+        .filter((entry) => entry.path.toLowerCase().includes(filter)) ?? [];
     if (!files.length) return;
     const current = files.findIndex(
       (entry) => entry.path === select?.path && entry.source === select.source,
@@ -136,10 +143,11 @@ export function RepositoryView({
   );
   const changes = status?.entries.map((entry) => entry.path) ?? [];
   const committable =
-    Boolean(message.trim()) &&
+    hasMessage &&
     (staged || (changes.length > 0 && settings.smartCommit !== 'never'));
   const commit = (mode: CommitMode) => {
     const store = useCommit.getState();
+    const message = tabMessage(repo);
     if (staged) return store.run(repo, { message, mode, stage: [] });
     if (settings.smartCommit === 'always')
       return store.run(repo, { message, mode, stage: changes });
@@ -160,7 +168,7 @@ export function RepositoryView({
       key: 's',
       disabled:
         disabled ||
-        layout.mode !== 'working' ||
+        mode !== 'working' ||
         !selectedEntry ||
         selectedEntry.worktree === '.',
       run: () =>
@@ -177,7 +185,7 @@ export function RepositoryView({
       key: 'u',
       disabled:
         disabled ||
-        layout.mode !== 'working' ||
+        mode !== 'working' ||
         !selectedEntry ||
         ['.', '?'].includes(selectedEntry.index),
       run: () =>
@@ -194,7 +202,7 @@ export function RepositoryView({
       key: 'Mod+Shift+d',
       disabled:
         disabled ||
-        layout.mode !== 'working' ||
+        mode !== 'working' ||
         !selectedEntry ||
         ['.', '?'].includes(selectedEntry.worktree),
       run: discard,
@@ -283,7 +291,7 @@ export function RepositoryView({
       key: 'Mod+h',
       run: () =>
         useLayout.getState().update(repo, {
-          mode: layout.mode === 'history' ? 'working' : 'history',
+          mode: mode === 'history' ? 'working' : 'history',
         }),
     },
     {
@@ -314,8 +322,7 @@ export function RepositoryView({
       key: 'Mod+w',
       disabled: !select?.path,
       run: () =>
-        select &&
-        useSelection.getState().closeTab(repo, layout.mode, tabKey(select)),
+        select && useSelection.getState().closeTab(repo, mode, tabKey(select)),
     },
     {
       id: 'next-file-tab',
@@ -323,7 +330,7 @@ export function RepositoryView({
       label: 'Next file tab',
       key: 'Ctrl+Tab',
       disabled: fileTabs.length < 2,
-      run: () => useSelection.getState().cycleTab(repo, layout.mode, 1),
+      run: () => useSelection.getState().cycleTab(repo, mode, 1),
     },
     {
       id: 'previous-file-tab',
@@ -331,7 +338,7 @@ export function RepositoryView({
       label: 'Previous file tab',
       key: 'Ctrl+Shift+Tab',
       disabled: fileTabs.length < 2,
-      run: () => useSelection.getState().cycleTab(repo, layout.mode, -1),
+      run: () => useSelection.getState().cycleTab(repo, mode, -1),
     },
     {
       id: 'next-tab',
@@ -404,7 +411,7 @@ export function RepositoryView({
           <SidebarModeToggle repo={repo} />
           <div
             className={
-              layout.mode === 'working'
+              mode === 'working'
                 ? 'flex min-h-0 flex-1 flex-col overflow-y-auto'
                 : 'hidden'
             }
@@ -415,17 +422,13 @@ export function RepositoryView({
           </div>
           <div
             className={
-              layout.mode === 'history'
-                ? 'flex min-h-0 flex-1 flex-col'
-                : 'hidden'
+              mode === 'history' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'
             }
           >
             <CommitList repo={repo} />
           </div>
-          {layout.mode === 'compare' && (
-            <CompareSection repo={repo} status={status} />
-          )}
-          {layout.mode === 'working' && (
+          {mode === 'compare' && <CompareSection repo={repo} status={status} />}
+          {mode === 'working' && (
             <CommitFooter
               repo={repo}
               status={status}
@@ -450,19 +453,19 @@ export function RepositoryView({
               .getState()
               .update(
                 repo,
-                layout.mode === 'working' ? { width } : { historyWidth: width },
+                mode === 'working' ? { width } : { historyWidth: width },
               )
           }
         />
         <div className="flex min-w-0 flex-1 flex-col">
-          <FileTabStrip repo={repo} mode={layout.mode} />
+          <FileTabStrip repo={repo} mode={mode} />
           <div className="min-h-0 flex-1">
             {all &&
             (all === 'commit'
-              ? layout.mode !== 'compare' && select?.revision
+              ? mode !== 'compare' && select?.revision
               : all === 'compare'
-                ? layout.mode === 'compare'
-                : layout.mode === 'working') ? (
+                ? mode === 'compare'
+                : mode === 'working') ? (
               <AllChangesPane
                 repo={repo}
                 stack={all}
@@ -485,7 +488,7 @@ export function RepositoryView({
       <StatusBar repo={repo} status={status} version={version} />
     </>
   );
-}
+});
 function moveTab(direction: number) {
   const state = useTabs.getState();
   const index = state.tabs.findIndex((tab) => tab.id === state.active);

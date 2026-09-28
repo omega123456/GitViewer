@@ -244,22 +244,16 @@ async fn development_and_missing_configuration_never_access_the_backend() {
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .unwrap();
     gitviewer_lib::updater::setup(app.handle()).unwrap();
-    let result = gitviewer_lib::ipc::dispatch(
-        app.handle().clone(),
-        "update_get".into(),
-        serde_json::json!({}),
-    )
-    .await
-    .unwrap();
+    let result = super::ipc::dispatch(app.handle().clone(), "update_get", serde_json::json!({}))
+        .await
+        .unwrap();
     assert_eq!(result["availability"], "development");
     for command in ["update_check", "update_install", "update_quit"] {
-        assert!(gitviewer_lib::ipc::dispatch(
-            app.handle().clone(),
-            command.into(),
-            serde_json::json!({})
-        )
-        .await
-        .is_err());
+        assert!(
+            super::ipc::dispatch(app.handle().clone(), command, serde_json::json!({}))
+                .await
+                .is_err()
+        );
     }
 }
 

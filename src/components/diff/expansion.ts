@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { useBackend } from '../../lib/query';
 import type { Diff, Selection } from '../../lib/types';
 import { gaps, hidden, type Gap, type Opening, type Reveal } from './rows';
 export const step = 20;
 export type Direction = 'down' | 'up' | 'all';
+export type Openings = Record<string, Opening>;
 export interface Expansion {
   reveal: Reveal;
   available: boolean;
@@ -17,8 +18,10 @@ export function useExpansion(
   repo: string,
   selection: Selection,
   data: Diff | undefined,
+  controlled?: [Openings, Dispatch<SetStateAction<Openings>>],
 ): Expansion {
-  const [open, setOpen] = useState<Record<string, Opening>>({});
+  const local = useState<Openings>({});
+  const [open, setOpen] = controlled ?? local;
   const list = useMemo(() => (data ? gaps(data) : []), [data]);
   const wanted = list.length > 0 && Object.keys(open).length > 0;
   const text = useBackend(

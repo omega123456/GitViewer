@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { FileWarning, RotateCcw, Search } from 'lucide-react';
 import { isolateHistory } from '@codemirror/commands';
 import { openSearchPanel } from '@codemirror/search';
@@ -9,11 +9,13 @@ import type { Opened } from '../../lib/types';
 import {
   approveDiscard,
   conflict,
+  current,
   drop,
   fileName,
   keepEdits,
   openBuffer,
   reload,
+  remember,
   save,
   track,
   useBuffer,
@@ -126,18 +128,30 @@ function Editor({
   const [language, setLanguage] = useState(
     () => describeLanguage(path)?.name ?? 'Plain text',
   );
-  const initial = useRef(buffer.state);
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const latest = current(repo, path);
     const created = new EditorView({
-      state: initial.current,
+      state: latest?.state,
       parent: host.current!,
       dispatchTransactions: (transactions: readonly Transaction[], target) => {
         target.update(transactions);
         track(repo, path, target.state);
       },
     });
+    const scroll = latest?.scroll;
+    if (scroll)
+      created.requestMeasure({
+        read: () => null,
+        write: () => {
+          created.scrollDOM.scrollTop = scroll;
+        },
+      });
+    if (latest?.focused) created.focus();
     setView(created);
-    return () => created.destroy();
+    return () => {
+      remember(repo, path, created.scrollDOM.scrollTop, created.hasFocus);
+      created.destroy();
+    };
   }, [repo, path]);
   useEffect(() => {
     if (view && view.state !== buffer.state) view.setState(buffer.state);

@@ -3,29 +3,42 @@ use crate::{
     error::{Error, Result},
     git,
     repo::Repo,
+    status::Entry,
 };
+use std::collections::{HashMap, HashSet};
 
+fn pathspec<'a>(paths: impl IntoIterator<Item = &'a String>) -> Vec<u8> {
+    paths
+        .into_iter()
+        .flat_map(|path| path.bytes().chain([0]))
+        .collect()
+}
 pub async fn files(repo: &Repo, paths: &[String], action: &str) -> Result<()> {
     let status = repo.writable().await?;
     if paths.is_empty() {
         return Err(Error::refused("Select a file first"));
     }
+    let mut checked = repo.paths();
     for path in paths {
-        repo.path(path)?;
+        checked.resolve(path)?;
     }
+    let entries: HashMap<&str, &Entry> = status
+        .entries
+        .iter()
+        .map(|entry| (entry.path(), entry))
+        .collect();
     let mut selected = paths.to_vec();
     if action == "unstage" || action == "revert" {
-        for entry in &status.entries {
-            if paths.iter().any(|path| path == entry.path()) {
-                if let Some(original) = entry.original_path() {
-                    if !selected.iter().any(|path| path == original) {
-                        selected.push(original.into());
-                    }
+        let mut chosen: HashSet<&str> = paths.iter().map(String::as_str).collect();
+        for path in paths {
+            if let Some(original) = entries.get(path.as_str()).and_then(|e| e.original_path()) {
+                if chosen.insert(original) {
+                    selected.push(original.into());
                 }
             }
         }
     }
-    let input: Vec<u8> = selected.iter().flat_map(|p| p.bytes().chain([0])).collect();
+    let input = pathspec(&selected);
     match action {
         "stage" => {
             git::run(
@@ -60,18 +73,11 @@ pub async fn files(repo: &Repo, paths: &[String], action: &str) -> Result<()> {
                 .accept(&[0])?;
         }
         "revert" => {
-            let mut tracked = Vec::new();
-            let mut added = Vec::new();
-            for path in &selected {
-                let entry = status.entries.iter().find(|entry| entry.path() == path);
-                if entry.is_some_and(|entry| entry.index() == "?" || entry.index() == "A") {
-                    added.push(path.clone());
-                } else {
-                    tracked.push(path.clone());
-                }
-            }
+            let index = |path: &str| entries.get(path).map(|entry| entry.index());
+            let (added, tracked): (Vec<&String>, Vec<&String>) = selected
+                .iter()
+                .partition(|path| matches!(index(path), Some("?" | "A")));
             if !tracked.is_empty() {
-                let input: Vec<u8> = tracked.iter().flat_map(|p| p.bytes().chain([0])).collect();
                 git::run(
                     &repo.root,
                     &[
@@ -82,34 +88,33 @@ pub async fn files(repo: &Repo, paths: &[String], action: &str) -> Result<()> {
                         "--pathspec-from-file=-",
                         "--pathspec-file-nul",
                     ],
-                    Some(&input),
+                    Some(&pathspec(tracked)),
+                )
+                .await?
+                .accept(&[0])?;
+            }
+            let indexed: Vec<&String> = added
+                .iter()
+                .copied()
+                .filter(|path| index(path) == Some("A"))
+                .collect();
+            if !indexed.is_empty() {
+                git::run(
+                    &repo.root,
+                    &[
+                        "rm",
+                        "--cached",
+                        "--force",
+                        "--pathspec-from-file=-",
+                        "--pathspec-file-nul",
+                    ],
+                    Some(&pathspec(indexed)),
                 )
                 .await?
                 .accept(&[0])?;
             }
             for path in added {
-                if status
-                    .entries
-                    .iter()
-                    .any(|entry| entry.path() == path && entry.index() == "A")
-                {
-                    let input: Vec<u8> = path.bytes().chain([0]).collect();
-                    git::run(
-                        &repo.root,
-                        &[
-                            "rm",
-                            "--cached",
-                            "--force",
-                            "--pathspec-from-file=-",
-                            "--pathspec-file-nul",
-                        ],
-                        Some(&input),
-                    )
-                    .await?
-                    .accept(&[0])?;
-                }
-                let absolute = repo.path(&path)?;
-                match std::fs::remove_file(absolute) {
+                match std::fs::remove_file(checked.resolve(path)?) {
                     Ok(()) => {}
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                     Err(error) => return Err(error.into()),
@@ -117,12 +122,10 @@ pub async fn files(repo: &Repo, paths: &[String], action: &str) -> Result<()> {
             }
         }
         "discard" => {
-            if paths.iter().any(|path| {
-                status
-                    .entries
-                    .iter()
-                    .any(|e| e.path() == path && e.index() == "?")
-            }) {
+            if paths
+                .iter()
+                .any(|path| entries.get(path.as_str()).is_some_and(|e| e.index() == "?"))
+            {
                 return Err(Error::refused(
                     "Untracked files cannot be recovered by Git; discard them in your file manager",
                 ));

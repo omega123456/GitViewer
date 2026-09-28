@@ -1,4 +1,8 @@
-import { QueryClient, useQuery } from '@tanstack/react-query';
+import {
+  QueryClient,
+  useQuery,
+  type InfiniteData,
+} from '@tanstack/react-query';
 import { listen } from '@tauri-apps/api/event';
 import { invoke, normalizeError } from './ipc';
 import type { Commands, Events } from './types';
@@ -34,19 +38,36 @@ export function useBackend<K extends keyof Commands>(
 }
 const immutable = ['commit', 'stash', 'compare'];
 const listings = ['files', 'tree'];
+const references = [
+  'history',
+  'commit_files',
+  'compare_files',
+  'default_branch',
+  'stashes',
+  'branches',
+  'blame',
+  'merge_preview',
+];
 function refreshes(name: string, key: readonly unknown[]) {
   const [, command, args] = key as [unknown, string, { source?: string }?];
   if (name === 'repo://files-changed') return listings.includes(command);
   if (name === 'repo://head-changed') return true;
-  if (
-    ['history', 'commit_files', 'compare_files', 'default_branch'].includes(
-      command,
-    )
-  )
-    return false;
+  if (references.includes(command)) return false;
   return !(
     ['diff', 'diff_stack', 'file_lines'].includes(command) &&
     immutable.includes(String(args?.source))
+  );
+}
+function trimHistory(repo: string) {
+  client.setQueriesData<InfiniteData<unknown>>(
+    { queryKey: [repo, 'history'] },
+    (data) =>
+      data && data.pages.length > 1
+        ? {
+            pages: data.pages.slice(0, 1),
+            pageParams: data.pageParams.slice(0, 1),
+          }
+        : data,
   );
 }
 function scopeOf(args: object) {
@@ -113,6 +134,7 @@ export function handleEvent<K extends keyof Events>(
     const progress = parseProgress(payload.message);
     if (progress) useActivity.getState().progress(payload.repo, progress);
   } else if (payload && 'repo' in payload) {
+    if (name === 'repo://head-changed') trimHistory(payload.repo);
     void client.invalidateQueries({
       queryKey: [payload.repo],
       predicate: (query) => refreshes(name, query.queryKey),

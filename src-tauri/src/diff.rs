@@ -16,12 +16,7 @@ pub struct Line {
     pub old: Option<u32>,
     pub new: Option<u32>,
     pub no_newline: bool,
-    pub marks: Vec<Mark>,
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Mark {
-    pub text: String,
-    pub changed: bool,
+    pub marks: Vec<[u32; 2]>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,6 +38,8 @@ pub struct Diff {
     pub binary: bool,
     pub too_large: bool,
     pub hunks: Vec<Hunk>,
+    #[serde(default)]
+    pub patches: Vec<String>,
     pub content: Option<String>,
     pub added: bool,
     pub image: bool,
@@ -241,12 +238,47 @@ pub fn parse(text: &str, path: &str, source: &str) -> Result<Diff> {
             diff.binary = true;
         }
     }
+    let mut budget = MARK_BUDGET;
     for hunk in &mut diff.hunks {
-        mark_words(&mut hunk.lines);
+        mark_words(&mut hunk.lines, &mut budget);
     }
     Ok(diff)
 }
-pub fn mark_words(lines: &mut [Line]) {
+pub const MARK_LINE_LIMIT: usize = 2_000;
+pub const MARK_BUDGET: usize = 4_000_000;
+fn width(text: &str) -> u32 {
+    text.encode_utf16().count() as u32
+}
+fn push(marks: &mut Vec<[u32; 2]>, start: u32, end: u32) {
+    match marks.last_mut() {
+        Some(last) if last[1] == start => last[1] = end,
+        _ => marks.push([start, end]),
+    }
+}
+fn mark_pair(old: &mut Line, new: &mut Line) {
+    let mut at_old = 0;
+    let mut at_new = 0;
+    for change in
+        TextDiff::from_words(old.content.as_str(), new.content.as_str()).iter_all_changes()
+    {
+        let size = width(change.value());
+        match change.tag() {
+            ChangeTag::Equal => {
+                at_old += size;
+                at_new += size;
+            }
+            ChangeTag::Delete => {
+                push(&mut old.marks, at_old, at_old + size);
+                at_old += size;
+            }
+            ChangeTag::Insert => {
+                push(&mut new.marks, at_new, at_new + size);
+                at_new += size;
+            }
+        }
+    }
+}
+fn mark_words(lines: &mut [Line], budget: &mut usize) {
     let mut position = 0;
     while position < lines.len() {
         if lines[position].kind != "remove" {
@@ -262,20 +294,18 @@ pub fn mark_words(lines: &mut [Line]) {
             position += 1;
         }
         for offset in 0..(added - start).min(position - added) {
-            let old = lines[start + offset].content.clone();
-            let new = lines[added + offset].content.clone();
-            for change in TextDiff::from_words(&old, &new).iter_all_changes() {
-                let mark = Mark {
-                    text: change.value().into(),
-                    changed: change.tag() != ChangeTag::Equal,
-                };
-                if change.tag() != ChangeTag::Insert {
-                    lines[start + offset].marks.push(mark.clone());
-                }
-                if change.tag() != ChangeTag::Delete {
-                    lines[added + offset].marks.push(mark);
-                }
+            let (removed, rest) = lines.split_at_mut(added + offset);
+            let (old, new) = (&mut removed[start + offset], &mut rest[0]);
+            if old.content.len() > MARK_LINE_LIMIT || new.content.len() > MARK_LINE_LIMIT {
+                continue;
             }
+            let cost = old.content.len() + new.content.len();
+            if cost > *budget {
+                *budget = 0;
+                continue;
+            }
+            *budget -= cost;
+            mark_pair(old, new);
         }
     }
 }

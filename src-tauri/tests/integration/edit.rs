@@ -1,8 +1,5 @@
 use super::workflows::{base, fixture};
-use gitviewer_lib::{
-    edit::{self, Opened, Written},
-    ipc,
-};
+use gitviewer_lib::edit::{self, Opened, Written};
 use serde_json::{json, Value};
 
 fn saved(written: Written) -> String {
@@ -98,7 +95,7 @@ async fn file_commands_round_trip_and_refresh_status() {
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .unwrap();
     let call =
-        |command: &str, args: Value| ipc::dispatch(app.handle().clone(), command.to_string(), args);
+        |command: &str, args: Value| super::ipc::dispatch(app.handle().clone(), command, args);
     let info = call("repo_open", json!({"path":dir.path()})).await.unwrap();
     let id = info["id"].as_str().unwrap();
     let opened = call("file_read", json!({"repo":id,"path":"file.txt"}))

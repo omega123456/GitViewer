@@ -346,7 +346,11 @@ export function FilesTree({ repo, status }: { repo: string; status: Status }) {
       ];
       for (const item of visible) void item.invalidateChildrenIds(true);
     };
-    return client.getQueryCache().subscribe((event) => {
+    const schedule = () => {
+      pending = true;
+      queueMicrotask(relist);
+    };
+    const stop = client.getQueryCache().subscribe((event) => {
       const [scope, command] = event.query.queryKey;
       if (
         pending ||
@@ -356,9 +360,16 @@ export function FilesTree({ repo, status }: { repo: string; status: Status }) {
         command !== 'tree'
       )
         return;
-      pending = true;
-      queueMicrotask(relist);
+      schedule();
     });
+    if (
+      client
+        .getQueryCache()
+        .findAll({ queryKey: [repo, 'tree'] })
+        .some((query) => query.state.isInvalidated)
+    )
+      schedule();
+    return stop;
   }, [tree, repo]);
   const items = tree
     .getItems()

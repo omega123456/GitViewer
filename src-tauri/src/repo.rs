@@ -29,6 +29,11 @@ pub struct Repo {
     pub watchers: std::sync::Mutex<Vec<crate::watch::Watcher>>,
     pub directory_reads: AtomicUsize,
 }
+pub struct Reread {
+    pub status: Status,
+    pub changed: bool,
+    pub moved: bool,
+}
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Info {
@@ -48,15 +53,14 @@ impl Registry {
             .map_err(|e| Error::new("invalid_repository", e.message))?;
         let root = std::fs::canonicalize(output.text().trim())?;
         let id = root.to_string_lossy().into_owned();
-        let mut repos = self.repos.lock().await;
-        if let Some(repo) = repos.get(&id) {
+        let existing = self.repos.lock().await.get(&id).cloned();
+        if let Some(repo) = existing {
             return Ok(repo.info().await);
         }
-        let repo = Repo::new(root);
+        let repo = Arc::new(Repo::new(root));
         repo.refresh().await?;
-        let info = repo.info().await;
-        repos.insert(id, Arc::new(repo));
-        Ok(info)
+        let winner = self.repos.lock().await.entry(id).or_insert(repo).clone();
+        Ok(winner.info().await)
     }
     pub async fn get(&self, id: &str) -> Result<Repository> {
         self.repos
@@ -93,8 +97,8 @@ impl Repo {
             status: self.status.lock().await.clone(),
         }
     }
-    async fn read(&self, status: &mut Status) -> Result<Status> {
-        let previous = (status.oid.clone(), status.branch.clone());
+    async fn read(&self, status: &mut Status) -> Result<Reread> {
+        let previous = std::mem::take(status);
         self.stale.store(false, Ordering::SeqCst);
         let read = git::run(
             &self.root,
@@ -113,11 +117,13 @@ impl Repo {
         *status = match read {
             Ok(status) => status,
             Err(error) => {
+                *status = previous;
                 self.stale.store(true, Ordering::SeqCst);
                 return Err(error);
             }
         };
-        if previous != (status.oid.clone(), status.branch.clone()) {
+        let moved = (&previous.oid, &previous.branch) != (&status.oid, &status.branch);
+        if moved {
             self.history_stale.store(true, Ordering::SeqCst);
         }
         if status.conflicted {
@@ -137,16 +143,23 @@ impl Repo {
                 );
             }
         }
-        Ok(status.clone())
+        Ok(Reread {
+            changed: previous != *status,
+            moved,
+            status: status.clone(),
+        })
     }
-    pub async fn refresh(&self) -> Result<Status> {
+    pub async fn reread(&self) -> Result<Reread> {
         let mut status = self.status.lock().await;
         self.read(&mut status).await
+    }
+    pub async fn refresh(&self) -> Result<Status> {
+        Ok(self.reread().await?.status)
     }
     pub async fn snapshot(&self) -> Result<Status> {
         let mut status = self.status.lock().await;
         if self.stale.load(Ordering::SeqCst) {
-            return self.read(&mut status).await;
+            return Ok(self.read(&mut status).await?.status);
         }
         Ok(status.clone())
     }
@@ -160,27 +173,80 @@ impl Repo {
         Ok(status)
     }
     pub fn path(&self, relative: &str) -> Result<PathBuf> {
-        let path = Path::new(relative);
-        if path.is_absolute()
-            || path
-                .components()
-                .any(|c| !matches!(c, Component::Normal(_) | Component::CurDir))
-            || path
-                .components()
-                .any(|c| c.as_os_str().to_string_lossy().eq_ignore_ascii_case(".git"))
-        {
-            return Err(Error::refused("Path must stay within the working tree"));
-        }
-        let full = self.root.join(path);
+        let full = self.root.join(inside(relative)?);
         let mut ancestor = full.as_path();
         while !ancestor.exists() {
             ancestor = ancestor
                 .parent()
                 .ok_or_else(|| Error::refused("Invalid path"))?;
         }
-        if !std::fs::canonicalize(ancestor)?.starts_with(&self.root) {
-            return Err(Error::refused("Symlink points outside the repository"));
+        contained(&self.root, &std::fs::canonicalize(ancestor)?)?;
+        Ok(full)
+    }
+    pub fn paths(&self) -> Paths<'_> {
+        Paths {
+            repo: self,
+            directories: HashMap::new(),
         }
+    }
+}
+fn inside(relative: &str) -> Result<&Path> {
+    let path = Path::new(relative);
+    if path.is_absolute()
+        || path
+            .components()
+            .any(|c| !matches!(c, Component::Normal(_) | Component::CurDir))
+        || path
+            .components()
+            .any(|c| c.as_os_str().to_string_lossy().eq_ignore_ascii_case(".git"))
+    {
+        return Err(Error::refused("Path must stay within the working tree"));
+    }
+    Ok(path)
+}
+fn contained(root: &Path, resolved: &Path) -> Result<()> {
+    if resolved.starts_with(root) {
+        Ok(())
+    } else {
+        Err(Error::refused("Symlink points outside the repository"))
+    }
+}
+pub struct Paths<'a> {
+    repo: &'a Repo,
+    directories: HashMap<PathBuf, PathBuf>,
+}
+impl Paths<'_> {
+    fn directory(&mut self, path: &Path) -> Result<PathBuf> {
+        if let Some(resolved) = self.directories.get(path) {
+            return Ok(resolved.clone());
+        }
+        let resolved = std::fs::canonicalize(path)?;
+        self.directories
+            .insert(path.to_path_buf(), resolved.clone());
+        Ok(resolved)
+    }
+    pub fn resolve(&mut self, relative: &str) -> Result<PathBuf> {
+        let full = self.repo.root.join(inside(relative)?);
+        let linked = std::fs::symlink_metadata(&full)
+            .is_ok_and(|metadata| metadata.file_type().is_symlink());
+        let (Some(parent), Some(name)) = (full.parent(), full.file_name()) else {
+            return self.repo.path(relative);
+        };
+        if linked {
+            return self.repo.path(relative);
+        }
+        let resolved = if full.exists() {
+            self.directory(parent)?.join(name)
+        } else {
+            let mut ancestor = parent;
+            while !ancestor.exists() {
+                ancestor = ancestor
+                    .parent()
+                    .ok_or_else(|| Error::refused("Invalid path"))?;
+            }
+            self.directory(ancestor)?
+        };
+        contained(&self.repo.root, &resolved)?;
         Ok(full)
     }
 }

@@ -1,10 +1,11 @@
 import { RevisionTree } from '../sidebar/RevisionTree';
+import { memo } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { formatDistanceToNowStrict, fromUnixTime } from 'date-fns';
 import { History, Layers } from 'lucide-react';
 import { invoke } from '../../lib/ipc';
 import { useBackend } from '../../lib/query';
-import { useTabLayout } from '../../stores/layout';
+import { useSidebarMode } from '../../stores/layout';
 import {
   useCurrentSelection,
   useHistoryPath,
@@ -27,8 +28,8 @@ const refColours = [
   'text-lane-7 dark:text-lane-7-dark',
   'text-lane-8 dark:text-lane-8-dark',
 ];
-export function CommitList({ repo }: { repo: string }) {
-  const { mode } = useTabLayout(repo);
+export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
+  const mode = useSidebarMode(repo);
   const path = useHistoryPath(repo);
   const status = useBackend('status', { repo });
   const query = useInfiniteQuery({
@@ -182,4 +183,4 @@ export function CommitList({ repo }: { repo: string }) {
       )}
     </div>
   );
-}
+});

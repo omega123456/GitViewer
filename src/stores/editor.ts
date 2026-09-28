@@ -15,11 +15,13 @@ export interface Buffer {
   dirty: boolean;
   saving: boolean;
   conflict?: { current: Opened | null };
+  scroll?: number;
+  focused?: boolean;
 }
 export const useEditor = create<{
   buffers: Record<string, Record<string, Buffer> | undefined>;
 }>(() => ({ buffers: {} }));
-function current(repo: string, path: string) {
+export function current(repo: string, path: string) {
   return useEditor.getState().buffers[repo]?.[path];
 }
 function patch(repo: string, path: string, change: Partial<Buffer>) {
@@ -72,6 +74,14 @@ export function openBuffer(
       },
     },
   }));
+}
+export function remember(
+  repo: string,
+  path: string,
+  scroll: number,
+  focused: boolean,
+) {
+  patch(repo, path, { scroll, focused });
 }
 export function track(repo: string, path: string, state: EditorState) {
   const buffer = current(repo, path);

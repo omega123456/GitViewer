@@ -70,6 +70,8 @@ fn porcelain_handles_all_records_and_odd_paths() {
             score: "R100".into(),
             index: "R".into(),
             worktree: "M".into(),
+            index_hash: "b".into(),
+            index_mode: "100644".into(),
         }
     );
     assert_eq!(s.entries[2].path(), "new\nfile");
@@ -93,6 +95,25 @@ fn porcelain_handles_all_records_and_odd_paths() {
             worktree: "C".into(),
         }
     );
+    assert_eq!(
+        s.entries[0],
+        status::Entry::Ordinary {
+            path: "folder/file name.txt".into(),
+            index: "M".into(),
+            worktree: "M".into(),
+            index_hash: "b".into(),
+            index_mode: "100644".into(),
+        }
+    );
+    let restaged = status::parse(b"# branch.oid abc\0# branch.head main\x001 MM N... 100644 100644 100644 a feedface folder/file name.txt\x002 RM N... 100644 100644 100644 a b R100 new\0old\0? new\nfile\0u UU N... 100644 100644 100644 100644 a b c conflict\0").unwrap();
+    let rechmodded = status::parse(b"# branch.oid abc\0# branch.head main\x001 MM N... 100644 100755 100644 a b folder/file name.txt\x002 RM N... 100644 100644 100644 a b R100 new\0old\0? new\nfile\0u UU N... 100644 100644 100644 100644 a b c conflict\0").unwrap();
+    let same = status::parse(b"# branch.oid abc\0# branch.head main\x001 MM N... 100644 100644 100644 a b folder/file name.txt\x002 RM N... 100644 100644 100644 a b R100 new\0old\0? new\nfile\0u UU N... 100644 100644 100644 100644 a b c conflict\0").unwrap();
+    assert_ne!(restaged, same);
+    assert_ne!(rechmodded, same);
+    assert_eq!(same, same.clone());
+    let serialized = serde_json::to_string(&[&restaged, &rechmodded]).unwrap();
+    assert!(!serialized.contains("indexHash") && !serialized.contains("indexMode"));
+    assert!(!serialized.contains("100755") && !serialized.contains("feedface"));
     let detached = status::parse(b"# branch.head (detached)\0").unwrap();
     assert!(detached.upstream.is_none());
     for invalid in [
@@ -110,7 +131,9 @@ fn diffs_preserve_ranges_words_modes_and_newlines() {
     let parsed = diff::parse(text, "a", "unstaged").unwrap();
     assert_eq!(parsed.old_mode.as_deref(), Some("100644"));
     assert_eq!(parsed.new_mode.as_deref(), Some("100755"));
-    assert!(parsed.hunks[0].lines[1].marks.iter().any(|m| m.changed));
+    assert_eq!(parsed.hunks[0].lines[1].marks, vec![[0, 3]]);
+    assert_eq!(parsed.hunks[0].lines[2].marks, vec![[0, 3]]);
+    assert!(parsed.hunks[0].lines[0].marks.is_empty());
     assert!(parsed.hunks[0].lines[2].no_newline);
     assert!(diff::patch("a", &parsed.hunks[0])
         .unwrap()
@@ -128,6 +151,148 @@ fn diffs_preserve_ranges_words_modes_and_newlines() {
     assert!(!diff::is_image("example.rs"));
     let h = diff::parse("@@ -0,0 +1 @@\n+hello\n", "x", "staged").unwrap();
     assert_eq!(h.hunks[0].new_count, 1);
+}
+fn pairs(old: &[String], new: &[String]) -> String {
+    let removed: String = old.iter().map(|line| format!("-{line}\n")).collect();
+    let added: String = new.iter().map(|line| format!("+{line}\n")).collect();
+    format!("@@ -1,{} +1,{} @@\n{removed}{added}", old.len(), new.len())
+}
+#[test]
+fn word_marks_are_utf16_ranges_over_changed_words_only() {
+    let text = "@@ -1,4 +1,4 @@\n kept line\n-let value = old;\n-h\u{e9}llo \u{1f389} w\u{f6}rld again\n+let value = new;\n+h\u{e9}llo \u{1f389} world again\n";
+    let parsed = diff::parse(text, "a.rs", "commit").unwrap();
+    let lines = &parsed.hunks[0].lines;
+    assert!(lines[0].marks.is_empty());
+    assert_eq!(lines[1].marks, vec![[12, 16]]);
+    assert_eq!(lines[3].marks, vec![[12, 16]]);
+    assert_eq!(lines[2].marks, vec![[9, 14]]);
+    assert_eq!(lines[4].marks, vec![[9, 14]]);
+    let units: Vec<u16> = lines[4].content.encode_utf16().collect();
+    assert_eq!(String::from_utf16(&units[9..14]).unwrap(), "world");
+    let adjacent = diff::parse("@@ -1 +1 @@\n-one two\n+three\n", "a", "commit").unwrap();
+    assert_eq!(adjacent.hunks[0].lines[0].marks, vec![[0, 7]]);
+    assert_eq!(adjacent.hunks[0].lines[1].marks, vec![[0, 5]]);
+}
+#[test]
+fn word_marks_skip_long_lines_and_stop_at_the_file_budget() {
+    let limit = diff::MARK_LINE_LIMIT;
+    let long = diff::parse(
+        &pairs(
+            &["a".repeat(limit + 1), "short old".into(), "a".repeat(limit)],
+            &[
+                "b ".repeat(limit / 2),
+                "short new".into(),
+                "b".repeat(limit),
+            ],
+        ),
+        "a",
+        "commit",
+    )
+    .unwrap();
+    let lines = &long.hunks[0].lines;
+    assert!(lines[0].marks.is_empty() && lines[3].marks.is_empty());
+    assert_eq!(lines[1].marks, vec![[6, 9]]);
+    assert_eq!(lines[4].marks, vec![[6, 9]]);
+    assert_eq!(lines[2].marks, vec![[0, limit as u32]]);
+    assert_eq!(lines[5].marks, vec![[0, limit as u32]]);
+    let side = |fill: &str, n: usize| format!("{n:04} {}", fill.repeat(limit - 5));
+    let fits = diff::MARK_BUDGET / (2 * limit);
+    let old: Vec<String> = (0..=fits).map(|n| side("a", n)).collect();
+    let new: Vec<String> = (0..=fits).map(|n| side("b", n)).collect();
+    let split = fits / 2;
+    let text = format!(
+        "{}{}",
+        pairs(&old[..split], &new[..split]),
+        pairs(&old[split..], &new[split..])
+    );
+    let budgeted = diff::parse(&text, "a", "commit").unwrap();
+    let marked: Vec<bool> = budgeted
+        .hunks
+        .iter()
+        .flat_map(|hunk| &hunk.lines)
+        .filter(|line| line.kind == "add")
+        .map(|line| !line.marks.is_empty())
+        .collect();
+    assert_eq!(marked.len(), fits + 1);
+    assert!(marked[..fits].iter().all(|marked| *marked));
+    assert!(!marked[fits]);
+    assert!(budgeted.hunks[1]
+        .lines
+        .iter()
+        .rev()
+        .take(1)
+        .all(|line| line.marks.is_empty()));
+}
+#[test]
+fn a_large_modify_heavy_diff_serializes_compactly() {
+    let old: Vec<String> = (0..10_000)
+        .map(|n| format!("    let value_{n} = compute(alpha, beta, {n});"))
+        .collect();
+    let new: Vec<String> = (0..10_000)
+        .map(|n| format!("    let value_{n} = compute(alpha, gamma, {n});"))
+        .collect();
+    let parsed = diff::parse(&pairs(&old, &new), "large.rs", "commit").unwrap();
+    let lines = &parsed.hunks[0].lines;
+    assert_eq!(lines.len(), 20_000);
+    assert!(lines.iter().all(|line| !line.marks.is_empty()));
+    assert!(parsed.patches.is_empty());
+    assert!(serde_json::to_string(&parsed).unwrap().len() < 3_000_000);
+}
+#[tokio::test]
+async fn detection_caches_only_a_supported_environment() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let probes = AtomicUsize::new(0);
+    let probe = |reported: Option<&'static str>| {
+        let probes = &probes;
+        move || async move {
+            probes.fetch_add(1, Ordering::SeqCst);
+            tokio::task::yield_now().await;
+            reported.map(String::from)
+        }
+    };
+    let detector = detect::Detector::default();
+    assert!(!detector.detect(probe(None)).await.found);
+    assert!(
+        !detector
+            .detect(probe(Some("git version 2.30.0")))
+            .await
+            .supported
+    );
+    assert_eq!(probes.load(Ordering::SeqCst), 2);
+    assert!(
+        detector
+            .detect(probe(Some("git version 2.50.1")))
+            .await
+            .supported
+    );
+    assert_eq!(probes.load(Ordering::SeqCst), 3);
+    let cached = detector.detect(probe(Some("git version 2.30.0"))).await;
+    assert!(cached.supported);
+    assert_eq!(cached.version, "2.50.1");
+    assert_eq!(probes.load(Ordering::SeqCst), 3);
+    let concurrent = detect::Detector::new();
+    let supported = Some("git version 2.40.0");
+    let (first, second, third) = tokio::join!(
+        concurrent.detect(probe(supported)),
+        concurrent.detect(probe(supported)),
+        concurrent.detect(probe(supported))
+    );
+    assert!(first.supported && second.supported && third.supported);
+    assert_eq!(probes.load(Ordering::SeqCst), 4);
+}
+#[tokio::test]
+async fn a_supported_git_is_probed_once_per_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let trace = dir.path().join("detect-trace.json");
+    std::env::set_var("GIT_TRACE2_EVENT", &trace);
+    let first = super::workflows::counted(&trace, detect::environment()).await;
+    let repeated = super::workflows::counted(&trace, async {
+        detect::environment().await;
+        detect::environment().await;
+    })
+    .await;
+    std::env::remove_var("GIT_TRACE2_EVENT");
+    assert_eq!((first, repeated), (1, 0));
 }
 #[test]
 fn image_headers_yield_pixel_dimensions() {

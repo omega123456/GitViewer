@@ -87,10 +87,7 @@ export const diff: Diff = {
           old: 2,
           new: null,
           noNewline: false,
-          marks: [
-            { text: 'old', changed: true },
-            { text: ' value', changed: false },
-          ],
+          marks: [[0, 3]],
         },
         {
           kind: 'add',
@@ -98,10 +95,7 @@ export const diff: Diff = {
           old: null,
           new: 2,
           noNewline: true,
-          marks: [
-            { text: 'new', changed: true },
-            { text: ' value', changed: false },
-          ],
+          marks: [[0, 3]],
         },
       ],
     },

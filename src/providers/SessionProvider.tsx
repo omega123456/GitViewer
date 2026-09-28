@@ -42,21 +42,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const restore = async () => {
       try {
         const session = await invoke('session_get', {});
-        let active = session.active;
-        for (const tab of session.tabs) {
-          if (cancelled) return;
-          try {
-            const repo = await invoke('repo_open', { path: tab.path });
-            if (cancelled) return;
-            if (tab.path === session.active) active = repo.id;
-            useTabs.getState().open(repo.id, repo.name);
-            useTabs.getState().setMessage(repo.id, tab.message);
-            if (tab.layout) useLayout.getState().update(repo.id, tab.layout);
-          } catch (error) {
-            reportAppError(error);
-          }
-        }
+        const opened = await Promise.allSettled(
+          session.tabs.map((tab) => invoke('repo_open', { path: tab.path })),
+        );
         if (cancelled) return;
+        let active = session.active;
+        opened.forEach((result, index) => {
+          const tab = session.tabs[index];
+          if (result.status === 'rejected') {
+            reportAppError(result.reason);
+            return;
+          }
+          const repo = result.value;
+          if (tab.path === session.active) active = repo.id;
+          useTabs.getState().open(repo.id, repo.name);
+          useTabs.getState().setMessage(repo.id, tab.message);
+          if (tab.layout) useLayout.getState().update(repo.id, tab.layout);
+        });
         if (useTabs.getState().tabs.some((tab) => tab.id === active)) {
           useTabs.getState().activate(active);
         }

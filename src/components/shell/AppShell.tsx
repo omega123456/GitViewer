@@ -1,3 +1,4 @@
+import { Activity } from 'react';
 import { UpdateBanner } from '../states/UpdateBanner';
 import type { SettingsResponse } from '../../lib/types';
 import { useCompact } from '../../stores/density';
@@ -32,18 +33,18 @@ export function AppShell({
         <FirstRun />
       ) : (
         tabs.map((tab) => (
-          <div
+          <Activity
             key={tab.id}
-            className={
-              active === tab.id ? 'flex min-h-0 flex-1 flex-col' : 'hidden'
-            }
+            mode={active === tab.id ? 'visible' : 'hidden'}
           >
-            <RepositoryView
-              repo={tab.id}
-              settings={settings}
-              version={version}
-            />
-          </div>
+            <div className="flex min-h-0 flex-1 flex-col">
+              <RepositoryView
+                repo={tab.id}
+                settings={settings}
+                version={version}
+              />
+            </div>
+          </Activity>
         ))
       )}
       <SettingsSurface settings={settings} />

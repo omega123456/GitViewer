@@ -49,6 +49,40 @@ pub async fn binary_version(binary: &str) -> Option<String> {
     }
 }
 
+pub struct Detector(tokio::sync::OnceCell<Environment>);
+impl Detector {
+    pub const fn new() -> Self {
+        Self(tokio::sync::OnceCell::const_new())
+    }
+    pub async fn detect<P, F>(&self, probe: P) -> Environment
+    where
+        P: FnOnce() -> F,
+        F: Future<Output = Option<String>>,
+    {
+        let found = self
+            .0
+            .get_or_try_init(|| async {
+                let found = with(probe).await;
+                if found.supported {
+                    Ok(found)
+                } else {
+                    Err(found)
+                }
+            })
+            .await;
+        match found {
+            Ok(found) => found.clone(),
+            Err(found) => found,
+        }
+    }
+}
+impl Default for Detector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+static DETECTED: Detector = Detector::new();
+
 pub async fn environment() -> Environment {
-    with(|| binary_version("git")).await
+    DETECTED.detect(|| binary_version("git")).await
 }

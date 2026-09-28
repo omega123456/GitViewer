@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useRef, useState } from 'react';
+import { lazy, memo, Suspense, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronUp,
@@ -44,7 +44,7 @@ import { diffRows } from './rows';
 import { cachedEntry } from './stack';
 import { useTokens } from './tokens';
 const EditSurface = lazy(() => import('../editor/EditSurface'));
-export function DiffPane({
+export const DiffPane = memo(function DiffPane({
   repo,
   selection,
   settings,
@@ -70,7 +70,7 @@ export function DiffPane({
       disabled={disabled}
     />
   );
-}
+});
 function SelectedDiff({
   repo,
   selection,
@@ -111,9 +111,13 @@ function SelectedDiff({
     () => (data ? diffRows(data, split, expansion.reveal) : []),
     [data, split, expansion.reveal],
   );
-  const lines = data?.hunks.flatMap((hunk) => hunk.lines) ?? [];
-  const added = lines.filter((line) => line.kind === 'add').length;
-  const removed = lines.filter((line) => line.kind === 'remove').length;
+  const { added, removed } = useMemo(() => {
+    const lines = data?.hunks.flatMap((hunk) => hunk.lines) ?? [];
+    return {
+      added: lines.filter((line) => line.kind === 'add').length,
+      removed: lines.filter((line) => line.kind === 'remove').length,
+    };
+  }, [data]);
   const tokens = useTokens(data, selection.path, true, expansion.reveal.lines);
   const editable = canEdit(selection.source, entry?.worktree, data);
   const editing = Boolean(selection.editing) && editable;

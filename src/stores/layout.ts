@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useShallow } from 'zustand/react/shallow';
 export type SidebarMode = 'working' | 'history' | 'compare';
 export interface TabLayout {
   mode: SidebarMode;
@@ -48,6 +49,29 @@ export const useLayout = create<Layout>((set) => ({
 }));
 export function useTabLayout(id: string) {
   return useLayout((s) => s.tabs[id] ?? layoutDefaults);
+}
+export function useSidebarMode(id: string) {
+  return useLayout((s) => (s.tabs[id] ?? layoutDefaults).mode);
+}
+export function useSidebarWidth(id: string) {
+  return useLayout((s) => {
+    const layout = s.tabs[id] ?? layoutDefaults;
+    return layout.mode === 'working' ? layout.width : layout.historyWidth;
+  });
+}
+export function useLayoutFields<K extends keyof TabLayout>(
+  id: string,
+  ...keys: K[]
+) {
+  return useLayout(
+    useShallow((s) => {
+      const layout = s.tabs[id] ?? layoutDefaults;
+      return Object.fromEntries(keys.map((key) => [key, layout[key]])) as Pick<
+        TabLayout,
+        K
+      >;
+    }),
+  );
 }
 export function tabLayout(id: string) {
   return useLayout.getState().tabs[id] ?? layoutDefaults;

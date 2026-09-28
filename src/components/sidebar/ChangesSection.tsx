@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { perform } from '../../lib/query';
 import { revertFiles } from '../../lib/revert';
 import { Button } from '../shared/Button';
@@ -20,7 +21,7 @@ const viewTint =
   'text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark';
 const discardTint =
   'text-muted hover:text-deleted dark:text-muted-dark dark:hover:text-deleted-dark';
-export function ChangesSection({
+export const ChangesSection = memo(function ChangesSection({
   repo,
   status,
   disabled,
@@ -171,4 +172,4 @@ export function ChangesSection({
       )}
     </div>
   );
-}
+});

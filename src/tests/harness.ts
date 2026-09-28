@@ -53,7 +53,7 @@ vi.mock('@tauri-apps/api/core', () => ({
     calls.push(payload);
     const handler = handlers.get(payload.command);
     if (!handler) throw new Error(`Unmocked IPC command: ${payload.command}`);
-    return handler(payload.args);
+    return structuredClone(await handler(payload.args));
   },
   convertFileSrc: (path: string, protocol: string) =>
     `http://${protocol}.localhost/${path}`,

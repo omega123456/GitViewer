@@ -1017,7 +1017,7 @@ async fn invalid_repositories_upstreams_and_watch_roots_fail_honestly() {
         .unwrap_err()
         .message
         .contains("No upstream"));
-    assert!(watch::start(&Repo::new(dir.path().join("missing")), |_| {}).is_err());
+    assert!(watch::start(&Arc::new(Repo::new(dir.path().join("missing"))), |_| {}).is_err());
 }
 
 #[tokio::test]
@@ -2164,7 +2164,7 @@ async fn stacked_hunk_patches_apply() {
         .files
         .is_empty());
 }
-fn starts(trace: &Path, from: usize) -> usize {
+pub(super) fn starts(trace: &Path, from: usize) -> usize {
     std::fs::read_to_string(trace).unwrap_or_default()[from..]
         .lines()
         .filter(|line| line.contains("\"event\":\"start\""))
@@ -2176,7 +2176,29 @@ fn starts(trace: &Path, from: usize) -> usize {
         })
         .count()
 }
-async fn counted<F: std::future::Future>(trace: &Path, work: F) -> usize {
+pub(super) fn launched(trace: &Path, from: usize, name: &str) -> usize {
+    let wanted = format!("\"name\":\"{name}\"");
+    std::fs::read_to_string(trace).unwrap_or_default()[from..]
+        .lines()
+        .filter(|line| line.contains("\"event\":\"cmd_name\"") && line.contains(&wanted))
+        .filter(|line| {
+            line.split("\"sid\":\"")
+                .nth(1)
+                .and_then(|rest| rest.split('"').next())
+                .is_some_and(|sid| !sid.contains('/'))
+        })
+        .count()
+}
+fn size(trace: &Path) -> usize {
+    std::fs::metadata(trace).map_or(0, |meta| meta.len() as usize)
+}
+fn trace_file(dir: &TempDir, name: &str) -> PathBuf {
+    dir.path().join("..").join(format!(
+        "{}-{name}.json",
+        dir.path().file_name().unwrap().to_string_lossy()
+    ))
+}
+pub(super) async fn counted<F: std::future::Future>(trace: &Path, work: F) -> usize {
     let from = std::fs::metadata(trace).map_or(0, |meta| meta.len() as usize);
     work.await;
     starts(trace, from)
@@ -2251,4 +2273,423 @@ async fn concurrent_snapshots_of_a_stale_repository_read_status_once() {
     std::env::remove_var("GIT_TRACE2_EVENT");
     std::fs::remove_file(&trace).ok();
     assert_eq!(reads, 1);
+}
+
+async fn commit_all(root: &Path, message: &str) {
+    command(root, &["add", "-A"]).await;
+    command(root, &["commit", "-q", "-m", message]).await;
+}
+fn many(root: &Path, directory: &str, count: usize) {
+    std::fs::create_dir_all(root.join(directory)).unwrap();
+    for n in 0..count {
+        std::fs::write(
+            root.join(directory).join(format!("{n}.txt")),
+            format!("{n}\n"),
+        )
+        .unwrap();
+    }
+}
+#[tokio::test]
+async fn revert_removes_every_added_file_with_one_rm_process() {
+    let (dir, handle) = fixture().await;
+    base(&dir, &handle).await;
+    let root = dir.path();
+    let trace = trace_file(&dir, "revert-trace");
+    std::env::set_var("GIT_TRACE2_EVENT", &trace);
+    for count in [1, 2000] {
+        many(root, "added", count);
+        command(root, &["add", "-A"]).await;
+        std::fs::write(root.join("file.txt"), "changed\n").unwrap();
+        std::fs::write(root.join("loose.txt"), "loose\n").unwrap();
+        let paths: Vec<String> = handle
+            .refresh()
+            .await
+            .unwrap()
+            .entries
+            .iter()
+            .map(|entry| entry.path().to_owned())
+            .collect();
+        assert_eq!(paths.len(), count + 2);
+        let from = size(&trace);
+        actions::files(&handle, &paths, "revert").await.unwrap();
+        assert_eq!(launched(&trace, from, "rm"), 1, "{count}");
+        assert!(handle.refresh().await.unwrap().entries.is_empty());
+        assert!(command(root, &["ls-files", "added"]).await.is_empty());
+        assert!(!root.join("added").join("0.txt").exists());
+        assert!(!root.join("loose.txt").exists());
+        assert_eq!(
+            std::fs::read_to_string(root.join("file.txt")).unwrap(),
+            "one\ntwo\nthree\n"
+        );
+    }
+    std::env::remove_var("GIT_TRACE2_EVENT");
+    std::fs::remove_file(&trace).ok();
+}
+#[tokio::test]
+async fn staged_pairing_unstage_and_revert_handle_thousands_of_renames() {
+    let (dir, handle) = fixture().await;
+    let root = dir.path();
+    many(root, "before", 2000);
+    let long = numbered("row ", 20);
+    std::fs::write(root.join("before").join("0.txt"), &long).unwrap();
+    commit_all(root, "Many").await;
+    std::fs::rename(root.join("before"), root.join("after")).unwrap();
+    std::fs::write(
+        root.join("after").join("0.txt"),
+        long.replace("row 10\n", "changed\n"),
+    )
+    .unwrap();
+    command(root, &["add", "-A"]).await;
+    let status = handle.refresh().await.unwrap();
+    assert_eq!(status.entries.len(), 2000);
+    assert!(status
+        .entries
+        .iter()
+        .all(|entry| entry.original_path().is_some()));
+    let staged = diff::stack::read(&handle, "staged", "", "").await.unwrap();
+    assert_eq!(staged.files.len(), 2000);
+    assert!(staged.files.keys().all(|path| path.starts_with("after/")));
+    let single = diff::read(&handle, "after/0.txt", "staged", "", "", 3, false)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&staged.files["after/0.txt"]).unwrap(),
+        serde_json::to_value(&single).unwrap()
+    );
+    let paths: Vec<String> = status
+        .entries
+        .iter()
+        .map(|entry| entry.path().to_owned())
+        .collect();
+    actions::files(&handle, &paths, "unstage").await.unwrap();
+    assert!(command(root, &["diff", "--cached", "--name-only"])
+        .await
+        .is_empty());
+    assert!(root.join("after").join("1999.txt").exists());
+    command(root, &["add", "-A"]).await;
+    handle.refresh().await.unwrap();
+    actions::files(&handle, &paths, "revert").await.unwrap();
+    assert!(handle.refresh().await.unwrap().entries.is_empty());
+    assert!(
+        !root.join("after").exists()
+            || std::fs::read_dir(root.join("after"))
+                .unwrap()
+                .next()
+                .is_none()
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("before").join("0.txt")).unwrap(),
+        long
+    );
+}
+#[tokio::test]
+async fn smart_apply_checks_overlap_against_thousands_of_local_changes() {
+    let (dir, handle) = fixture().await;
+    base(&dir, &handle).await;
+    let root = dir.path();
+    std::fs::write(root.join("file.txt"), "stashed\n").unwrap();
+    let target = stash::save(&handle, "target").await.unwrap();
+    many(root, "local", 2000);
+    stash::apply(&handle, &target, true, true).await.unwrap();
+    assert_eq!(
+        std::fs::read_to_string(root.join("file.txt")).unwrap(),
+        "stashed\n"
+    );
+    assert!(root.join("local").join("1999.txt").exists());
+    std::fs::remove_dir_all(root.join("local")).unwrap();
+    let target = stash::save(&handle, "again").await.unwrap();
+    many(root, "local", 2000);
+    std::fs::write(root.join("file.txt"), "overlap\n").unwrap();
+    let refused = stash::apply(&handle, &target, false, true)
+        .await
+        .unwrap_err()
+        .message;
+    assert_eq!(refused, "Stashes share paths: file.txt");
+}
+#[tokio::test]
+async fn batch_path_checks_refuse_and_accept_exactly_like_single_checks() {
+    let (dir, handle) = fixture().await;
+    base(&dir, &handle).await;
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("src").join("nested")).unwrap();
+    std::fs::write(root.join("src").join("nested").join("kept.txt"), "kept\n").unwrap();
+    let mut inputs = vec![
+        "/absolute".to_string(),
+        "../outside".into(),
+        "src/../../outside".into(),
+        ".git/config".into(),
+        "src/.GIT/config".into(),
+        "file.txt".into(),
+        "src/nested/kept.txt".into(),
+        "src/nested/missing.txt".into(),
+        "src/new/deeper/missing.txt".into(),
+        "src".into(),
+        "./file.txt".into(),
+    ];
+    #[cfg(unix)]
+    {
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.txt"), "secret\n").unwrap();
+        std::fs::write(outside.path().join("other.txt"), "other\n").unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.join("linked")).unwrap();
+        std::os::unix::fs::symlink(outside.path().join("secret.txt"), root.join("escape.txt"))
+            .unwrap();
+        std::os::unix::fs::symlink("missing-target", root.join("dangling")).unwrap();
+        std::os::unix::fs::symlink("file.txt", root.join("inside.txt")).unwrap();
+        commit_all(root, "Links").await;
+        inputs.extend([
+            "linked/secret.txt".into(),
+            "linked/missing/deep.txt".into(),
+            "linked".into(),
+            "escape.txt".into(),
+            "dangling".into(),
+            "inside.txt".into(),
+        ]);
+        std::fs::remove_file(root.join("escape.txt")).unwrap();
+        std::os::unix::fs::symlink(outside.path().join("other.txt"), root.join("escape.txt"))
+            .unwrap();
+        handle.refresh().await.unwrap();
+        let refused = actions::files(&handle, &["escape.txt".into()], "stage")
+            .await
+            .unwrap_err();
+        assert_eq!(refused.message, "Symlink points outside the repository");
+        let stack = diff::stack::read(&handle, "unstaged", "", "")
+            .await
+            .unwrap();
+        assert!(!stack.files.contains_key("escape.txt"));
+        let mut paths = handle.paths();
+        assert!(paths.resolve("dangling").is_ok());
+        assert!(paths.resolve("linked/secret.txt").is_err());
+    }
+    let mut paths = handle.paths();
+    let mut refusals = 0;
+    for input in &inputs {
+        let single = handle.path(input).map_err(|error| error.message);
+        let batch = paths.resolve(input).map_err(|error| error.message);
+        assert_eq!(batch, single, "{input}");
+        refusals += usize::from(single.is_err());
+    }
+    assert_eq!(
+        paths.resolve("src/nested/kept.txt").unwrap(),
+        handle.root.join("src/nested/kept.txt")
+    );
+    assert!(refusals >= 5);
+}
+fn repository_only(root: &Path, paths: &[PathBuf]) -> bool {
+    let event = paths
+        .iter()
+        .fold(Event::new(EventKind::Any), |event, path| {
+            event.add_path(path.clone())
+        });
+    watch::metadata_only(root, &[DebouncedEvent::new(event, Instant::now())])
+}
+async fn arrives(changes: &Arc<Mutex<Vec<Change>>>, expected: Change) {
+    tokio::time::timeout(Duration::from_secs(4), async {
+        let mut interval = tokio::time::interval(Duration::from_millis(100));
+        while !changes.lock().unwrap().contains(&expected) {
+            interval.tick().await;
+        }
+    })
+    .await
+    .unwrap();
+}
+#[tokio::test]
+async fn metadata_batches_notify_only_when_the_snapshot_changes() {
+    let (dir, handle) = fixture().await;
+    let root = dir.path().to_path_buf();
+    let body = numbered("line ", 30);
+    record(&dir, &handle, "file.txt", "one\ntwo\nthree\n", "Base").await;
+    record(&dir, &handle, "two.txt", &body, "Three hunks").await;
+    std::fs::write(
+        root.join("two.txt"),
+        body.replace("line 1\n", "first\n")
+            .replace("line 15\n", "middle\n")
+            .replace("line 28\n", "last\n"),
+    )
+    .unwrap();
+    std::fs::write(root.join("added.sh"), "echo\n").unwrap();
+    command(&root, &["add", "added.sh"]).await;
+    handle.refresh().await.unwrap();
+    let unstaged = || diff::read(&handle, "two.txt", "unstaged", "", "", 3, false);
+    let hunks = unstaged().await.unwrap();
+    assert_eq!(hunks.hunks.len(), 3);
+    let first = diff::patch("two.txt", &hunks.hunks[0]).unwrap();
+    diff::apply_hunk(&handle, "two.txt", "unstaged", 0, &first, "stage")
+        .await
+        .unwrap();
+    let second = diff::patch("two.txt", &unstaged().await.unwrap().hunks[0]).unwrap();
+    let later: std::time::SystemTime = (chrono::Utc::now() + chrono::Duration::seconds(30)).into();
+    std::fs::File::options()
+        .write(true)
+        .open(root.join("file.txt"))
+        .unwrap()
+        .set_modified(later)
+        .unwrap();
+    let before = handle.refresh().await.unwrap();
+    assert_eq!(before.entries.len(), 2);
+    let trace = trace_file(&dir, "echo-trace");
+    std::env::set_var("GIT_TRACE2_EVENT", &trace);
+    let changes = Arc::new(Mutex::new(Vec::new()));
+    let captured = changes.clone();
+    watch::start(&handle, move |change| captured.lock().unwrap().push(change)).unwrap();
+    let index = std::fs::read(root.join(".git").join("index")).unwrap();
+    let from = size(&trace);
+    git::run(&root, &["update-index", "-q", "--refresh"], None)
+        .await
+        .unwrap();
+    assert_ne!(
+        std::fs::read(root.join(".git").join("index")).unwrap(),
+        index
+    );
+    tokio::time::timeout(Duration::from_secs(4), async {
+        let mut interval = tokio::time::interval(Duration::from_millis(100));
+        while launched(&trace, from, "status") == 0 {
+            interval.tick().await;
+        }
+    })
+    .await
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(changes.lock().unwrap().is_empty());
+    assert_eq!(handle.snapshot().await.unwrap(), before);
+    git::run(&root, &["apply", "--cached"], Some(second.as_bytes()))
+        .await
+        .unwrap()
+        .accept(&[0])
+        .unwrap();
+    arrives(&changes, Change::Status).await;
+    let restaged = handle.snapshot().await.unwrap();
+    assert_ne!(restaged, before);
+    assert_eq!(
+        serde_json::to_value(&restaged).unwrap(),
+        serde_json::to_value(&before).unwrap()
+    );
+    changes.lock().unwrap().clear();
+    command(&root, &["update-index", "--chmod=+x", "added.sh"]).await;
+    arrives(&changes, Change::Status).await;
+    changes.lock().unwrap().clear();
+    command(&root, &["branch", "created"]).await;
+    arrives(&changes, Change::Head).await;
+    std::env::remove_var("GIT_TRACE2_EVENT");
+    std::fs::remove_file(&trace).ok();
+    assert!(repository_only(&root, &[root.join(".git")]));
+    assert!(repository_only(
+        &root,
+        &[root.join(".git"), root.join(".git")]
+    ));
+    assert!(!repository_only(
+        &root,
+        &[root.join(".git"), root.join("file.txt")]
+    ));
+    assert!(!repository_only(&root, &[root.join(".git").join("index")]));
+    assert!(!watch::metadata_only(&root, &[]));
+}
+#[tokio::test]
+async fn a_dropped_repository_is_released_by_its_watchers() {
+    let (dir, handle) = fixture().await;
+    base(&dir, &handle).await;
+    let changes = Arc::new(Mutex::new(Vec::new()));
+    let captured = changes.clone();
+    watch::start(&handle, move |change| captured.lock().unwrap().push(change)).unwrap();
+    let released = Arc::downgrade(&handle);
+    drop(handle);
+    assert!(released.upgrade().is_none());
+    command(dir.path(), &["branch", "after-close"]).await;
+    std::fs::write(dir.path().join("file.txt"), "changed\n").unwrap();
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert!(changes.lock().unwrap().is_empty());
+}
+#[tokio::test]
+async fn history_sessions_keep_only_the_latest_page() {
+    let (dir, handle) = fixture().await;
+    base(&dir, &handle).await;
+    let root = dir.path();
+    let tree = command(root, &["rev-parse", "HEAD^{tree}"]).await;
+    let mut parent = command(root, &["rev-parse", "HEAD"])
+        .await
+        .trim()
+        .to_string();
+    for i in 0..210 {
+        parent = git::run(
+            root,
+            &["commit-tree", tree.trim(), "-p", &parent],
+            Some(format!("commit {i}\n").as_bytes()),
+        )
+        .await
+        .unwrap()
+        .accept(&[0])
+        .unwrap()
+        .text()
+        .trim()
+        .into();
+    }
+    command(root, &["update-ref", "refs/heads/main", &parent]).await;
+    handle.refresh().await.unwrap();
+    let first = history::page(&handle, "", "").await.unwrap();
+    let cursor = first.cursor.clone().unwrap();
+    let second = history::page(&handle, &cursor, "").await.unwrap();
+    let repeated = history::page(&handle, &cursor, "").await.unwrap();
+    let hashes = |page: &history::Page| {
+        page.commits
+            .iter()
+            .map(|commit| commit.hash.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(hashes(&repeated), hashes(&second));
+    let third = history::page(&handle, second.cursor.as_deref().unwrap(), "")
+        .await
+        .unwrap();
+    assert_eq!(third.commits.len(), 11);
+    assert!(third.cursor.is_none());
+    assert_eq!(
+        history::page(&handle, &cursor, "")
+            .await
+            .unwrap_err()
+            .message,
+        "History changed; reload from the first page"
+    );
+    let newest = git::run(
+        root,
+        &["commit-tree", tree.trim(), "-p", &parent],
+        Some(b"newest\n"),
+    )
+    .await
+    .unwrap()
+    .text();
+    command(root, &["update-ref", "refs/heads/main", newest.trim()]).await;
+    let restarted = history::page(&handle, "", "").await.unwrap();
+    assert_eq!(restarted.commits[0].hash, newest.trim());
+    assert_eq!(restarted.commits[1].hash, first.commits[0].hash);
+    assert_eq!(
+        history::page(&handle, second.cursor.as_deref().unwrap(), "")
+            .await
+            .unwrap_err()
+            .message,
+        "History changed; reload from the first page"
+    );
+}
+#[tokio::test]
+async fn concurrent_opens_of_one_path_share_one_registry_entry() {
+    let (dir, handle) = fixture().await;
+    base(&dir, &handle).await;
+    let registry = Registry::default();
+    let path = dir.path().to_str().unwrap();
+    let nested = dir.path().join("nested");
+    std::fs::create_dir(&nested).unwrap();
+    let (first, second, inner) = tokio::join!(
+        registry.open(path),
+        registry.open(path),
+        registry.open(nested.to_str().unwrap())
+    );
+    let (first, second, inner) = (first.unwrap(), second.unwrap(), inner.unwrap());
+    assert_eq!(registry.repos.lock().await.len(), 1);
+    assert_eq!(first.id, second.id);
+    assert_eq!(first.id, inner.id);
+    assert_eq!(
+        serde_json::to_value(&first).unwrap(),
+        serde_json::to_value(&second).unwrap()
+    );
+    let other = fixture().await.0;
+    registry.open(other.path().to_str().unwrap()).await.unwrap();
+    assert_eq!(registry.repos.lock().await.len(), 2);
 }

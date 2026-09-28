@@ -410,6 +410,12 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
         }
         opened => opened?,
     };
+    let originals: HashMap<&str, Option<&str>> = status
+        .entries
+        .iter()
+        .map(|entry| (entry.path(), entry.original_path()))
+        .collect();
+    let mut paths = repo.paths();
     let mut records: Vec<Record> = raws
         .into_iter()
         .map(|raw| {
@@ -424,18 +430,14 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
                 quoted("b/", &raw.path)
             );
             let paired = source != "staged" || {
-                let original = status
-                    .entries
-                    .iter()
-                    .find(|entry| entry.path() == raw.path)
-                    .and_then(Entry::original_path);
+                let original = originals.get(raw.path.as_str()).copied().flatten();
                 if matches!(raw.status, 'R' | 'C') {
                     original == Some(raw.old_path.as_str())
                 } else {
                     original.is_none()
                 }
             };
-            let full = repo.path(&raw.path).ok();
+            let full = paths.resolve(&raw.path).ok();
             let omit = raw.combined
                 || raw.status == 'U'
                 || raw.old_mode == "160000"
@@ -565,7 +567,7 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
             let Entry::Untracked { path, .. } = entry else {
                 continue;
             };
-            let Some(full) = repo.path(path).ok().filter(|_| !controlled(path)) else {
+            let Some(full) = paths.resolve(path).ok().filter(|_| !controlled(path)) else {
                 continue;
             };
             let Ok(kind) = std::fs::symlink_metadata(&full).map(|meta| meta.file_type()) else {
@@ -593,7 +595,7 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
     }
     let readable: Vec<&(String, String, usize)> = untracked
         .iter()
-        .filter(|(path, ..)| !controlled(path) && repo.path(path).is_ok())
+        .filter(|(path, ..)| !controlled(path) && paths.resolve(path).is_ok())
         .collect();
     let wanted: Vec<&str> = readable
         .iter()

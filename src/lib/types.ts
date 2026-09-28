@@ -128,17 +128,13 @@ export interface GeneratedMessage {
   source: 'index' | 'workingTree';
   detail: 'patch' | 'compacted';
 }
-export interface Mark {
-  text: string;
-  changed: boolean;
-}
 export interface DiffLine {
   kind: string;
   content: string;
   old: number | null;
   new: number | null;
   noNewline: boolean;
-  marks: Mark[];
+  marks: [number, number][];
 }
 export interface Hunk {
   header: string;

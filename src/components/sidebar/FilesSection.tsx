@@ -1,17 +1,22 @@
+import { memo } from 'react';
 import type { Status } from '../../lib/types';
-import { useLayout, useTabLayout } from '../../stores/layout';
+import { useLayout, useLayoutFields } from '../../stores/layout';
 import { Section } from '../shared/Section';
 import { dynamic } from '../shared/styles';
 import { percentBelow, ResizeHandle } from '../shell/ResizeHandle';
 import { FilesTree } from './FileTree';
-export function FilesSection({
+export const FilesSection = memo(function FilesSection({
   repo,
   status,
 }: {
   repo: string;
   status: Status;
 }) {
-  const { filesOpen, filesHeight } = useTabLayout(repo);
+  const { filesOpen, filesHeight } = useLayoutFields(
+    repo,
+    'filesOpen',
+    'filesHeight',
+  );
   return (
     <>
       {filesOpen && (
@@ -47,4 +52,4 @@ export function FilesSection({
       </div>
     </>
   );
-}
+});

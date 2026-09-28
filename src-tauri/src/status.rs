@@ -13,6 +13,10 @@ pub enum Entry {
         path: String,
         index: String,
         worktree: String,
+        #[serde(skip)]
+        index_hash: String,
+        #[serde(skip)]
+        index_mode: String,
     },
     Renamed {
         path: String,
@@ -20,6 +24,10 @@ pub enum Entry {
         score: String,
         index: String,
         worktree: String,
+        #[serde(skip)]
+        index_hash: String,
+        #[serde(skip)]
+        index_mode: String,
     },
     Unmerged {
         path: String,
@@ -62,7 +70,7 @@ impl Entry {
         }
     }
 }
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
     pub branch: String,
@@ -135,6 +143,8 @@ pub fn parse(bytes: &[u8]) -> Result<Status> {
                 path,
                 index,
                 worktree,
+                index_hash: parts[7].into(),
+                index_mode: parts[4].into(),
             },
             b'2' => Entry::Renamed {
                 path,
@@ -145,6 +155,8 @@ pub fn parse(bytes: &[u8]) -> Result<Status> {
                 score: parts[8].into(),
                 index,
                 worktree,
+                index_hash: parts[7].into(),
+                index_mode: parts[4].into(),
             },
             _ => {
                 status.conflicted = true;

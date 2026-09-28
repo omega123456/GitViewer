@@ -94,6 +94,9 @@ async fn changed_paths(repo: &Repo, hash: &str) -> Result<HashSet<String>> {
     paths.extend(untracked(repo, hash).await?);
     Ok(paths)
 }
+fn directories(path: &str) -> impl Iterator<Item = &str> {
+    path.match_indices('/').map(|(at, _)| &path[..at])
+}
 pub async fn untracked(repo: &Repo, hash: &str) -> Result<Vec<String>> {
     let third = git::run(
         &repo.root,
@@ -206,21 +209,16 @@ pub async fn apply(repo: &Repo, hash: &str, pop: bool, smart: bool) -> Result<()
             ));
         }
         let target = changed_paths(repo, hash).await?;
+        let containing: HashSet<&str> = target.iter().flat_map(|path| directories(path)).collect();
+        let shared = |path: &str| {
+            target.contains(path)
+                || containing.contains(path)
+                || directories(path).any(|directory| target.contains(directory))
+        };
         let overlap: Vec<_> = status
             .entries
             .iter()
-            .filter(|e| {
-                target.iter().any(|path| {
-                    path == e.path()
-                        || path.starts_with(&format!("{}/", e.path()))
-                        || e.path().starts_with(&format!("{path}/"))
-                        || e.original_path().is_some_and(|original| {
-                            original == path
-                                || path.starts_with(&format!("{original}/"))
-                                || original.starts_with(&format!("{path}/"))
-                        })
-                })
-            })
+            .filter(|e| shared(e.path()) || e.original_path().is_some_and(shared))
             .map(|e| e.path().to_string())
             .collect();
         if !overlap.is_empty() {

@@ -46,6 +46,14 @@ export const useTabs = create<Tabs>((set) => ({
 export function useMessage(id: string) {
   return useTabs((s) => s.tabs.find((tab) => tab.id === id)?.message ?? '');
 }
+export function useHasMessage(id: string) {
+  return useTabs((s) =>
+    Boolean(s.tabs.find((tab) => tab.id === id)?.message.trim()),
+  );
+}
+export function tabMessage(id: string) {
+  return useTabs.getState().tabs.find((tab) => tab.id === id)?.message ?? '';
+}
 export function useCommitMode(id: string) {
   return useTabs(
     (s) => s.tabs.find((tab) => tab.id === id)?.commitMode ?? 'commit',

@@ -1,8 +1,19 @@
 import { useEffect, type ReactNode } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { client, connectEvents, perform } from '../lib/query';
-import { reportAppError } from '../lib/ipc';
+import { invoke, normalizeError, reportAppError } from '../lib/ipc';
+import { useErrors } from '../stores/errors';
 import { useTabs } from '../stores/tabs';
+function refresh(repo: string) {
+  invoke('refresh', { repo })
+    .then(() => useErrors.getState().resolve(repo, 'refresh'))
+    .catch((error: unknown) =>
+      useErrors.getState().report(repo, normalizeError(error), {
+        command: 'refresh',
+        retry: () => perform('refresh', { repo }),
+      }),
+    );
+}
 export function QueryProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let disposed = false;
@@ -14,8 +25,8 @@ export function QueryProvider({ children }: { children: ReactNode }) {
       })
       .catch(reportAppError);
     const focus = () => {
-      for (const tab of useTabs.getState().tabs)
-        void perform('refresh', { repo: tab.id });
+      const { active } = useTabs.getState();
+      if (active) refresh(active);
     };
     window.addEventListener('focus', focus);
     return () => {

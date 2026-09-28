@@ -8,6 +8,9 @@ import {
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi } from 'vitest';
+import { Profiler } from 'react';
+import { undo } from '@codemirror/commands';
+import { EditorView } from '@codemirror/view';
 import App from '../App';
 import { Providers } from '../providers';
 import { QueryProvider } from '../providers/QueryProvider';
@@ -18,13 +21,13 @@ import { useSelection } from '../stores/selection';
 import { useDiffView } from '../stores/diff-view';
 import { useImageViews } from '../stores/image-view';
 import { useSettingsNav } from '../stores/settings-nav';
+import { useTheme } from '../stores/theme';
 import { initials } from '../components/shared/Avatar';
 import { checkout } from '../components/shell/BranchPopover';
 import { DiffPane } from '../components/diff/DiffPane';
 import { AllChangesPane } from '../components/diff/AllChangesPane';
 import { ImageDiff } from '../components/image/ImageDiff';
 import { absolutePath } from '../components/shared/FileMenu';
-import { highlight } from '../lib/highlight';
 import { client } from '../lib/query';
 import { track } from '../stores/activity';
 import {
@@ -35,7 +38,8 @@ import {
   lastError,
   pendingActivity,
 } from './harness';
-import { intersect, intersecting } from './setup';
+import { intersect, intersecting, release, workers } from './setup';
+import { renders } from './renders';
 import {
   settings,
   status,
@@ -47,11 +51,6 @@ import {
 } from './fixtures';
 import type { Diff, DiffStack } from '../lib/types';
 import type { Stack } from '../stores/selection';
-
-vi.mock('../lib/highlight', async (original) => {
-  const actual = await original<typeof import('../lib/highlight')>();
-  return { ...actual, highlight: vi.fn(actual.highlight) };
-});
 
 const commit = {
   hash: 'a'.repeat(40),
@@ -525,24 +524,15 @@ describe('repository workflows', () => {
     await action('discard-file');
     await action('all');
     await action('previous-file');
-    for (const id of [
-      'fetch',
-      'pull',
-      'push',
-      'stash',
-      'refresh',
-      'next-tab',
-      'previous-tab',
-    ])
+    for (const id of ['fetch', 'pull', 'push', 'stash', 'refresh', 'next-tab'])
       await action(id);
+    expect(useTabs.getState().active).toBe('/second');
+    await run('/second', 'previous-tab');
     expect(useTabs.getState().active).toBe(repository.id);
     expect(calls.filter((call) => call.command === 'sync')).toHaveLength(3);
+    const refreshed = count('refresh');
     fireEvent.focus(window);
-    await waitFor(() =>
-      expect(
-        calls.filter((call) => call.command === 'refresh').length,
-      ).toBeGreaterThan(1),
-    );
+    await waitFor(() => expect(count('refresh')).toBe(refreshed + 1));
     await user.click(screen.getByLabelText('Close Second'));
     expect(useTabs.getState().tabs).toHaveLength(1);
   });
@@ -921,6 +911,7 @@ describe('repository workflows', () => {
     expect(
       screen.getByRole('img', { name: 'Git operation running' }),
     ).toBeVisible();
+    act(() => useTabs.getState().activate('/second'));
     expect(screen.getByText('Pushing to origin/main')).toBeVisible();
     act(() => {
       stop();
@@ -929,6 +920,219 @@ describe('repository workflows', () => {
     expect(
       screen.queryByRole('img', { name: 'Git operation running' }),
     ).not.toBeInTheDocument();
+  });
+});
+
+async function run(repo: string, id: string) {
+  await act(async () => {
+    const entry = registeredActions(repo).find((entry) => entry.id === id);
+    expect(entry, id).toBeDefined();
+    await entry?.run();
+  });
+}
+const repoCalls = (repo: string) =>
+  calls
+    .filter((call) => (call.args as { repo?: string }).repo === repo)
+    .map((call) => call.command);
+describe('focus refresh and hidden tabs', () => {
+  it('refreshes only the active tab on focus, untracked, and reports to its scope', async () => {
+    setup();
+    useTabs.getState().open('/second', 'Second');
+    useTabs.getState().activate(repository.id);
+    mount();
+    await screen.findAllByLabelText('Commit message');
+    await settled();
+    expect(count('refresh')).toBe(0);
+    fireEvent.focus(window);
+    expect(pendingActivity()).toEqual([]);
+    await waitFor(() => expect(count('refresh')).toBe(1));
+    expect(calls.find((call) => call.command === 'refresh')?.args).toEqual({
+      repo: repository.id,
+    });
+    await run(repository.id, 'next-tab');
+    expect(useTabs.getState().active).toBe('/second');
+    act(() => useTabs.getState().open('/third', 'Third'));
+    await settled();
+    expect(count('refresh')).toBe(1);
+    mockCommand('refresh', () => {
+      throw new Error('Status failed');
+    });
+    fireEvent.focus(window);
+    await waitFor(() =>
+      expect(lastError('/third')?.message).toBe('Status failed'),
+    );
+    expect(lastError(repository.id)).toBeUndefined();
+    expect(
+      calls.filter((call) => call.command === 'refresh').at(-1)?.args,
+    ).toEqual({ repo: '/third' });
+    mockCommand('refresh', () => null);
+    fireEvent.focus(window);
+    await waitFor(() => expect(lastError('/third')).toBeUndefined());
+    expect(count('refresh')).toBe(3);
+    act(() => useTabs.getState().activate(''));
+    fireEvent.focus(window);
+    await settled();
+    expect(count('refresh')).toBe(3);
+  });
+  it('keeps a hidden tab to its badge status and catches up when shown', async () => {
+    setup();
+    useTabs.getState().open('/second', 'Second');
+    useSelection
+      .getState()
+      .select('/second', { path: 'src/app.ts', source: 'unstaged' });
+    mount();
+    await waitFor(() => expect(repoCalls('/second')).toContain('diff'));
+    await run('/second', 'previous-tab');
+    expect(useTabs.getState().active).toBe(repository.id);
+    await settled();
+    calls.length = 0;
+    act(() => emit('repo://status-changed', { repo: '/second' }));
+    await waitFor(() => expect(repoCalls('/second')).toEqual(['status']));
+    await settled();
+    expect(repoCalls('/second')).toEqual(['status']);
+    expect(repoCalls(repository.id)).toEqual([]);
+    act(() => useTabs.getState().activate('/second'));
+    await waitFor(() => expect(repoCalls('/second')).toContain('diff'));
+  });
+  it('re-lists the expanded folders of a hidden Files tree when its tab is shown', async () => {
+    setup();
+    let listed = ['app.ts'];
+    mockCommand('tree', ({ path }) =>
+      path
+        ? listed.map((name) => ({
+            path: `src/${name}`,
+            name,
+            directory: false,
+            ignored: false,
+            status: '',
+          }))
+        : [
+            {
+              path: 'src',
+              name: 'src',
+              directory: true,
+              ignored: false,
+              status: '',
+            },
+          ],
+    );
+    useTabs.getState().open('/second', 'Second');
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole('button', { name: /^Files/ }));
+    const files = await screen.findByRole('tree', { name: 'All files' });
+    await user.click(
+      await within(files).findByRole('treeitem', { name: 'src' }),
+    );
+    await within(files).findByRole('treeitem', { name: 'app.ts' });
+    for (const [event, name] of [
+      ['repo://files-changed', 'first.ts'],
+      ['repo://status-changed', 'second.ts'],
+    ] as const) {
+      await run('/second', 'previous-tab');
+      listed = [...listed, name];
+      calls.length = 0;
+      act(() => emit(event, { repo: '/second' }));
+      await settled();
+      expect(repoCalls('/second')).not.toContain('tree');
+      act(() => useTabs.getState().activate('/second'));
+      expect(
+        await within(files).findByRole('treeitem', { name }),
+      ).toBeVisible();
+      expect(
+        calls.filter(
+          (call) =>
+            call.command === 'tree' &&
+            (call.args as { path: string }).path === 'src',
+        ),
+      ).toHaveLength(1);
+    }
+  });
+  it('returns to a hidden editor with its text, history, scroll and focus', async () => {
+    setup();
+    mockCommand('file_read', () => ({
+      text: 'a\nb\nc\n',
+      version: 'v1',
+      bom: false,
+      crlf: false,
+    }));
+    mockCommand('file_lines', () => 'a\nb\nc\n');
+    mockCommand('unsaved_set', () => null);
+    useTabs.getState().open('/second', 'Second');
+    useTabs.getState().activate(repository.id);
+    useSelection
+      .getState()
+      .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole('button', { name: 'Edit' }));
+    const find = async () => {
+      const host = await screen.findByLabelText('Editor');
+      await waitFor(() =>
+        expect(host.querySelector('.cm-editor')).not.toBeNull(),
+      );
+      return EditorView.findFromDOM(host.querySelector('.cm-editor')!)!;
+    };
+    const before = await find();
+    act(() => before.dispatch({ changes: { from: 0, insert: 'typed ' } }));
+    before.scrollDOM.scrollTop = 120;
+    act(() => before.focus());
+    expect(before.hasFocus).toBe(true);
+    await run(repository.id, 'next-tab');
+    expect(useTabs.getState().active).toBe('/second');
+    await run('/second', 'previous-tab');
+    const after = await find();
+    expect(after).not.toBe(before);
+    expect(after.state.doc.toString()).toBe('typed a\nb\nc\n');
+    await waitFor(() => expect(after.scrollDOM.scrollTop).toBe(120));
+    expect(after.hasFocus).toBe(true);
+    act(() => {
+      undo(after);
+    });
+    expect(after.state.doc.toString()).toBe('a\nb\nc\n');
+  });
+  it('trims loaded history to its first page on a head change and keeps it on screen', async () => {
+    setup();
+    const page = (index: number) => ({
+      commits: Array.from({ length: 100 }, (_, offset) => ({
+        ...commit,
+        hash: `${index}-${offset}`.padEnd(40, '0'),
+        subject: `commit ${index}-${offset}`,
+      })),
+      cursor: index < 2 ? `cursor-${index + 1}` : null,
+    });
+    client.setQueryData([repository.id, 'history', ''], {
+      pages: [page(0), page(1), page(2)],
+      pageParams: ['', 'cursor-1', 'cursor-2'],
+    });
+    let release = () => {};
+    mockCommand(
+      'history',
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(page(0));
+        }),
+    );
+    useLayout.getState().update(repository.id, { mode: 'history' });
+    mount();
+    expect(await screen.findByText('300')).toBeVisible();
+    expect(await screen.findByText('commit 0-0')).toBeVisible();
+    expect(count('history')).toBe(0);
+    act(() => emit('repo://head-changed', { repo: repository.id }));
+    expect(screen.getByText('commit 0-0')).toBeVisible();
+    expect(screen.queryByText('0')).not.toBeInTheDocument();
+    await waitFor(() => expect(count('history')).toBe(1));
+    expect(calls.find((call) => call.command === 'history')?.args).toEqual({
+      repo: repository.id,
+      path: '',
+      cursor: '',
+    });
+    expect(screen.getByText('100')).toBeVisible();
+    expect(screen.getByText('commit 0-0')).toBeVisible();
+    await act(async () => release());
+    await settled();
+    expect(screen.getByText('100')).toBeVisible();
+    expect(count('history')).toBe(1);
   });
 });
 
@@ -1150,6 +1354,24 @@ describe('diff context gaps', () => {
 });
 
 describe('diff interaction', () => {
+  it('emphasizes the changed words given as range marks', async () => {
+    setup();
+    renderFile({ path: 'src/app.ts', source: 'unstaged' });
+    const emphasized = async (tint: string) => {
+      await screen.findAllByText('old');
+      return [...document.querySelectorAll(`.${tint}`)].map(
+        (span) => span.textContent,
+      );
+    };
+    await waitFor(async () =>
+      expect(await emphasized('bg-remove-word')).toEqual(['old']),
+    );
+    expect(await emphasized('bg-add-word')).toEqual(['new']);
+    const code = [...document.querySelectorAll('code')].find((node) =>
+      node.textContent?.includes('old value'),
+    );
+    expect(code?.textContent).toContain('old value');
+  });
   it('copies the file path from the diff header', async () => {
     setup();
     useSelection
@@ -1632,7 +1854,7 @@ describe('all changes pane', () => {
     );
     expect(count('diff')).toBe(0);
   });
-  it('mounts surfaces near the viewport and keeps their height once far away', async () => {
+  it('reserves the estimated height until a surface nears the viewport and keeps it mounted after', async () => {
     setup();
     intersecting.initially = false;
     mockCommand('commit_files', () => ({
@@ -1664,9 +1886,6 @@ describe('all changes pane', () => {
     act(() => intersect(block, false));
     await act(settled);
     expect(shown(block, 'new value')).toBe(1);
-    act(() => intersect(block, false, '2000px'));
-    expect(shown(block, 'new value')).toBe(0);
-    expect(height(block)).toBe('600px');
     act(() => intersect(image, true));
     await act(settled);
     expect(image.querySelector('img')).not.toBeNull();
@@ -1674,8 +1893,6 @@ describe('all changes pane', () => {
   it('highlights a stacked file only near the viewport and drops stale tokens', async () => {
     setup();
     intersecting.initially = false;
-    const spy = vi.mocked(highlight);
-    spy.mockClear();
     const changed = {
       ...diff,
       hunks: [
@@ -1699,11 +1916,11 @@ describe('all changes pane', () => {
       name: /app\.ts/,
     }).parentElement!.parentElement!;
     await act(settled);
-    expect(spy).not.toHaveBeenCalled();
+    expect(workers.jobs).toHaveLength(0);
     act(() => intersect(block, true));
     await act(settled);
     await waitFor(() => expect(colored(block)).toBeGreaterThan(0));
-    const highlighted = spy.mock.calls.length;
+    const highlighted = workers.jobs.length;
     act(() => intersect(block, false));
     await act(settled);
     expect(colored(block)).toBeGreaterThan(0);
@@ -1711,11 +1928,10 @@ describe('all changes pane', () => {
     act(() => emit('repo://head-changed', { repo: repository.id }));
     await waitFor(() => expect(shown(block, 'new value;')).toBe(1));
     expect(colored(block)).toBe(0);
-    expect(spy.mock.calls.length).toBe(highlighted);
+    expect(workers.jobs).toHaveLength(highlighted);
   });
   it('keeps the previous tokens of the file pane until new ones arrive', async () => {
     setup();
-    const spy = vi.mocked(highlight);
     render(
       <QueryProvider>
         <DiffPane
@@ -1728,14 +1944,18 @@ describe('all changes pane', () => {
     );
     const pane = await screen.findByRole('region', { name: 'Diff viewer' });
     await waitFor(() => expect(colored(pane)).toBeGreaterThan(0));
-    mockCommand('diff', () => ({ ...diff }));
-    spy
-      .mockImplementationOnce(() => new Promise(() => {}))
-      .mockImplementationOnce(() => new Promise(() => {}));
+    const before = workers.jobs.length;
+    workers.held = true;
+    mockCommand('diff', () => ({ ...diff, newSize: 16 }));
     act(() => emit('repo://status-changed', { repo: repository.id }));
     await waitFor(() => expect(count('diff')).toBe(2));
-    await waitFor(() => expect(shown(pane, 'new value')).toBe(1));
+    await waitFor(() => expect(workers.jobs.length).toBeGreaterThan(before));
+    await waitFor(() => expect(workers.queued.length).toBeGreaterThan(0));
+    expect(shown(pane, 'new value')).toBe(1);
     expect(colored(pane)).toBeGreaterThan(0);
+    workers.held = false;
+    await act(async () => release());
+    await waitFor(() => expect(colored(pane)).toBeGreaterThan(0));
   });
   it('seeds a commit file from its loaded stack and fetches working-tree files', async () => {
     setup();
@@ -2052,6 +2272,10 @@ describe('rendered Markdown', () => {
     const article = screen.getByRole('article');
     expect(article.querySelector('script')).toBeNull();
     expect(article.querySelector('code')).toHaveTextContent('pnpm install');
+    await waitFor(() =>
+      expect(article.querySelector('code span[style]')).not.toBeNull(),
+    );
+    expect(workers.jobs.map((job) => job.path)).toContain('fence.bash');
     await action('rendered');
     expect(await screen.findByRole('radio', { name: 'split' })).toBeVisible();
   });
@@ -2098,6 +2322,375 @@ describe('rendered Markdown', () => {
     await action('blame');
     expect(useSelection.getState().working[repository.id]?.rendered).toBe(
       false,
+    );
+  });
+});
+
+const rows = (
+  count: number,
+  content = (index: number) => `const row${index} = ${index};`,
+) => ({
+  ...diff,
+  hunks: [
+    {
+      header: `@@ -1,${count} +1,${count} @@`,
+      oldStart: 1,
+      oldCount: count,
+      newStart: 1,
+      newCount: count,
+      lines: Array.from({ length: count }, (_, index) => ({
+        kind: 'context' as const,
+        content: content(index),
+        old: index + 1,
+        new: index + 1,
+        noNewline: false,
+        marks: [] as [number, number][],
+      })),
+    },
+  ],
+});
+const named = (count: number) =>
+  Array.from(
+    { length: count },
+    (_, index) => `src/file${String(index).padStart(3, '0')}.ts`,
+  );
+const headers = (pane: HTMLElement) =>
+  within(pane).queryAllByRole('button', { name: /file\d{3}\.ts/ });
+function scrollTo(pane: HTMLElement, top: number) {
+  const scroller = pane.lastElementChild as HTMLDivElement;
+  act(() => {
+    scroller.scrollTop = top;
+    fireEvent.scroll(scroller);
+  });
+}
+const blockOf = (pane: HTMLElement, path: RegExp) =>
+  within(pane).getByRole('button', { name: path }).parentElement!
+    .parentElement!;
+const jobsFor = (path: string) =>
+  workers.jobs.filter((job) => job.path === path).length;
+
+describe('highlighting in a worker', () => {
+  it('streams a long file in chunks, colours the top first, and leaves an overlong line plain', async () => {
+    setup();
+    useDiffView.getState().setMode('unified');
+    const long = `const text = "${'a'.repeat(2500)}";`;
+    mockCommand('diff', () =>
+      rows(1200, (index) =>
+        index === 1 ? long : `const row${index} = ${index};`,
+      ),
+    );
+    workers.held = true;
+    renderFile({ path: 'src/app.ts', source: 'unstaged' });
+    await waitFor(() => expect(workers.queued).toHaveLength(6));
+    expect(workers.jobs.map((job) => job.lines.length)).toEqual([1200, 1200]);
+    const pane = screen.getByRole('region', { name: 'Diff viewer' });
+    expect(colored(pane)).toBe(0);
+    while (!colored(pane) && workers.queued.length)
+      await act(async () => {
+        release(1);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+    expect(colored(pane)).toBeGreaterThan(0);
+    expect(workers.queued.length).toBeGreaterThanOrEqual(3);
+    const capped = [...pane.querySelectorAll('code')].find((code) =>
+      code.textContent?.includes('aaaa'),
+    )!;
+    const spans = capped.querySelectorAll<HTMLElement>('.text-syntax');
+    expect(spans).toHaveLength(1);
+    expect(spans[0].style.getPropertyValue('--syntax-color')).toBe('inherit');
+    await act(async () => release());
+  });
+  it('falls back to plain tokens without an error surface when the worker fails', async () => {
+    setup();
+    workers.failing = true;
+    renderFile({ path: 'src/app.ts', source: 'unstaged' });
+    const pane = await screen.findByRole('region', { name: 'Diff viewer' });
+    await waitFor(() => expect(workers.jobs).toHaveLength(2));
+    await act(settled);
+    expect(shown(pane, 'new value')).toBe(1);
+    expect(colored(pane)).toBe(0);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+  it('cancels an unfinished job when the selection changes and highlights stacked files side by side', async () => {
+    setup();
+    workers.held = true;
+    const view = renderFile({ path: 'src/app.ts', source: 'unstaged' });
+    await waitFor(() => expect(workers.jobs).toHaveLength(2));
+    const first = workers.jobs.map((job) => job.id);
+    view.rerender(
+      <QueryProvider>
+        <DiffPane
+          repo={repository.id}
+          selection={{ path: 'new.txt', source: 'file' }}
+          settings={settings}
+          disabled={false}
+        />
+      </QueryProvider>,
+    );
+    await waitFor(() => expect(workers.cancels).toEqual(first));
+    workers.held = false;
+    await act(async () => release());
+    view.unmount();
+    mockCommand('commit_files', () => ({ 'src/app.ts': 'M', 'lib.ts': 'M' }));
+    mockCommand('diff_stack', () => ({
+      files: { 'src/app.ts': diff, 'lib.ts': { ...diff, path: 'lib.ts' } },
+      truncated: false,
+    }));
+    const pane = await renderStack();
+    await waitFor(() => {
+      expect(colored(blockOf(pane, /app\.ts/))).toBeGreaterThan(0);
+      expect(colored(blockOf(pane, /lib\.ts/))).toBeGreaterThan(0);
+    });
+  });
+  it('reuses finished tokens across a file tab switch, with the full file shown, and retokenizes on a theme change', async () => {
+    setup();
+    mockCommand('diff', (args) => (args.path === 'src/app.ts' ? gapped : diff));
+    mockCommand('file_lines', () => gappedText);
+    const user = userEvent.setup();
+    mount();
+    await screen.findByRole('button', { name: 'All changes' });
+    act(() =>
+      useSelection
+        .getState()
+        .select(repository.id, { path: 'src/app.ts', source: 'unstaged' }),
+    );
+    const pane = await screen.findByRole('region', { name: 'Diff viewer' });
+    await user.click(await screen.findByTitle('Show full file'));
+    await screen.findByTitle('Collapse to changes');
+    await waitFor(() => expect(jobsFor('src/app.ts')).toBe(3));
+    await waitFor(() => expect(colored(pane)).toBeGreaterThan(0));
+    await act(settled);
+    act(() =>
+      useSelection
+        .getState()
+        .select(repository.id, { path: 'new.txt', source: 'file' }),
+    );
+    await waitFor(() => expect(jobsFor('new.txt')).toBeGreaterThan(0));
+    const strip = screen.getByRole('tablist', { name: 'Open files' });
+    await user.click(within(strip).getByRole('tab', { name: /app\.ts/ }));
+    const back = await screen.findByRole('region', { name: 'Diff viewer' });
+    expect(colored(back)).toBeGreaterThan(0);
+    await user.click(await screen.findByTitle('Show full file'));
+    await screen.findByTitle('Collapse to changes');
+    await act(settled);
+    expect(jobsFor('src/app.ts')).toBe(3);
+    act(() => useTheme.getState().setPreference('dark'));
+    await waitFor(() => expect(jobsFor('src/app.ts')).toBe(5));
+    expect(workers.jobs.slice(-2).every((job) => job.dark)).toBe(true);
+  });
+});
+
+describe('virtualized all changes pane', () => {
+  function many(count: number, present = count) {
+    const paths = named(count);
+    mockCommand('commit_files', () =>
+      Object.fromEntries(paths.map((path) => [path, 'M'])),
+    );
+    mockCommand('diff_stack', () => ({
+      files: Object.fromEntries(
+        paths.slice(0, present).map((path) => [path, { ...gapped, path }]),
+      ),
+      truncated: present < count,
+    }));
+    mockCommand('file_lines', () => gappedText);
+    return paths;
+  }
+  it('mounts only the blocks near the viewport and reaches the last one by scrolling', async () => {
+    setup();
+    many(200);
+    const pane = await renderStack();
+    await waitFor(() => expect(headers(pane).length).toBeGreaterThan(0));
+    expect(headers(pane).length).toBeLessThan(10);
+    scrollTo(pane, 200 * 1000);
+    expect(
+      await within(pane).findByRole('button', { name: /file199\.ts/ }),
+    ).toBeVisible();
+    expect(headers(pane).length).toBeLessThan(10);
+  });
+  it('keeps collapse and gap expansion through unmounting and remounting', async () => {
+    setup();
+    many(30);
+    const user = userEvent.setup();
+    const pane = await renderStack();
+    const first = await within(pane).findByRole('button', { name: /file000/ });
+    await user.click(first);
+    expect(first).toHaveAttribute('aria-expanded', 'false');
+    const second = blockOf(pane, /file001/);
+    await user.click(await within(second).findByLabelText('Show all 13 lines'));
+    await waitFor(() => expect(shown(second, 'line 40')).toBeGreaterThan(0));
+    scrollTo(pane, 20 * 600);
+    await waitFor(() =>
+      expect(
+        within(pane).queryByRole('button', { name: /file000/ }),
+      ).toBeNull(),
+    );
+    expect(within(pane).queryByRole('button', { name: /file001/ })).toBeNull();
+    scrollTo(pane, 0);
+    expect(
+      await within(pane).findByRole('button', { name: /file000/ }),
+    ).toHaveAttribute('aria-expanded', 'false');
+    const again = blockOf(pane, /file001/);
+    await waitFor(() => expect(shown(again, 'line 40')).toBeGreaterThan(0));
+    expect(within(again).queryByLabelText('Show all 13 lines')).toBeNull();
+  });
+  it('issues no fallback read and no highlighting for blocks scrolled past quickly', async () => {
+    setup();
+    const paths = many(30, 3);
+    const pane = await renderStack();
+    await waitFor(() => expect(headers(pane).length).toBeGreaterThan(0));
+    const mounted = new Set<string>();
+    for (let step = 1; step <= 24; step++) {
+      scrollTo(pane, step * 600);
+      headers(pane).forEach((header) =>
+        mounted.add(header.querySelector('[title]')!.getAttribute('title')!),
+      );
+    }
+    await act(settled);
+    const passed = paths.slice(5, 20);
+    expect(passed.every((path) => mounted.has(path))).toBe(true);
+    const read = calls.flatMap((call) =>
+      call.command === 'diff' ? [(call.args as { path: string }).path] : [],
+    );
+    expect(read.length).toBeGreaterThan(0);
+    expect(read.filter((path) => passed.includes(path))).toEqual([]);
+    expect(workers.jobs.filter((job) => passed.includes(job.path))).toEqual([]);
+  });
+  it('re-renders only the block whose content changed size', async () => {
+    setup();
+    many(3);
+    let commits = 0;
+    render(
+      <Profiler id="pane" onRender={() => (commits += 1)}>
+        <QueryProvider>
+          <AllChangesPane
+            repo={repository.id}
+            stack="commit"
+            commit={{ path: '', source: 'commit', revision: commit.hash }}
+            status={status}
+            settings={settings}
+            disabled={false}
+          />
+        </QueryProvider>
+      </Profiler>,
+    );
+    const pane = await screen.findByRole('region', {
+      name: 'All changes in commit',
+    });
+    await within(pane).findByRole('button', { name: /file000/ });
+    const block = blockOf(pane, /file000/);
+    const toggle = await within(block).findByLabelText('Show all 13 lines');
+    await waitFor(() =>
+      expect(colored(blockOf(pane, /file002/))).toBeGreaterThan(0),
+    );
+    renders.start();
+    commits = 0;
+    fireEvent.click(toggle);
+    await waitFor(() => expect(shown(block, 'line 40')).toBeGreaterThan(0));
+    await act(settled);
+    expect(commits).toBeGreaterThan(0);
+    expect(renders.of('AllChangesPane')).toBeGreaterThan(0);
+    const blocks = (path: string) =>
+      renders.of(
+        'FileDiff',
+        (props) =>
+          (props as { selection: { path: string } }).selection.path === path,
+      );
+    expect(blocks('src/file000.ts')).toBeGreaterThan(0);
+    expect(blocks('src/file001.ts')).toBe(0);
+    expect(blocks('src/file002.ts')).toBe(0);
+  });
+});
+
+describe('render isolation', () => {
+  const crowded = {
+    ...status,
+    entries: [
+      ...status.entries,
+      ...Array.from({ length: 60 }, (_, index) => ({
+        kind: 'ordinary' as const,
+        path: `src/file${index}.ts`,
+        index: '.',
+        worktree: 'M',
+      })),
+    ],
+  };
+  const children = [
+    'ChangesSection',
+    'FilesSection',
+    'StashSection',
+    'CommitList',
+    'DiffPane',
+    'SelectedDiff',
+  ];
+  async function shell() {
+    setup();
+    mockCommand('status', () => crowded);
+    let commits = 0;
+    render(
+      <Profiler id="shell" onRender={() => (commits += 1)}>
+        <Providers>
+          <App />
+        </Providers>
+      </Profiler>,
+    );
+    await screen.findByRole('button', { name: 'All changes' });
+    act(() =>
+      useSelection
+        .getState()
+        .select(repository.id, { path: 'src/app.ts', source: 'unstaged' }),
+    );
+    const pane = await screen.findByRole('region', { name: 'Diff viewer' });
+    await waitFor(() => expect(colored(pane)).toBeGreaterThan(0));
+    await act(settled);
+    renders.start();
+    commits = 0;
+    return () => commits;
+  }
+  it('re-renders only the commit box while typing a message', async () => {
+    const user = userEvent.setup();
+    const commits = await shell();
+    await user.type(screen.getByLabelText('Commit message'), 'hello');
+    expect(commits()).toBeGreaterThanOrEqual(5);
+    expect(renders.of('CommitFooter')).toBeGreaterThanOrEqual(5);
+    children.forEach((name) => expect(renders.of(name), name).toBe(0));
+    expect(renders.of('RepositoryView')).toBe(1);
+  });
+  it('re-renders none of the heavy children while the sidebar divider moves', async () => {
+    const commits = await shell();
+    const divider = screen.getByLabelText('Resize sidebar');
+    fireEvent.pointerDown(divider);
+    fireEvent.pointerMove(divider, { clientX: 420 });
+    fireEvent.pointerMove(divider, { clientX: 460 });
+    expect(divider).toHaveAttribute('aria-valuenow', '460');
+    expect(commits()).toBeGreaterThanOrEqual(2);
+    expect(renders.of('RepositoryView')).toBe(2);
+    children.forEach((name) => expect(renders.of(name), name).toBe(0));
+  });
+  it('commits and moves between files with the text typed after the last view render', async () => {
+    setup();
+    mockCommand('commit', () => 'b'.repeat(40));
+    const user = userEvent.setup();
+    mount();
+    const box = await screen.findByLabelText('Commit message');
+    const control = () =>
+      screen.getByRole('button', { name: /^Commit .*main$/ });
+    expect(control()).toBeDisabled();
+    await user.type(box, '   ');
+    expect(control()).toBeDisabled();
+    await user.type(box, 'a');
+    expect(control()).toBeEnabled();
+    renders.start();
+    await user.type(box, 'bc');
+    expect(renders.of('RepositoryView')).toBe(0);
+    await action('commit');
+    expect(calls).toContainEqual({
+      command: 'commit',
+      args: { repo: repository.id, message: '   abc' },
+    });
+    await user.type(screen.getByPlaceholderText('Filter files…'), 'new');
+    await action('next-file');
+    expect(useSelection.getState().working[repository.id]?.path).toBe(
+      'new.txt',
     );
   });
 });

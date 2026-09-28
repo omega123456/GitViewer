@@ -1,5 +1,5 @@
 import { RevisionTree } from '../sidebar/RevisionTree';
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { formatDistanceToNowStrict, fromUnixTime } from 'date-fns';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { Archive, Copy, CopyMinus, Layers, Trash2 } from 'lucide-react';
@@ -10,7 +10,7 @@ import type { Action } from '../../lib/keyboard';
 import { runs, useCurrentActivity } from '../../stores/activity';
 import { ask } from '../../stores/decision';
 import { useErrors } from '../../stores/errors';
-import { useLayout, useTabLayout } from '../../stores/layout';
+import { useLayout, useLayoutFields } from '../../stores/layout';
 import { useSelection, useWorkingSelection } from '../../stores/selection';
 import { Button } from '../shared/Button';
 import { Decision } from '../shared/Decision';
@@ -20,7 +20,7 @@ import { Spinner } from '../shared/Spinner';
 import { dynamic, pinnedSlot, revealSlot, rowTint } from '../shared/styles';
 import { VirtualList } from '../shared/VirtualList';
 import { percentBelow, ResizeHandle } from '../shell/ResizeHandle';
-export function StashSection({
+export const StashSection = memo(function StashSection({
   repo,
   disabled,
 }: {
@@ -28,7 +28,12 @@ export function StashSection({
   disabled: boolean;
 }) {
   const query = useBackend('stashes', { repo });
-  const { stashOpen, stashHeight, stashFilesHeight } = useTabLayout(repo);
+  const { stashOpen, stashHeight, stashFilesHeight } = useLayoutFields(
+    repo,
+    'stashOpen',
+    'stashHeight',
+    'stashFilesHeight',
+  );
   const selection = useWorkingSelection(repo);
   const [selected, setSelected] = useState('');
   const activity = useCurrentActivity(repo);
@@ -315,4 +320,4 @@ export function StashSection({
       </div>
     </>
   );
-}
+});

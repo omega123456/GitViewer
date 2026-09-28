@@ -1,5 +1,5 @@
 use super::workflows::{base, fixture};
-use gitviewer_lib::{blob, ipc, repo::Registry};
+use gitviewer_lib::{blob, error::Error, ipc, repo::Registry};
 use serde_json::{json, Value};
 use std::{
     sync::{Arc, Mutex},
@@ -8,6 +8,19 @@ use std::{
 use tauri::{Listener, Manager};
 use tokio::time::timeout;
 
+pub(super) fn dispatch<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    command: &str,
+    args: Value,
+) -> impl std::future::Future<Output = Result<Value, Error>> {
+    let command = command.to_string();
+    async move {
+        ipc::dispatch(app, command, args)
+            .await
+            .map(|raw| serde_json::from_str(raw.get()).unwrap())
+    }
+}
+
 #[tokio::test]
 async fn typed_commands_events_and_protocol_are_wired() {
     let (dir, handle) = fixture().await;
@@ -15,8 +28,7 @@ async fn typed_commands_events_and_protocol_are_wired() {
     let app = gitviewer_lib::configure(tauri::test::mock_builder())
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .unwrap();
-    let call =
-        |command: &str, args: Value| ipc::dispatch(app.handle().clone(), command.to_string(), args);
+    let call = |command: &str, args: Value| dispatch(app.handle().clone(), command, args);
     assert!(call("env", json!({})).await.unwrap()["supported"]
         .as_bool()
         .unwrap());
@@ -290,8 +302,7 @@ async fn reads_proceed_while_a_write_holds_the_repository() {
     let app = gitviewer_lib::configure(tauri::test::mock_builder())
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .unwrap();
-    let call =
-        |command: &str, args: Value| ipc::dispatch(app.handle().clone(), command.to_string(), args);
+    let call = |command: &str, args: Value| dispatch(app.handle().clone(), command, args);
     let info = call("repo_open", json!({"path":dir.path()})).await.unwrap();
     let id = info["id"].as_str().unwrap();
     let repo = app.state::<Registry>().get(id).await.unwrap();
@@ -332,4 +343,209 @@ async fn reads_proceed_while_a_write_holds_the_repository() {
     })
     .await
     .unwrap();
+}
+
+fn app() -> tauri::App<tauri::test::MockRuntime> {
+    gitviewer_lib::configure(tauri::test::mock_builder())
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap()
+}
+fn counter(app: &tauri::App<tauri::test::MockRuntime>, name: &str) -> Arc<Mutex<usize>> {
+    let count = Arc::new(Mutex::new(0));
+    let captured = count.clone();
+    app.handle().listen(name.to_string(), move |_| {
+        *captured.lock().unwrap() += 1;
+    });
+    count
+}
+fn read(count: &Arc<Mutex<usize>>) -> usize {
+    *count.lock().unwrap()
+}
+
+#[tokio::test]
+async fn patches_travel_only_with_working_tree_sources() {
+    let (dir, handle) = fixture().await;
+    base(&dir, &handle).await;
+    let root = dir.path();
+    std::fs::write(root.join("file.txt"), "one\nTWO\nthree\n").unwrap();
+    std::fs::write(root.join("staged.txt"), "staged\n").unwrap();
+    super::workflows::command(root, &["add", "staged.txt"]).await;
+    super::workflows::command(root, &["commit", "-am", "Second"]).await;
+    std::fs::write(root.join("staged.txt"), "staged\nmore\n").unwrap();
+    super::workflows::command(root, &["add", "staged.txt"]).await;
+    std::fs::write(root.join("file.txt"), "one\nTWO\nthree\nfour\n").unwrap();
+    let app = app();
+    let call = |command: &str, args: Value| dispatch(app.handle().clone(), command, args);
+    let info = call("repo_open", json!({"path":root})).await.unwrap();
+    let id = info["id"].as_str().unwrap();
+    let stash = super::workflows::command(root, &["stash", "create"]).await;
+    let stash = stash.trim();
+    for (source, path, revision, base) in [
+        ("commit", "file.txt", "HEAD", ""),
+        ("stash", "file.txt", stash, ""),
+        ("compare", "file.txt", "HEAD", "HEAD~1"),
+        ("file", "file.txt", "", ""),
+    ] {
+        let single = call(
+            "diff",
+            json!({"repo":id,"path":path,"source":source,"revision":revision,"base":base}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(single["patches"], json!([]), "{source}");
+        if source != "file" {
+            assert!(!single["hunks"].as_array().unwrap().is_empty(), "{source}");
+            let stack = call(
+                "diff_stack",
+                json!({"repo":id,"source":source,"revision":revision,"base":base}),
+            )
+            .await
+            .unwrap();
+            assert_eq!(stack["files"][path]["patches"], json!([]), "{source}");
+        }
+    }
+    for (source, path) in [("unstaged", "file.txt"), ("staged", "staged.txt")] {
+        let single = call("diff", json!({"repo":id,"path":path,"source":source}))
+            .await
+            .unwrap();
+        let stack = call("diff_stack", json!({"repo":id,"source":source}))
+            .await
+            .unwrap();
+        let hunks = single["hunks"].as_array().unwrap().len();
+        assert_eq!(hunks, 1);
+        assert_eq!(single["patches"].as_array().unwrap().len(), hunks);
+        assert!(single["patches"][0]
+            .as_str()
+            .unwrap()
+            .starts_with("diff --git"));
+        assert_eq!(stack["files"][path]["patches"], single["patches"]);
+    }
+    let staged = call(
+        "diff",
+        json!({"repo":id,"path":"staged.txt","source":"staged"}),
+    )
+    .await
+    .unwrap();
+    call(
+        "hunk_action",
+        json!({"repo":id,"path":"staged.txt","source":"staged","hunk":0,"patch":staged["patches"][0],"action":"unstage"}),
+    )
+    .await
+    .unwrap();
+    let unstaged = call(
+        "diff",
+        json!({"repo":id,"path":"file.txt","source":"unstaged"}),
+    )
+    .await
+    .unwrap();
+    call(
+        "hunk_action",
+        json!({"repo":id,"path":"file.txt","source":"unstaged","hunk":0,"patch":unstaged["patches"][0],"action":"stage"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        super::workflows::command(root, &["diff", "--cached", "--name-only"])
+            .await
+            .trim(),
+        "file.txt"
+    );
+    let status = call("status", json!({"repo":id})).await.unwrap();
+    for entry in status["entries"].as_array().unwrap() {
+        let mut keys: Vec<&str> = entry
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        if entry["kind"] == "ordinary" {
+            assert_eq!(keys, ["index", "kind", "path", "worktree"]);
+        }
+    }
+}
+
+#[tokio::test]
+async fn refresh_reads_status_once_and_reports_head_moves() {
+    let (dir, handle) = fixture().await;
+    base(&dir, &handle).await;
+    let root = dir.path();
+    let app = app();
+    let id = app
+        .state::<Registry>()
+        .open(root.to_str().unwrap())
+        .await
+        .unwrap()
+        .id;
+    let status = counter(&app, "repo://status-changed");
+    let head = counter(&app, "repo://head-changed");
+    let trace = dir.path().join("..").join(format!(
+        "{}-refresh-trace.json",
+        dir.path().file_name().unwrap().to_string_lossy()
+    ));
+    std::env::set_var("GIT_TRACE2_EVENT", &trace);
+    let refresh = || async {
+        dispatch(app.handle().clone(), "refresh", json!({"repo":id}))
+            .await
+            .unwrap()
+    };
+    let processes = super::workflows::counted(&trace, refresh()).await;
+    std::env::remove_var("GIT_TRACE2_EVENT");
+    std::fs::remove_file(&trace).ok();
+    assert_eq!(processes, 1);
+    assert_eq!((read(&status), read(&head)), (1, 0));
+    refresh().await;
+    assert_eq!((read(&status), read(&head)), (2, 0));
+    super::workflows::command(root, &["commit", "--allow-empty", "-m", "Moved"]).await;
+    refresh().await;
+    assert_eq!((read(&status), read(&head)), (3, 1));
+    super::workflows::command(root, &["checkout", "-q", "-b", "other"]).await;
+    refresh().await;
+    assert_eq!((read(&status), read(&head)), (4, 2));
+    refresh().await;
+    assert_eq!((read(&status), read(&head)), (5, 2));
+    assert!(
+        dispatch(app.handle().clone(), "refresh", json!({"repo":"missing"}))
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn stash_commands_always_report_a_head_change() {
+    let (dir, handle) = fixture().await;
+    base(&dir, &handle).await;
+    let root = dir.path();
+    std::fs::write(root.join("file.txt"), "stashed\n").unwrap();
+    let app = app();
+    let id = app
+        .state::<Registry>()
+        .open(root.to_str().unwrap())
+        .await
+        .unwrap()
+        .id;
+    let head = counter(&app, "repo://head-changed");
+    let call = |command: &str, args: Value| dispatch(app.handle().clone(), command, args);
+    let hash = call("stash_save", json!({"repo":id,"message":"Saved"}))
+        .await
+        .unwrap();
+    assert_eq!(read(&head), 1);
+    call(
+        "stash_apply",
+        json!({"repo":id,"hash":hash,"pop":false,"smart":false}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(read(&head), 2);
+    call("stash_drop", json!({"repo":id,"hash":hash}))
+        .await
+        .unwrap();
+    assert_eq!(read(&head), 3);
+    call(
+        "stash_restore",
+        json!({"repo":id,"hash":hash,"message":"On main: Saved"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(read(&head), 4);
 }
