@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import type { Commit } from '../../lib/types';
 const strokes = [
   'stroke-lane-1 dark:stroke-lane-1-dark',
@@ -19,42 +20,112 @@ const fills = [
   'fill-lane-7 dark:fill-lane-7-dark',
   'fill-lane-8 dark:fill-lane-8-dark',
 ];
-export function LaneGraph({ commit, head }: { commit: Commit; head: boolean }) {
-  const centre = 14 + commit.lane * 18;
+const visibleLanes = 6;
+const fade = 10;
+const x = (lane: number) => 14 + lane * 18;
+export function laneCount(commits: Commit[]) {
+  return commits.reduce(
+    (count, commit) =>
+      Math.max(
+        count,
+        commit.lane + 1,
+        ...commit.segments.map(
+          (segment) => Math.max(segment.from, segment.to) + 1,
+        ),
+      ),
+    1,
+  );
+}
+export function graphWidth(lanes: number) {
+  return 28 + 18 * (Math.min(lanes, visibleLanes) - 1);
+}
+export function LaneGraph({
+  commit,
+  lanes,
+  head,
+}: {
+  commit: Commit;
+  lanes: number;
+  head: boolean;
+}) {
+  const id = useId();
+  const width = graphWidth(lanes);
+  const overflow = lanes > visibleLanes;
+  const centre = x(commit.lane);
+  const merge = commit.parents.length > 1;
   return (
     <svg
-      width={78}
       height={30}
-      className="shrink-0"
+      className="w-graph shrink-0"
       aria-label={`Lane ${commit.lane + 1}`}
       role="img"
     >
-      {commit.segments.map((segment, index) => (
-        <path
-          key={index}
-          d={`M ${14 + segment.from * 18} 0 L ${14 + segment.from * 18} 15 L ${14 + segment.to * 18} 30`}
-          className={strokes[segment.from % 8]}
-          strokeWidth={1.6}
-          fill="none"
-        />
-      ))}
-      {head && (
-        <circle
-          cx={centre}
-          cy={15}
-          r={8}
-          strokeWidth={1.6}
-          opacity={0.55}
-          fill="none"
-          className={strokes[commit.lane % 8]}
-        />
+      {overflow && (
+        <defs>
+          <linearGradient id={`${id}fade`}>
+            <stop offset={(width - fade) / width} stopColor="white" />
+            <stop offset={1} stopColor="white" stopOpacity={0} />
+          </linearGradient>
+          <mask id={`${id}mask`}>
+            <rect width={width} height={30} fill={`url(#${id}fade)`} />
+          </mask>
+        </defs>
       )}
-      <circle
-        cx={centre}
-        cy={15}
-        r={head ? 5 : 4}
-        className={fills[commit.lane % 8]}
-      />
+      <g mask={overflow ? `url(#${id}mask)` : undefined}>
+        {commit.entered && (
+          <path
+            d={`M ${centre} 0 L ${centre} 15`}
+            className={strokes[commit.color]}
+            strokeWidth={1.6}
+            fill="none"
+          />
+        )}
+        {commit.segments.map((segment, index) => (
+          <path
+            key={index}
+            d={`${segment.from === commit.lane ? `M ${centre} 15` : `M ${x(segment.from)} 0 L ${x(segment.from)} 15`} L ${x(segment.to)} 30`}
+            className={strokes[segment.color]}
+            strokeWidth={1.6}
+            fill="none"
+          />
+        ))}
+      </g>
+      {commit.lane >= visibleLanes ? (
+        <path
+          d={`M ${width - 7} 11 L ${width - 1} 15 L ${width - 7} 19 Z`}
+          className={fills[commit.color]}
+        />
+      ) : (
+        <>
+          {head && (
+            <circle
+              cx={centre}
+              cy={15}
+              r={8}
+              strokeWidth={1.6}
+              opacity={0.55}
+              fill="none"
+              className={strokes[commit.color]}
+            />
+          )}
+          {merge && !head ? (
+            <circle
+              cx={centre}
+              cy={15}
+              r={3.2}
+              strokeWidth={1.6}
+              className={`fill-sub dark:fill-sub-dark ${strokes[commit.color]}`}
+            />
+          ) : (
+            <circle
+              cx={centre}
+              cy={15}
+              r={head ? 5 : 4}
+              className={fills[commit.color]}
+            />
+          )}
+        </>
+      )}
     </svg>
   );
 }

@@ -136,7 +136,7 @@
   --spacing-toolbar: 42px;
   --spacing-section: 28px;
   --spacing-group: 24px;
-  --spacing-lanes: 78px;
+  --spacing-graph: var(--graph-width, 28px);
   --spacing-tree-compact: 24px;
   --spacing-tree-comfortable: 28px;
   --spacing-changes-floor: 192px;

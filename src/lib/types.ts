@@ -179,7 +179,9 @@ export interface Commit {
   subject: string;
   refs: string;
   lane: number;
-  segments: { from: number; to: number }[];
+  color: number;
+  entered: boolean;
+  segments: { from: number; to: number; color: number }[];
 }
 export interface Page {
   commits: Commit[];

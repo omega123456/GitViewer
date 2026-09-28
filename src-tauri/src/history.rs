@@ -2,7 +2,7 @@ use crate::{
     diff::resolve,
     error::{Error, Result},
     git,
-    graph::{lanes, Commit},
+    graph::{lanes, Commit, Lane},
     repo::Repo,
 };
 use serde::Serialize;
@@ -17,7 +17,7 @@ pub struct Session {
     child: tokio::process::Child,
     reader: tokio::io::BufReader<tokio::process::ChildStdout>,
     stderr: Option<tokio::task::JoinHandle<std::io::Result<String>>>,
-    lanes: Vec<String>,
+    lanes: Vec<Lane>,
     kept: Option<(String, Page)>,
     next: String,
 }
@@ -25,7 +25,7 @@ impl Session {
     fn start(repo: &Repo, path: &str) -> Result<Self> {
         let mut args = vec![
             "log",
-            "--topo-order",
+            "--date-order",
             "--format=%H%x00%P%x00%an%x00%at%x00%D%x00%s%x00",
         ];
         if !path.is_empty() {
@@ -93,6 +93,8 @@ impl Session {
                 refs: fields[4].clone(),
                 subject: fields[5].clone(),
                 lane: 0,
+                color: 0,
+                entered: false,
                 segments: Vec::new(),
             });
         }

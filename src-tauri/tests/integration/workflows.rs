@@ -636,7 +636,7 @@ async fn history_cursor_preserves_merge_frontier_and_cached_pages() {
     .unwrap()
     .text();
     command(dir.path(), &["update-ref", "refs/heads/main", merge.trim()]).await;
-    let expected = command(dir.path(), &["rev-list", "--topo-order", "HEAD"]).await;
+    let expected = command(dir.path(), &["rev-list", "--date-order", "HEAD"]).await;
     let repo = handle.clone();
     repo.refresh().await.unwrap();
     let first = history::page(&repo, "", "").await.unwrap();

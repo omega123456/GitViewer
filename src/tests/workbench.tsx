@@ -20,7 +20,9 @@ export const commit = {
   subject: 'Review commit',
   refs: 'main',
   lane: 0,
-  segments: [{ from: 0, to: 1 }],
+  color: 0,
+  entered: false,
+  segments: [{ from: 0, to: 0, color: 0 }],
 };
 export const branches = [
   { name: 'main', current: true, remote: false, upstream: 'origin/main' },

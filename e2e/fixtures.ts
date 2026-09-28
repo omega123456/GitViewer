@@ -248,9 +248,11 @@ export const test = base.extend({
                                 subject: 'Merge feature',
                                 refs: 'main',
                                 lane: 0,
+                                color: 0,
+                                entered: false,
                                 segments: [
-                                  { from: 0, to: 0 },
-                                  { from: 0, to: 1 },
+                                  { from: 0, to: 0, color: 0 },
+                                  { from: 0, to: 1, color: 1 },
                                 ],
                               },
                               {
@@ -261,9 +263,11 @@ export const test = base.extend({
                                 subject: 'Review implementation',
                                 refs: 'feature',
                                 lane: 0,
+                                color: 0,
+                                entered: true,
                                 segments: [
-                                  { from: 0, to: 0 },
-                                  { from: 1, to: 0 },
+                                  { from: 1, to: 0, color: 1 },
+                                  { from: 0, to: 0, color: 0 },
                                 ],
                               },
                               {
@@ -274,6 +278,8 @@ export const test = base.extend({
                                 subject: 'Initial commit',
                                 refs: '',
                                 lane: 0,
+                                color: 0,
+                                entered: true,
                                 segments: [],
                               },
                             ]

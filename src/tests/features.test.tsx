@@ -478,6 +478,59 @@ describe('repository workflows', () => {
       'commit',
     );
   });
+  it('draws lanes in line colours, hollows merges and marks lanes past the cap', async () => {
+    setup();
+    mockCommand('history', () => ({
+      commits: [
+        {
+          ...commit,
+          parents: ['b'.repeat(40), 'c'.repeat(40)],
+          subject: 'Merge feature',
+          color: 2,
+          segments: [
+            { from: 0, to: 0, color: 2 },
+            { from: 0, to: 7, color: 3 },
+          ],
+        },
+        {
+          ...commit,
+          hash: 'c'.repeat(40),
+          subject: 'Far feature',
+          refs: '',
+          lane: 7,
+          color: 3,
+          entered: true,
+          segments: [{ from: 0, to: 0, color: 2 }],
+        },
+      ],
+      cursor: null,
+    }));
+    mount();
+    await screen.findByLabelText('Commit message');
+    await action('history');
+    const list = await screen.findByLabelText('Commit history');
+    await within(list).findByText('Far feature');
+    expect(
+      list
+        .closest<HTMLElement>('[style]')
+        ?.style.getPropertyValue('--graph-width'),
+    ).toBe('118px');
+    const merge = within(list).getByRole('img', { name: 'Lane 1' });
+    expect(merge.querySelector('circle')).toHaveAttribute('r', '3.2');
+    expect(merge.querySelector('circle')).toHaveClass('fill-sub');
+    expect(merge.querySelector('path[d^="M 14 0"]')).toBeNull();
+    expect(merge.querySelector('path[d="M 14 15 L 140 30"]')).toHaveClass(
+      'stroke-lane-4',
+    );
+    expect(merge.querySelector('mask')).not.toBeNull();
+    expect(within(list).getByText('main')).toHaveClass('text-lane-3');
+    const far = within(list).getByRole('img', { name: 'Lane 8' });
+    expect(far.querySelector('circle')).toBeNull();
+    expect(far.querySelector('path[d^="M 111 11"]')).toHaveClass('fill-lane-4');
+    expect(far.querySelector('path[d="M 140 0 L 140 15"]')).toHaveClass(
+      'stroke-lane-4',
+    );
+  });
   it('persists each preference through the backend and refreshes from its event', async () => {
     setup();
     let preferences = settings;

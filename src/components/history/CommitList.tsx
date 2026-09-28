@@ -17,7 +17,8 @@ import { GroupHeader } from '../shared/Section';
 import { VirtualList } from '../shared/VirtualList';
 import { ErrorRow, ErrorState } from '../states/Errors';
 import { State } from '../states/State';
-import { LaneGraph } from './LaneGraph';
+import { dynamic } from '../shared/styles';
+import { LaneGraph, graphWidth, laneCount } from './LaneGraph';
 const refColours = [
   'text-lane-1 dark:text-lane-1-dark',
   'text-lane-2 dark:text-lane-2-dark',
@@ -51,8 +52,12 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
     Boolean(selection?.revision),
   );
   const commits = query.data?.pages.flatMap((page) => page.commits) ?? [];
+  const lanes = laneCount(commits);
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div
+      className="flex min-h-0 flex-1 flex-col"
+      style={dynamic({ '--graph-width': `${graphWidth(lanes)}px` })}
+    >
       <h2 className="flex h-section shrink-0 items-center gap-1.5 border-b border-line bg-sub px-2 text-label font-semibold tracking-wider text-muted uppercase dark:border-line-dark dark:bg-sub-dark">
         <History className="size-3 shrink-0" />
         <span className="truncate">{status.data?.branch}</span>
@@ -102,6 +107,7 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
               )}
               <LaneGraph
                 commit={commit}
+                lanes={lanes}
                 head={commit.hash === status.data?.oid}
               />
               <Avatar author={commit.author} />
@@ -113,7 +119,7 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
               </span>
               {commit.refs && (
                 <span
-                  className={`max-w-24 shrink-0 truncate rounded-full border border-current px-1.5 text-label ${refColours[commit.lane % 8]}`}
+                  className={`max-w-24 shrink-0 truncate rounded-full border border-current px-1.5 text-label ${refColours[commit.color]}`}
                 >
                   {commit.refs}
                 </span>

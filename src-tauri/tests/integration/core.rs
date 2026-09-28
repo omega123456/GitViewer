@@ -613,6 +613,8 @@ fn lane_assignment_handles_merges_and_termination() {
         subject: hash.into(),
         refs: String::new(),
         lane: 0,
+        color: 0,
+        entered: false,
         segments: Vec::new(),
     };
     let mut commits = vec![
@@ -625,7 +627,68 @@ fn lane_assignment_handles_merges_and_termination() {
     lanes(&mut commits, &mut active);
     assert_eq!(commits[2].lane, 1);
     assert_eq!(commits[0].segments.len(), 2);
+    assert!(!commits[0].entered);
+    assert!(commits[2].entered);
+    assert_eq!(commits[2].color, 1);
+    assert!(commits[2]
+        .segments
+        .iter()
+        .any(|s| s.from == 1 && s.to == 0 && s.color == 1));
     assert!(active.is_empty());
+}
+
+fn graph_commit(hash: &str, parents: &[&str]) -> Commit {
+    Commit {
+        hash: hash.into(),
+        parents: parents.iter().map(|p| p.to_string()).collect(),
+        author: "A".into(),
+        timestamp: 0,
+        subject: hash.into(),
+        refs: String::new(),
+        lane: 0,
+        color: 0,
+        entered: false,
+        segments: Vec::new(),
+    }
+}
+
+#[test]
+fn lane_assignment_keeps_the_first_parent_in_the_child_column() {
+    let mut commits = vec![
+        graph_commit("pr", &["m2", "f2"]),
+        graph_commit("f2", &["f1", "m1"]),
+        graph_commit("f1", &["base"]),
+        graph_commit("m2", &["m1"]),
+        graph_commit("m1", &["base"]),
+        graph_commit("base", &[]),
+    ];
+    let mut active = Vec::new();
+    lanes(&mut commits, &mut active);
+    let lane = |hash: &str| commits.iter().find(|c| c.hash == hash).unwrap();
+    for main in ["pr", "m2", "m1", "base"] {
+        assert_eq!(lane(main).lane, 0, "{main}");
+        assert_eq!(lane(main).color, 0, "{main}");
+    }
+    assert_eq!(lane("f2").lane, 1);
+    assert_eq!(lane("f2").color, lane("f1").color);
+    assert!(lane("m2")
+        .segments
+        .iter()
+        .any(|s| s.from == 2 && s.to == 0 && s.color == 2));
+    assert!(!lane("pr").entered);
+    assert!(lane("base").entered);
+    assert!(active.is_empty());
+}
+
+#[test]
+fn lane_colours_fall_back_to_the_lane_count_past_eight_lines() {
+    let parents: Vec<String> = (0..9).map(|n| format!("p{n}")).collect();
+    let parents: Vec<&str> = parents.iter().map(String::as_str).collect();
+    let mut commits = vec![graph_commit("octopus", &parents)];
+    let mut active = Vec::new();
+    lanes(&mut commits, &mut active);
+    let colors: Vec<usize> = active.iter().map(|lane| lane.color).collect();
+    assert_eq!(colors, vec![0, 1, 2, 3, 4, 5, 6, 7, 0]);
 }
 
 #[tokio::test]
