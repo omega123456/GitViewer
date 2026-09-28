@@ -31,6 +31,16 @@ import {
   type Reply,
   type Request,
 } from '../lib/highlight.worker';
+vi.mock('shiki', async (importOriginal) => {
+  const shiki = await importOriginal<typeof import('shiki')>();
+  let shared: ReturnType<typeof shiki.createHighlighter> | undefined;
+  return {
+    ...shiki,
+    createHighlighter: (
+      options: Parameters<typeof shiki.createHighlighter>[0],
+    ) => (shared ??= shiki.createHighlighter(options)),
+  };
+});
 const rect = {
   width: 800,
   height: 600,
