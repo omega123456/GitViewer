@@ -292,7 +292,7 @@ export const AllChangesPane = memo(function AllChangesPane({
                     key={item.key}
                     ref={virtual.measureElement}
                     data-index={item.index}
-                    className="absolute top-0 left-0 w-full translate-y-row"
+                    className="absolute top-row left-0 w-full"
                     style={dynamic({ '--row-offset': `${item.start}px` })}
                   >
                     <FileDiff
