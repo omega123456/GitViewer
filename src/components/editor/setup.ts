@@ -36,7 +36,6 @@ import {
   EditorView,
   gutter,
   GutterMarker,
-  highlightActiveLine,
   highlightActiveLineGutter,
   highlightSpecialChars,
   keymap,
@@ -114,7 +113,7 @@ export function chrome(dark: boolean) {
         color: color('faint', dark),
         border: 'none',
       },
-      '.cm-activeLine, .cm-activeLineGutter': {
+      '.cm-activeLineGutter': {
         backgroundColor: color('hover', dark),
       },
       '.cm-cursor, .cm-dropCursor': { borderLeftColor: color('ink', dark) },
@@ -235,7 +234,6 @@ export function createState({
       EditorState.languageData.of(() => [{ autocomplete: completeAnyWord }]),
       rectangularSelection(),
       crosshairCursor(),
-      highlightActiveLine(),
       highlightSelectionMatches(),
       keymap.of([
         ...closeBracketsKeymap,
