@@ -1,5 +1,5 @@
 import { TextInput } from '../shared/TextInput';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Eye, EyeOff, Search } from 'lucide-react';
 import { useActionRegistry } from '../../lib/actions';
 import { fuzzyFilter } from '../../lib/fuzzy';
@@ -71,6 +71,8 @@ export function CommandPalette({ repo }: { repo: string }) {
   const mode = usePalette((s) => s.mode);
   const [filter, setFilter] = useState('');
   const [index, setIndex] = useState(0);
+  const list = useRef<HTMLDivElement>(null);
+  const pointed = useRef(false);
   const preference = usePalette((s) => s.ignored);
   const settings = useBackend('settings_get', {});
   const ignored = preference ?? settings.data?.searchIgnoredFiles ?? false;
@@ -160,6 +162,31 @@ export function CommandPalette({ repo }: { repo: string }) {
           enabled.length
         : 0,
     );
+  const page = (direction: number) => {
+    const row = list.current?.querySelector<HTMLElement>('[data-current]');
+    const step = Math.max(
+      1,
+      Math.floor((list.current?.clientHeight ?? 0) / (row?.offsetHeight || 1)),
+    );
+    setIndex((value) =>
+      Math.max(
+        0,
+        Math.min(
+          enabled.length - 1,
+          Math.min(value, enabled.length - 1) + direction * step,
+        ),
+      ),
+    );
+  };
+  useEffect(() => {
+    if (pointed.current) {
+      pointed.current = false;
+      return;
+    }
+    list.current
+      ?.querySelector('[data-current]')
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [current?.id]);
   const update = (value: string) => {
     setFilter(value);
     setIndex(0);
@@ -188,6 +215,8 @@ export function CommandPalette({ repo }: { repo: string }) {
           onKeyDown={(event) => {
             if (event.key === 'ArrowDown') move(1);
             else if (event.key === 'ArrowUp') move(-1);
+            else if (event.key === 'PageDown') page(1);
+            else if (event.key === 'PageUp') page(-1);
             else if (event.key === 'Enter' && current) run(current);
             else return;
             event.preventDefault();
@@ -209,7 +238,7 @@ export function CommandPalette({ repo }: { repo: string }) {
           </Button>
         )}
       </div>
-      <div className="max-h-120 overflow-auto p-1.5">
+      <div ref={list} className="max-h-120 overflow-auto p-1.5">
         {visible.map((group) => (
           <div key={group.name}>
             <h3 className="flex h-group items-center px-3 text-label font-semibold tracking-wider text-faint uppercase dark:text-faint-dark">
@@ -220,15 +249,19 @@ export function CommandPalette({ repo }: { repo: string }) {
                 key={row.id}
                 type="button"
                 disabled={row.disabled}
+                data-current={row === current || undefined}
                 onMouseEnter={(event) => {
                   const button = event.currentTarget;
                   const truncated = [...button.querySelectorAll('span')].some(
                     (span) => span.scrollWidth > span.clientWidth,
                   );
                   button.title = truncated ? row.title : '';
+                  if (row.disabled || row === current) return;
+                  pointed.current = true;
+                  setIndex(enabled.indexOf(row));
                 }}
                 onClick={() => run(row)}
-                className={`flex h-10 w-full items-center gap-3 rounded px-3 text-sm disabled:opacity-40 ${row === current ? 'bg-selected dark:bg-selected-dark' : 'hover:bg-hover dark:hover:bg-hover-dark'} ${focusInset}`}
+                className={`flex h-10 w-full items-center gap-3 rounded px-3 text-sm disabled:opacity-40 ${row === current ? 'bg-selected dark:bg-selected-dark' : ''} ${focusInset}`}
               >
                 <span className="flex size-3.5 shrink-0 items-center justify-center text-muted dark:text-muted-dark">
                   {row.icon}

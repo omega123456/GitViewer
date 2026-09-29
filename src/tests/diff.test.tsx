@@ -545,6 +545,26 @@ describe('keyboard and pointer access', () => {
       within(commands).getByText('Press F2 to search files instead'),
     ).toBeVisible();
     await user.clear(search);
+    const highlighted = () =>
+      commands.querySelector<HTMLElement>('[data-current]');
+    const first = highlighted();
+    const scrolled = vi.mocked(HTMLElement.prototype.scrollIntoView);
+    fireEvent.keyDown(search, { key: 'PageDown' });
+    const second = highlighted();
+    expect(second).not.toBe(first);
+    expect(scrolled.mock.contexts.at(-1)).toBe(second);
+    fireEvent.keyDown(search, { key: 'PageUp' });
+    fireEvent.keyDown(search, { key: 'PageUp' });
+    expect(highlighted()).toBe(first);
+    expect(scrolled.mock.contexts.at(-1)).toBe(first);
+    const scrolls = scrolled.mock.calls.length;
+    fireEvent.mouseEnter(second!);
+    expect(highlighted()).toBe(second);
+    expect(commands.querySelectorAll('[data-current]')).toHaveLength(1);
+    expect(scrolled).toHaveBeenCalledTimes(scrolls);
+    fireEvent.keyDown(search, { key: 'ArrowUp' });
+    expect(highlighted()).toBe(first);
+    expect(scrolled.mock.contexts.at(-1)).toBe(first);
     await user.click(
       within(commands).getByRole('button', { name: /Go to file/ }),
     );
