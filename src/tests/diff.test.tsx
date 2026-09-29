@@ -30,6 +30,7 @@ import {
   action,
   markdownDiff,
   blameLines,
+  rows,
 } from './workbench';
 describe('file context menu', () => {
   it('copies the name and full path and opens a changed file', async () => {
@@ -707,5 +708,93 @@ describe('rendered Markdown', () => {
     expect(useSelection.getState().working[repository.id]?.rendered).toBe(
       false,
     );
+  });
+});
+describe('find in file', () => {
+  const needles = () =>
+    rows(200, (index) =>
+      index % 50 === 0 ? `needle ${index}` : `const row${index} = ${index};`,
+    );
+  const counter = () => within(screen.getByRole('search')).getByRole('status');
+  const current = () =>
+    [...document.querySelectorAll('.bg-find-current')].map(
+      (span) => span.textContent,
+    );
+  it('opens with the shortcut, cycles matches with wrap-around, and closes with Escape', async () => {
+    setup();
+    useDiffView.getState().setMode('unified');
+    mockCommand('diff', needles);
+    useSelection
+      .getState()
+      .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
+    const user = userEvent.setup();
+    mount();
+    const surface = await screen.findByRole('region', { name: 'Diff content' });
+    await within(surface).findByText(/needle 0/);
+    fireEvent.keyDown(window, { key: 'f', metaKey: true });
+    const input = await screen.findByRole('textbox', { name: 'Find in file' });
+    expect(input).toHaveFocus();
+    await user.type(input, 'NEEDLE');
+    expect(counter()).toHaveTextContent('1 of 4');
+    expect(current()).toEqual(['needle']);
+    const scroll = vi.mocked(HTMLElement.prototype.scrollTo);
+    scroll.mockClear();
+    await user.keyboard('{Enter}');
+    expect(counter()).toHaveTextContent('2 of 4');
+    expect(scroll).toHaveBeenCalled();
+    await user.keyboard('{Shift>}{Enter}{Enter}{/Shift}');
+    expect(counter()).toHaveTextContent('4 of 4');
+    await user.click(screen.getByRole('button', { name: 'Next match' }));
+    expect(counter()).toHaveTextContent('1 of 4');
+    await user.click(screen.getByRole('button', { name: 'Previous match' }));
+    expect(counter()).toHaveTextContent('4 of 4');
+    await user.click(surface);
+    fireEvent.keyDown(window, { key: 'F3' });
+    expect(counter()).toHaveTextContent('1 of 4');
+    fireEvent.keyDown(input, { key: 'F3', shiftKey: true });
+    expect(counter()).toHaveTextContent('4 of 4');
+    expect(screen.getByRole('button', { name: 'Next match' })).toHaveAttribute(
+      'title',
+      'Next match (F3)',
+    );
+    expect(
+      screen.getByRole('button', { name: 'Previous match' }),
+    ).toHaveAttribute('title', 'Previous match (⇧+F3)');
+    await user.click(surface);
+    fireEvent.keyDown(window, { key: 'f', metaKey: true });
+    expect(input).toHaveFocus();
+    await user.clear(input);
+    await user.type(input, 'a.b(');
+    expect(counter()).toHaveTextContent('No results');
+    expect(screen.getByRole('button', { name: 'Next match' })).toBeDisabled();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('search')).toBeNull();
+    expect(current()).toEqual([]);
+    expect(surface).toHaveFocus();
+  });
+  it('searches the blame lines and closes from its button', async () => {
+    setup();
+    mockCommand('blame', () => [
+      ...blameLines,
+      { ...blameLines[0], line: 2, content: 'second first', block: false },
+    ]);
+    const user = userEvent.setup();
+    renderFile({ path: 'src/app.ts', source: 'unstaged', blame: true });
+    const lines = await screen.findByLabelText('Blame lines');
+    await within(lines).findByText('first');
+    await action('find');
+    await user.type(
+      screen.getByRole('textbox', { name: 'Find in file' }),
+      'first',
+    );
+    expect(counter()).toHaveTextContent('1 of 2');
+    expect(current()).toEqual(['first']);
+    await user.keyboard('{Enter}');
+    expect(counter()).toHaveTextContent('2 of 2');
+    expect(
+      [...lines.querySelectorAll('.bg-find')].map((span) => span.textContent),
+    ).toEqual(['first']);
+    await user.click(screen.getByRole('button', { name: 'Close find' }));
+    expect(screen.queryByRole('search')).toBeNull();
   });
 });

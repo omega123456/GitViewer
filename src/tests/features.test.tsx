@@ -6,6 +6,7 @@ import {
   within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { format, fromUnixTime } from 'date-fns';
 import { describe, it, expect, vi } from 'vitest';
 import { useTabs } from '../stores/tabs';
 import { useLayout } from '../stores/layout';
@@ -473,10 +474,73 @@ describe('repository workflows', () => {
         initials('Author'),
       ),
     ).toHaveLength(1);
+    const blame = screen.getByLabelText('Blame lines');
+    expect(within(blame).getByTitle('Author')).toBeInTheDocument();
+    expect(
+      within(blame).getByTitle(format(fromUnixTime(commit.timestamp), 'PPpp')),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'aaaaaaa' }));
     expect(useSelection.getState().history[repository.id]?.source).toBe(
       'commit',
     );
+    expect(
+      (await screen.findByText('Review commit')).closest('button'),
+    ).toHaveClass('bg-selected');
+  });
+  it('pages the history until a blamed commit is loaded, then selects and reveals it', async () => {
+    setup();
+    const first = Array.from({ length: 60 }, (_, index) => ({
+      ...commit,
+      hash: index.toString(16).padStart(40, '0'),
+      subject: `Commit ${index}`,
+      refs: '',
+    }));
+    const older = { ...commit, hash: 'c'.repeat(40), subject: 'Older commit' };
+    mockCommand('history', ({ cursor }) =>
+      cursor
+        ? { commits: [older, { ...older, hash: 'd'.repeat(40) }], cursor: null }
+        : { commits: first, cursor: first[59].hash },
+    );
+    mockCommand('blame', () => [
+      {
+        hash: older.hash,
+        author: 'Author',
+        timestamp: older.timestamp,
+        line: 1,
+        content: 'first',
+        block: true,
+      },
+    ]);
+    useSelection.getState().select(repository.id, {
+      path: 'src/app.ts',
+      source: 'unstaged',
+      blame: true,
+    });
+    const user = userEvent.setup();
+    mount();
+    const scroll = vi.mocked(HTMLElement.prototype.scrollTo);
+    const tall = vi
+      .spyOn(Element.prototype, 'scrollHeight', 'get')
+      .mockReturnValue(100000);
+    const visible = vi
+      .spyOn(Element.prototype, 'clientHeight', 'get')
+      .mockReturnValue(600);
+    const hash = await screen.findByRole('button', { name: 'ccccccc' });
+    scroll.mockClear();
+    await user.click(hash);
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        command: 'history',
+        args: { repo: repository.id, path: '', cursor: first[59].hash },
+      }),
+    );
+    await waitFor(() =>
+      expect(scroll).toHaveBeenCalledWith(
+        expect.objectContaining({ top: 60 * 30 + 30 - 600 }),
+      ),
+    );
+    tall.mockRestore();
+    visible.mockRestore();
   });
   it('draws lanes in line colours, hollows merges and marks lanes past the cap', async () => {
     setup();

@@ -60,11 +60,11 @@ export function highlight(content: string, path: string, dark: boolean) {
   });
 }
 
-export function markedTokens(
-  tokens: { content: string; color?: string }[],
-  marks: [number, number][],
-) {
-  const result: { content: string; color?: string; changed: boolean }[] = [];
+export function markedTokens<
+  T extends { content: string },
+  K extends string = 'changed',
+>(tokens: T[], marks: [number, number][], flag = 'changed' as K) {
+  const result: (T & Record<K, boolean>)[] = [];
   let start = 0;
   let mark = 0;
   for (const token of tokens) {
@@ -73,13 +73,13 @@ export function markedTokens(
     while (offset < end) {
       while (mark < marks.length && marks[mark][1] <= offset) mark++;
       const range = marks[mark];
-      const changed = range !== undefined && range[0] <= offset;
-      const stop = Math.min(end, range ? range[changed ? 1 : 0] : end);
+      const inside = range !== undefined && range[0] <= offset;
+      const stop = Math.min(end, range ? range[inside ? 1 : 0] : end);
       result.push({
+        ...token,
         content: token.content.slice(offset - start, stop - start),
-        color: token.color,
-        changed,
-      });
+        [flag]: inside,
+      } as T & Record<K, boolean>);
       offset = stop;
     }
     start = end;

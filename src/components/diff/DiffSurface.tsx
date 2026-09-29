@@ -18,8 +18,10 @@ import { HunkHeader } from './HunkHeader';
 import type { Row } from './rows';
 import type { Tokens } from './tokens';
 import { scrollPage } from './scroll';
+import { findClass, findTokens, type Found } from './find';
 export interface DiffSurfaceHandle {
-  scrollToRow: (index: number) => void;
+  scrollToRow: (index: number, align?: 'start' | 'center') => void;
+  focus: () => void;
 }
 export function DiffSurface({
   ref,
@@ -36,6 +38,7 @@ export function DiffSurface({
   expansion,
   scroller,
   scrollMargin = 0,
+  found,
 }: {
   ref?: Ref<DiffSurfaceHandle>;
   rows: Row[];
@@ -51,6 +54,7 @@ export function DiffSurface({
   expansion: Expansion;
   scroller?: RefObject<HTMLDivElement | null>;
   scrollMargin?: number;
+  found?: Found;
 }) {
   const primary = useRef<HTMLDivElement>(null);
   const secondary = useRef<HTMLDivElement>(null);
@@ -74,8 +78,9 @@ export function DiffSurface({
     overscan: 20,
   });
   useImperativeHandle(ref, () => ({
-    scrollToRow: (index: number) =>
-      virtual.scrollToIndex(index, { align: 'start' }),
+    scrollToRow: (index, align = 'start') =>
+      virtual.scrollToIndex(index, { align }),
+    focus: () => primary.current?.focus({ preventScroll: true }),
   }));
   const widest = useMemo(
     () =>
@@ -99,7 +104,7 @@ export function DiffSurface({
       discard={() => hunkAction(index, 'discard')}
     />
   );
-  const cell = (line: DiffLine | undefined, old: boolean) => (
+  const cell = (line: DiffLine | undefined, old: boolean, index: number) => (
     <div
       className={`flex min-w-0 flex-1 overflow-hidden ${line?.kind === 'add' ? 'bg-add dark:bg-add-dark' : line?.kind === 'remove' ? 'bg-remove dark:bg-remove-dark' : ''}`}
     >
@@ -112,15 +117,19 @@ export function DiffSurface({
         <span className="select-none">
           {line?.kind === 'add' ? '+ ' : line?.kind === 'remove' ? '− ' : '  '}
         </span>
-        {markedTokens(
-          tokens[
-            line?.kind === 'remove' ? `old:${line.old}` : `new:${line?.new}`
-          ] ?? [{ content: line?.content ?? '' }],
-          line?.marks ?? [],
-        ).map((token, index) => (
+        {findTokens(
+          markedTokens(
+            tokens[
+              line?.kind === 'remove' ? `old:${line.old}` : `new:${line?.new}`
+            ] ?? [{ content: line?.content ?? '' }],
+            line?.marks ?? [],
+          ),
+          found,
+          index * 2 + (old ? 0 : 1),
+        ).map((token, position) => (
           <span
-            key={index}
-            className={`text-syntax ${token.changed ? (line?.kind === 'add' ? 'bg-add-word dark:bg-add-word-dark' : 'bg-remove-word dark:bg-remove-word-dark') : ''}`}
+            key={position}
+            className={`text-syntax ${findClass(token) || (token.changed ? (line?.kind === 'add' ? 'bg-add-word dark:bg-add-word-dark' : 'bg-remove-word dark:bg-remove-word-dark') : '')}`}
             style={dynamic({ '--syntax-color': token.color ?? 'inherit' })}
           >
             {whitespace
@@ -176,7 +185,7 @@ export function DiffSurface({
         onKeyDownCapture={scroller ? undefined : scrollPage}
         className={`font-mono text-diff ${focusInset} ${scroller ? 'overflow-x-auto' : 'min-h-0 flex-1 overflow-auto'}`}
       >
-        {stack('right', (value) =>
+        {stack('right', (value, index) =>
           value.gap ? (
             <GapRow gap={value.gap} expansion={expansion} />
           ) : value.hunk !== undefined ? (
@@ -185,8 +194,8 @@ export function DiffSurface({
             <div
               className={`flex min-h-5 ${split ? 'divide-x divide-line dark:divide-line-dark' : ''}`}
             >
-              {split && cell(value.left, true)}
-              {cell(value.right, false)}
+              {split && cell(value.left, true, index)}
+              {cell(value.right, false, index)}
             </div>
           ),
         )}
@@ -206,13 +215,13 @@ export function DiffSurface({
           if (primary.current) primary.current.scrollTop += event.deltaY;
         }}
       >
-        {stack('left', (value) =>
+        {stack('left', (value, index) =>
           value.gap ? (
             <GapRow gap={value.gap} expansion={expansion} />
           ) : value.hunk !== undefined ? (
             header(value.hunk, false, true)
           ) : (
-            cell(value.left, true)
+            cell(value.left, true, index)
           ),
         )}
       </div>
@@ -227,13 +236,13 @@ export function DiffSurface({
             secondary.current.scrollTop = primary.current.scrollTop;
         }}
       >
-        {stack('right', (value) =>
+        {stack('right', (value, index) =>
           value.gap ? (
             <BlankGapRow />
           ) : value.hunk !== undefined ? (
             header(value.hunk, true, false)
           ) : (
-            cell(value.right, false)
+            cell(value.right, false, index)
           ),
         )}
       </div>

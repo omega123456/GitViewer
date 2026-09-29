@@ -1,13 +1,24 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import {
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  type ReactNode,
+  type Ref,
+} from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { dynamic } from './styles';
+export interface VirtualListHandle {
+  scrollToIndex: (index: number, align: 'auto' | 'center') => void;
+}
 export function VirtualList<T>({
+  ref,
   items,
   height = 26,
   render,
   label,
   onEnd,
 }: {
+  ref?: Ref<VirtualListHandle>;
   items: T[];
   onEnd?: () => void;
   height?: number;
@@ -21,6 +32,9 @@ export function VirtualList<T>({
     estimateSize: () => height,
     overscan: 12,
   });
+  useImperativeHandle(ref, () => ({
+    scrollToIndex: (index, align) => virtual.scrollToIndex(index, { align }),
+  }));
   const last = virtual.getVirtualItems().at(-1)?.index ?? -1;
   useEffect(() => {
     if (items.length > 0 && last >= items.length - 8) onEnd?.();

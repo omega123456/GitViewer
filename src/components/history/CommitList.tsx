@@ -1,5 +1,5 @@
 import { RevisionTree } from '../sidebar/RevisionTree';
-import { memo } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { formatDistanceToNowStrict, fromUnixTime } from 'date-fns';
 import { History, Layers } from 'lucide-react';
@@ -14,7 +14,7 @@ import {
 import { Avatar } from '../shared/Avatar';
 import { Button } from '../shared/Button';
 import { GroupHeader } from '../shared/Section';
-import { VirtualList } from '../shared/VirtualList';
+import { VirtualList, type VirtualListHandle } from '../shared/VirtualList';
 import { ErrorRow, ErrorState } from '../states/Errors';
 import { State } from '../states/State';
 import { dynamic } from '../shared/styles';
@@ -51,7 +51,35 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
     },
     Boolean(selection?.revision),
   );
-  const commits = query.data?.pages.flatMap((page) => page.commits) ?? [];
+  const commits = useMemo(
+    () => query.data?.pages.flatMap((page) => page.commits) ?? [],
+    [query.data],
+  );
+  const list = useRef<VirtualListHandle>(null);
+  const revision = selection?.revision;
+  const sought = useRef<string>(undefined);
+  useEffect(() => {
+    sought.current = revision;
+  }, [revision]);
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query;
+  const loaded = Boolean(query.data);
+  useEffect(() => {
+    if (!sought.current || mode !== 'history' || !loaded) return;
+    const index = commits.findIndex((commit) => commit.hash === sought.current);
+    if (index >= 0) {
+      sought.current = undefined;
+      list.current?.scrollToIndex(index, 'auto');
+    } else if (!hasNextPage) sought.current = undefined;
+    else if (!isFetchingNextPage) void fetchNextPage();
+  }, [
+    revision,
+    mode,
+    loaded,
+    commits,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  ]);
   const lanes = laneCount(commits);
   return (
     <div
@@ -84,6 +112,7 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
         />
       ) : (
         <VirtualList
+          ref={list}
           label="Commit history"
           onEnd={() => {
             if (query.hasNextPage && !query.isFetchingNextPage)

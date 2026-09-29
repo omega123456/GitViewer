@@ -701,6 +701,31 @@ describe('modifier labels and syntax overlays', () => {
       ),
     ).toBe(false);
   });
+  it('keeps the flags of earlier passes when marking tokens again', async () => {
+    const { markedTokens } = await import('../lib/highlight');
+    expect(
+      markedTokens(
+        markedTokens([{ content: 'abc', color: 'red' }], [[0, 1]]),
+        [[1, 3]],
+        'found',
+      ),
+    ).toEqual([
+      { content: 'a', color: 'red', changed: true, found: false },
+      { content: 'bc', color: 'red', changed: false, found: true },
+    ]);
+  });
+  it('finds every case-insensitive literal match with its offsets', async () => {
+    const { findMatches } = await import('../components/diff/find');
+    expect(findMatches(['Foo foo', 'bar', 'a.b(c a.b('], 'FOO')).toEqual([
+      { index: 0, start: 0, end: 3 },
+      { index: 0, start: 4, end: 7 },
+    ]);
+    expect(findMatches(['a.b(c a.b(', 'axb('], 'a.b(')).toEqual([
+      { index: 0, start: 0, end: 4 },
+      { index: 0, start: 6, end: 10 },
+    ]);
+    expect(findMatches(['anything'], '')).toEqual([]);
+  });
   it('keeps syntax color while splitting a word mark across token boundaries', async () => {
     const { markedTokens } = await import('../lib/highlight');
     expect(

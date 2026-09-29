@@ -31,7 +31,7 @@ export function runShortcut(event: KeyboardEvent, actions: Action[]) {
     (action) =>
       !action.disabled &&
       matches(event, action.key) &&
-      (!editable || /^(Mod|Ctrl)\+|^F\d+$/.test(action.key)),
+      (!editable || /^(Mod|Ctrl)\+|^(Shift\+)?F\d+$/.test(action.key)),
   );
   if (action) {
     event.preventDefault();

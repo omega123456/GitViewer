@@ -395,6 +395,34 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`find bar ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto('/');
+    await page
+      .getByRole('button', { name: 'Open repository', exact: true })
+      .last()
+      .click();
+    await page
+      .getByRole('tree', { name: 'Changes', exact: true })
+      .getByText('app.ts')
+      .click();
+    await expect(page.getByText('index → working tree')).toBeVisible();
+    await expect(
+      page.locator('code span[style*="--syntax-color: #"]').first(),
+    ).toBeVisible();
+    await page.keyboard.press('Meta+f');
+    await page.getByRole('textbox', { name: 'Find in file' }).fill('value');
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('search').getByRole('status')).toHaveText(
+      /^2 of \d+$/,
+    );
+    await expect(
+      page.getByRole('region', { name: 'Diff viewer', exact: true }),
+    ).toHaveScreenshot(`find-bar-${theme}.png`);
+  });
+}
+
+for (const theme of ['light', 'dark'] as const) {
   test(`rendered markdown ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme });
     await page.goto('/?scenario=markdown');

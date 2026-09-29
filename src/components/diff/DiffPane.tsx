@@ -1,5 +1,7 @@
 import { lazy, memo, Suspense, useMemo, useRef, useState } from 'react';
 import {
+  ArrowDown,
+  ArrowUp,
   ChevronDown,
   ChevronUp,
   Columns2,
@@ -12,6 +14,7 @@ import {
   Image,
   Pencil,
   Save,
+  Search,
   Trash2,
   SquareMinus,
   SquarePlus,
@@ -27,12 +30,15 @@ import { useLayout } from '../../stores/layout';
 import { useSelection } from '../../stores/selection';
 import type { Selection, Settings } from '../../lib/types';
 import { Button } from '../shared/Button';
+import type { VirtualListHandle } from '../shared/VirtualList';
 import { CopyButton } from '../shared/CopyButton';
 import { ErrorState } from '../states/Errors';
 import { State } from '../states/State';
 import { StatusBadge } from '../sidebar/StatusBadge';
 import { ImageDiff } from '../image/ImageDiff';
 import { BlameView } from './BlameView';
+import { FindBar } from './FindBar';
+import { useFind } from './find';
 import { DiffSourcePill } from './DiffSourcePill';
 import { DiffToolbar } from './DiffToolbar';
 import { DiffSurface, type DiffSurfaceHandle } from './DiffSurface';
@@ -119,6 +125,27 @@ function SelectedDiff({
     };
   }, [data]);
   const tokens = useTokens(data, selection.path, true, expansion.reveal.lines);
+  const blame = useBackend(
+    'blame',
+    { repo, path: selection.path },
+    Boolean(selection.blame),
+  );
+  const texts = useMemo(
+    () =>
+      selection.blame
+        ? (blame.data ?? []).map((line) => line.content)
+        : rows.flatMap((row) => [
+            row.left?.content ?? '',
+            row.right?.content ?? '',
+          ]),
+    [selection.blame, blame.data, rows],
+  );
+  const blameList = useRef<VirtualListHandle>(null);
+  const find = useFind(texts, (index) =>
+    selection.blame
+      ? blameList.current?.scrollToIndex(index, 'center')
+      : surface.current?.scrollToRow(Math.floor(index / 2), 'center'),
+  );
   const editable = canEdit(selection.source, entry?.worktree, data);
   const editing = Boolean(selection.editing) && editable;
   const dirty = useDirty(repo, selection.path);
@@ -176,6 +203,30 @@ function SelectedDiff({
       selection.source === 'staged' ? 'unstage' : 'stage',
     );
   useActions(`${repo}:diff`, [
+    {
+      id: 'find',
+      icon: <Search className="size-3.5" />,
+      label: 'Find in file',
+      key: 'Mod+f',
+      run: find.reveal,
+      disabled: editing || rendered,
+    },
+    {
+      id: 'find-next',
+      icon: <ArrowDown className="size-3.5" />,
+      label: 'Next match',
+      key: 'F3',
+      run: () => find.step(1),
+      disabled: !find.open || !find.count || editing || rendered,
+    },
+    {
+      id: 'find-previous',
+      icon: <ArrowUp className="size-3.5" />,
+      label: 'Previous match',
+      key: 'Shift+F3',
+      run: () => find.step(-1),
+      disabled: !find.open || !find.count || editing || rendered,
+    },
     {
       id: 'next-hunk',
       icon: <ChevronDown className="size-3.5" />,
@@ -385,8 +436,16 @@ function SelectedDiff({
           {letter && <StatusBadge status={letter} />}
         </span>
       </header>
+      {find.open && !editing && !rendered && (
+        <FindBar find={find} onClose={() => surface.current?.focus()} />
+      )}
       {selection.blame ? (
-        <BlameView repo={repo} selection={selection} />
+        <BlameView
+          repo={repo}
+          selection={selection}
+          list={blameList}
+          found={find.found}
+        />
       ) : query.error ? (
         <ErrorState
           title="Could not load this file"
@@ -465,6 +524,7 @@ function SelectedDiff({
             disabled={disabled}
             hunkAction={(hunk, action) => void hunkAction(hunk, action)}
             expansion={expansion}
+            found={find.found}
           />
         </>
       )}

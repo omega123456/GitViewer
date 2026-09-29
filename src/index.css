@@ -42,6 +42,10 @@
   --color-remove-word-dark: #5e2427;
   --color-remove-ink: #9b2c2c;
   --color-remove-ink-dark: #f09393;
+  --color-find: #fff1a8;
+  --color-find-dark: #4d4000;
+  --color-find-current: #ffc94d;
+  --color-find-current-dark: #9a6a00;
   --color-merge: #fdf1dc;
   --color-merge-dark: #2e2413;
   --color-merge-ink: #7a4a00;
