@@ -590,6 +590,32 @@ async fn local_remote_fetch_pull_push_and_divergence_refusal() {
 }
 
 #[tokio::test]
+async fn push_publishes_a_branch_without_upstream() {
+    let (dir, handle) = fixture().await;
+    base(&dir, &handle).await;
+    command(dir.path(), &["checkout", "-b", "feature"]).await;
+    assert!(branch::sync(&handle, "push", silent())
+        .await
+        .unwrap_err()
+        .message
+        .contains("Add a remote"));
+    let remote = tempfile::tempdir().unwrap();
+    command(remote.path(), &["init", "--bare", "--initial-branch=main"]).await;
+    command(
+        dir.path(),
+        &["remote", "add", "upstream", remote.path().to_str().unwrap()],
+    )
+    .await;
+    handle.refresh().await.unwrap();
+    assert_eq!(branch::sync(&handle, "push", silent()).await.unwrap(), None);
+    assert_eq!(
+        handle.refresh().await.unwrap().upstream.as_deref(),
+        Some("upstream/feature")
+    );
+    command(remote.path(), &["rev-parse", "--verify", "feature"]).await;
+}
+
+#[tokio::test]
 async fn history_cursor_preserves_merge_frontier_and_cached_pages() {
     let (dir, handle) = fixture().await;
     base(&dir, &handle).await;

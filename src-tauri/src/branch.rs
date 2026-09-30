@@ -170,6 +170,16 @@ pub async fn sync<F: Fn(&str)>(repo: &Repo, action: &str, progress: F) -> Result
                 .await?
                 .accept(&[0])?;
         }
+        "push" if status.upstream.is_none() => {
+            let remote = push_remote(repo).await?;
+            git::stream(
+                &repo.root,
+                &["push", "--progress", "--set-upstream", &remote, "HEAD"],
+                &progress,
+            )
+            .await?
+            .accept(&[0])?;
+        }
         "push" => {
             git::stream(&repo.root, &["push", "--progress"], &progress)
                 .await?
@@ -214,6 +224,23 @@ pub async fn sync<F: Fn(&str)>(repo: &Repo, action: &str, progress: F) -> Result
     }
     let after = tip(repo, tracked.as_deref()).await;
     distance(repo, before, after).await
+}
+async fn push_remote(repo: &Repo) -> Result<String> {
+    let configured = git::run(&repo.root, &["config", "--get", "remote.pushDefault"], None)
+        .await?
+        .accept(&[0, 1])?
+        .text();
+    if !configured.trim().is_empty() {
+        return Ok(configured.trim().into());
+    }
+    let remotes = git::text(&repo.root, &["remote"]).await?;
+    let remotes: Vec<&str> = remotes.lines().collect();
+    remotes
+        .iter()
+        .find(|remote| **remote == "origin")
+        .or(remotes.first())
+        .map(|remote| remote.to_string())
+        .ok_or_else(|| Error::refused("Add a remote before pushing"))
 }
 async fn mergeable(repo: &Repo, name: &str) -> Result<()> {
     let current = repo.snapshot().await?.branch;
