@@ -12,6 +12,7 @@ pub mod graph;
 pub mod history;
 pub mod ipc;
 pub mod lifecycle;
+pub mod lines;
 pub mod logging;
 pub mod repo;
 pub mod session;

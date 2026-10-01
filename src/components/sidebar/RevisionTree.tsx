@@ -9,11 +9,14 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { FileIcon } from './FileIcon';
 import { StatusBadge } from './StatusBadge';
+import { LineCount } from '../shared/LineCount';
+import type { Lines } from '../../lib/types';
 import { useCompact } from '../../stores/density';
 import { dynamic, focus } from '../shared/styles';
 import {
   changeNodes,
   directoryIds,
+  folderLines,
   treeRoot,
   useExpandNewDirectories,
   type Node,
@@ -22,12 +25,14 @@ import {
 export function RevisionTree({
   paths,
   statuses,
+  lines,
   label,
   selectedPath,
   onSelect,
 }: {
   paths: string[];
   statuses?: Record<string, string>;
+  lines?: Record<string, Lines>;
   label: string;
   selectedPath?: string;
   onSelect: (path: string) => void;
@@ -47,6 +52,7 @@ export function RevisionTree({
       ),
     [paths, statuses],
   );
+  const folders = useMemo(() => folderLines(nodes, lines), [nodes, lines]);
   const tree = useTree<Node>({
     rootItemId: treeRoot,
     initialState: {
@@ -126,9 +132,21 @@ export function RevisionTree({
                 expanded={item.isExpanded()}
               />
               <span className="truncate">{node.name}</span>
-              {statuses && !node.directory && (
-                <StatusBadge status={node.status} />
-              )}
+              <span className="ml-auto flex shrink-0 items-center gap-1">
+                <LineCount
+                  lines={
+                    node.directory
+                      ? item.isExpanded()
+                        ? undefined
+                        : folders[item.getId()]
+                      : lines?.[node.path]
+                  }
+                  className={node.directory ? 'opacity-75' : ''}
+                />
+                {statuses && !node.directory && (
+                  <StatusBadge status={node.status} />
+                )}
+              </span>
             </button>
           );
         })}

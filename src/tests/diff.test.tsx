@@ -219,6 +219,20 @@ describe('diff context gaps', () => {
       screen.getByText('13 hidden lines'),
     );
   });
+  it('keeps a text selection in the left column instead of focusing the scroller', async () => {
+    setup();
+    useDiffView.getState().setMode('split');
+    renderFile({ path: 'src/app.ts', source: 'unstaged' });
+    await screen.findByTitle('Stage hunk');
+    const previous = screen.getByLabelText('Previous version');
+    getSelection()!.selectAllChildren(previous);
+    fireEvent.pointerUp(previous);
+    expect(document.body).toHaveFocus();
+    expect(getSelection()!.toString()).not.toBe('');
+    getSelection()!.removeAllRanges();
+    fireEvent.pointerUp(previous);
+    expect(document.body).not.toHaveFocus();
+  });
   it('shows no toggle for a diff without gaps', async () => {
     setup();
     renderFile({ path: 'src/app.ts', source: 'unstaged' });
@@ -227,7 +241,10 @@ describe('diff context gaps', () => {
   });
   it('expands one stacked file without touching its neighbours', async () => {
     gaps();
-    mockCommand('commit_files', () => ({ 'src/app.ts': 'M', 'lib.ts': 'M' }));
+    mockCommand('commit_files', () => ({
+      statuses: { 'src/app.ts': 'M', 'lib.ts': 'M' },
+      lines: {},
+    }));
     mockCommand('diff_stack', () => ({
       files: { 'src/app.ts': gapped, 'lib.ts': gapped },
       truncated: false,
@@ -587,7 +604,8 @@ describe('keyboard and pointer access', () => {
     const user = userEvent.setup();
     mount();
     const sidebar = await screen.findByLabelText('Resize sidebar');
-    fireEvent.pointerDown(sidebar);
+    expect(fireEvent.pointerDown(sidebar)).toBe(false);
+    expect(sidebar).toHaveFocus();
     fireEvent.pointerMove(sidebar, { clientX: 500 });
     expect(sidebar).toHaveAttribute('aria-valuenow', '500');
     expect(screen.getByRole('button', { name: /^Files/ })).toHaveAttribute(

@@ -121,7 +121,7 @@ export const AllChangesPane = memo(function AllChangesPane({
   const entries = useMemo(
     () =>
       stack === 'commit'
-        ? Object.entries(files.data ?? {}).map(([path, badge]) => ({
+        ? Object.entries(files.data?.statuses ?? {}).map(([path, badge]) => ({
             selection: { ...commit!, path },
             badge,
           }))

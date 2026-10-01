@@ -30,9 +30,10 @@ import {
 describe('virtualized all changes pane', () => {
   function many(count: number, present = count) {
     const paths = named(count);
-    mockCommand('commit_files', () =>
-      Object.fromEntries(paths.map((path) => [path, 'M'])),
-    );
+    mockCommand('commit_files', () => ({
+      statuses: Object.fromEntries(paths.map((path) => [path, 'M'])),
+      lines: {},
+    }));
     mockCommand('diff_stack', () => ({
       files: Object.fromEntries(
         paths.slice(0, present).map((path) => [path, { ...gapped, path }]),

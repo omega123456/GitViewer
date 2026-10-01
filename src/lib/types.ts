@@ -69,6 +69,15 @@ export interface Opened {
   crlf: boolean;
 }
 export type Written = { saved: string } | { conflict: Opened | null };
+export type Lines = [number, number] | null;
+export interface LineStats {
+  staged: Record<string, Lines>;
+  unstaged: Record<string, Lines>;
+}
+export interface CommitFiles {
+  statuses: Record<string, string>;
+  lines: Record<string, Lines>;
+}
 export interface ChangedFile {
   path: string;
   status: string;
@@ -228,6 +237,7 @@ export interface Commands {
   repo_open: Command<{ path: string }, Repository>;
   repo_close: Command<RepoArgs, null>;
   status: Command<RepoArgs, Status>;
+  line_stats: Command<RepoArgs, LineStats>;
   refresh: Command<RepoArgs, null>;
   tree: Command<FileArgs, TreeEntry[]>;
   files: Command<RepoArgs & { ignored: boolean }, string[]>;
@@ -298,7 +308,7 @@ export interface Commands {
   history: Command<RepoArgs & { path?: string; cursor?: string }, Page>;
   commit_files: Command<
     RepoArgs & { revision: string; source?: Source },
-    Record<string, string>
+    CommitFiles
   >;
   blame: Command<FileArgs, Blame[]>;
   stashes: Command<RepoArgs, Stash[]>;

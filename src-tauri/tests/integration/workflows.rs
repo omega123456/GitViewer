@@ -211,6 +211,7 @@ async fn branches_history_blame_stashes_and_checkout_rollback() {
         history::files(&repo, &commits.commits[0].hash)
             .await
             .unwrap()
+            .statuses
             .into_iter()
             .collect::<Vec<_>>(),
         vec![("file.txt".to_owned(), "A".to_owned())]

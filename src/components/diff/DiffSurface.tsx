@@ -60,7 +60,10 @@ export function DiffSurface({
   const secondary = useRef<HTMLDivElement>(null);
   const columns = split && !wrap;
   const focusScroller = (event: PointerEvent<HTMLDivElement>) => {
-    if (!(event.target as HTMLElement).closest('button'))
+    if (
+      !(event.target as HTMLElement).closest('button') &&
+      getSelection()?.isCollapsed !== false
+    )
       (scroller?.current ?? primary.current)?.focus({ preventScroll: true });
   };
   const itemKey = useCallback(

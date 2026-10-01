@@ -28,6 +28,7 @@ pub struct Repo {
     pub histories: Mutex<HashMap<String, crate::history::Session>>,
     pub watchers: std::sync::Mutex<Vec<crate::watch::Watcher>>,
     pub directory_reads: AtomicUsize,
+    pub untracked_lines: std::sync::Mutex<HashMap<String, crate::lines::Counted>>,
 }
 pub struct Reread {
     pub status: Arc<Status>,
@@ -82,6 +83,7 @@ impl Repo {
             histories: Mutex::new(HashMap::new()),
             watchers: std::sync::Mutex::new(Vec::new()),
             directory_reads: AtomicUsize::new(0),
+            untracked_lines: std::sync::Mutex::new(HashMap::new()),
         }
     }
     pub async fn info(&self) -> Info {

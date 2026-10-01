@@ -1,5 +1,5 @@
 import { memo, useMemo } from 'react';
-import { perform } from '../../lib/query';
+import { perform, useBackend } from '../../lib/query';
 import { revertFiles } from '../../lib/revert';
 import { Button } from '../shared/Button';
 import {
@@ -13,9 +13,11 @@ import {
 import type { Entry, Status } from '../../lib/types';
 import { useDeferredFilter } from '../../stores/filter';
 import { useSelection } from '../../stores/selection';
+import { useSidebarMode } from '../../stores/layout';
+import { sumLines } from '../shared/LineCount';
 import { State } from '../states/State';
 import { ChangesTree } from './FileTree';
-import { groupEntries } from './nodes';
+import { groupEntries, inSection } from './nodes';
 const iconButton = 'size-6';
 const viewTint =
   'text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark';
@@ -42,6 +44,21 @@ export const ChangesSection = memo(function ChangesSection({
       unstaged: groupEntries(status, 'unstaged', filter),
     };
   }, [status, filter]);
+  const lines = useBackend(
+    'line_stats',
+    { repo },
+    useSidebarMode(repo) === 'working' && status.entries.length > 0,
+  ).data;
+  const totals = useMemo(() => {
+    const paths = (group: 'staged' | 'unstaged') =>
+      status.entries
+        .filter((entry) => inSection(entry, group))
+        .map((entry) => entry.path);
+    return {
+      staged: sumLines(lines?.staged, paths('staged')),
+      unstaged: sumLines(lines?.unstaged, paths('unstaged')),
+    };
+  }, [status, lines]);
   const paths = (entries: Entry[]) => entries.map((entry) => entry.path);
   return (
     <div className="flex min-h-changes-floor flex-1 flex-col">
@@ -76,6 +93,8 @@ export const ChangesSection = memo(function ChangesSection({
               fill={unstaged.length === 0}
               title="Staged changes"
               count={staged.length}
+              lines={lines?.staged}
+              total={totals.staged}
               actions={
                 <>
                   <Button
@@ -128,6 +147,8 @@ export const ChangesSection = memo(function ChangesSection({
               fill
               title="Changes"
               count={unstaged.length}
+              lines={lines?.unstaged}
+              total={totals.unstaged}
               actions={
                 <>
                   <Button

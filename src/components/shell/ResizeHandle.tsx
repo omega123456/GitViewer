@@ -45,9 +45,11 @@ export function ResizeHandle({
         if (event.key === back || event.key === forward)
           onChange(clamp(value + (event.key === forward ? step : -step)));
       }}
-      onPointerDown={(event) =>
-        event.currentTarget.setPointerCapture(event.pointerId)
-      }
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.currentTarget.focus();
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }}
       onPointerMove={(event) => {
         if (event.currentTarget.hasPointerCapture(event.pointerId))
           onChange(clamp(measure(event)));

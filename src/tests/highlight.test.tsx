@@ -104,7 +104,10 @@ describe('highlighting in a worker', () => {
     workers.held = false;
     await act(async () => release());
     view.unmount();
-    mockCommand('commit_files', () => ({ 'src/app.ts': 'M', 'lib.ts': 'M' }));
+    mockCommand('commit_files', () => ({
+      statuses: { 'src/app.ts': 'M', 'lib.ts': 'M' },
+      lines: {},
+    }));
     mockCommand('diff_stack', () => ({
       files: { 'src/app.ts': diff, 'lib.ts': { ...diff, path: 'lib.ts' } },
       truncated: false,

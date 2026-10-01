@@ -3,6 +3,7 @@ mod workflows;
 
 mod edit;
 mod ipc;
+mod lines;
 
 mod persistence;
 

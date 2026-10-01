@@ -6,6 +6,7 @@
   --spacing-settings-height: clamp(480px, 80vh, 900px);
   --spacing-settings-nav: 168px;
   --container-settings-content: 720px;
+  --container-line-counts: 240px;
   --color-surface: #ffffff;
   --color-surface-dark: #16191c;
   --color-chrome: #edf0f2;

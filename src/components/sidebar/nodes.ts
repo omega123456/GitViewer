@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { TreeInstance } from '@headless-tree/core';
-import type { Entry, Source, Status, TreeEntry } from '../../lib/types';
+import type { Entry, Lines, Source, Status, TreeEntry } from '../../lib/types';
 import type { Group } from '../../stores/selection';
 export const treeRoot = '\0';
 export function statusLetter(status: string) {
@@ -129,6 +129,29 @@ export function treeOrder(paths: string[]) {
   };
   walk(treeRoot);
   return ordered;
+}
+
+export function folderLines(
+  nodes: Record<string, Node>,
+  lines: Record<string, Lines> | undefined,
+) {
+  const sums: Record<string, Lines> = Object.create(null);
+  if (!lines) return sums;
+  const walk = (id: string): [number, number] => {
+    const node = nodes[id];
+    if (!node.directory) return lines[node.path] ?? [0, 0];
+    let added = 0;
+    let removed = 0;
+    for (const child of node.children) {
+      const [childAdded, childRemoved] = walk(child);
+      added += childAdded;
+      removed += childRemoved;
+    }
+    sums[id] = [added, removed];
+    return [added, removed];
+  };
+  walk(treeRoot);
+  return sums;
 }
 
 export function directoryIds(nodes: Record<string, Node>) {

@@ -25,7 +25,8 @@ import { useErrors } from '../../stores/errors';
 import { useSelection, useWorkingSelection } from '../../stores/selection';
 import { useDeferredFilter } from '../../stores/filter';
 import { useCompact } from '../../stores/density';
-import type { Source, Status, TreeEntry } from '../../lib/types';
+import type { Lines, Source, Status, TreeEntry } from '../../lib/types';
+import { LineCount } from '../shared/LineCount';
 import { dynamic, focus, revealSlot, rowTint } from '../shared/styles';
 import { FileMenu } from '../shared/FileMenu';
 import { GroupHeader } from '../shared/Section';
@@ -35,6 +36,7 @@ import { StatusBadge } from './StatusBadge';
 import {
   changeNodes,
   directoryIds,
+  folderLines,
   sourceFor,
   treeRoot,
   useExpandNewDirectories,
@@ -55,6 +57,8 @@ export function ChangesTree({
   fill,
   title,
   count,
+  lines,
+  total,
   actions,
 }: {
   repo: string;
@@ -64,6 +68,8 @@ export function ChangesTree({
   fill: boolean;
   title: string;
   count: number;
+  lines?: Record<string, Lines>;
+  total?: Lines;
   actions: ReactNode;
 }) {
   const filter = useDeferredFilter(repo);
@@ -74,6 +80,7 @@ export function ChangesTree({
     () => changeNodes(status.entries, source, filter),
     [status.entries, source, filter],
   );
+  const folders = useMemo(() => folderLines(nodes, lines), [nodes, lines]);
   const [expandedItems] = useState(() => directoryIds(nodes));
   const tree = useTree<Node>({
     rootItemId: treeRoot,
@@ -121,33 +128,32 @@ export function ChangesTree({
       <GroupHeader
         title={title}
         count={count}
-        actions={
-          <>
-            {hasDirectory && (
-              <>
-                <Button
-                  variant="icon"
-                  className={`${rowAction} ${foldTint}`}
-                  aria-label={`Expand all ${title}`}
-                  title={`Expand all ${title}`}
-                  onClick={() => void tree.expandAll()}
-                >
-                  <ChevronsUpDown className="size-4" />
-                </Button>
-                <Button
-                  variant="icon"
-                  className={`${rowAction} ${foldTint}`}
-                  aria-label={`Collapse all ${title}`}
-                  title={`Collapse all ${title}`}
-                  onClick={() => tree.collapseAll()}
-                >
-                  <ChevronsDownUp className="size-4" />
-                </Button>
-              </>
-            )}
-            {actions}
-          </>
+        lines={total}
+        folds={
+          hasDirectory && (
+            <>
+              <Button
+                variant="icon"
+                className={`${rowAction} ${foldTint}`}
+                aria-label={`Expand all ${title}`}
+                title={`Expand all ${title}`}
+                onClick={() => void tree.expandAll()}
+              >
+                <ChevronsUpDown className="size-4" />
+              </Button>
+              <Button
+                variant="icon"
+                className={`${rowAction} ${foldTint}`}
+                aria-label={`Collapse all ${title}`}
+                title={`Collapse all ${title}`}
+                onClick={() => tree.collapseAll()}
+              >
+                <ChevronsDownUp className="size-4" />
+              </Button>
+            </>
+          )
         }
+        actions={actions}
       />
       <div
         {...tree.getContainerProps()}
@@ -208,10 +214,22 @@ export function ChangesTree({
                       expanded={item.isExpanded()}
                     />
                     <span className="truncate">{node.name}</span>
-                    <StatusBadge
-                      status={node.status}
-                      partial={node.directory && node.partial}
-                    />
+                    <span className="ml-auto flex shrink-0 items-center gap-1">
+                      <LineCount
+                        lines={
+                          node.directory
+                            ? item.isExpanded()
+                              ? undefined
+                              : folders[item.getId()]
+                            : lines?.[node.path]
+                        }
+                        className={`group-focus-within:invisible group-hover:invisible ${node.directory ? 'opacity-75' : ''}`}
+                      />
+                      <StatusBadge
+                        status={node.status}
+                        partial={node.directory && node.partial}
+                      />
+                    </span>
                   </button>
                 </FileMenu>
                 <div className={slot}>

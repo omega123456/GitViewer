@@ -31,6 +31,7 @@ export function resetHarness() {
   mockCommand('ai_models', () => []);
   mockCommand('ai_key_set', () => null);
   mockCommand('ai_generate', () => ({ ...generated }));
+  mockCommand('line_stats', () => ({ staged: {}, unstaged: {} }));
   listeners.clear();
   calls.length = 0;
   host.platform = 'macos';

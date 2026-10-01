@@ -1,4 +1,5 @@
 import { RevisionTree } from '../sidebar/RevisionTree';
+import { sumLines } from '../shared/LineCount';
 import { memo, useEffect, useMemo, useRef } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { formatDistanceToNowStrict, fromUnixTime } from 'date-fns';
@@ -50,6 +51,14 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
       source: selection?.source ?? 'commit',
     },
     Boolean(selection?.revision),
+  );
+  const paths = useMemo(
+    () => Object.keys(files.data?.statuses ?? {}),
+    [files.data],
+  );
+  const total = useMemo(
+    () => sumLines(files.data?.lines, paths),
+    [files.data, paths],
   );
   const commits = useMemo(
     () => query.data?.pages.flatMap((page) => page.commits) ?? [],
@@ -178,7 +187,8 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
         <div className="flex h-1/3 min-h-24 flex-col border-t border-line dark:border-line-dark">
           <GroupHeader
             title="Files in commit"
-            count={Object.keys(files.data ?? {}).length}
+            count={paths.length}
+            lines={total}
             actions={
               <Button
                 variant="icon"
@@ -202,8 +212,9 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
             <RevisionTree
               key={selection.revision}
               label="Commit files"
-              paths={Object.keys(files.data)}
-              statuses={files.data}
+              paths={paths}
+              statuses={files.data.statuses}
+              lines={files.data.lines}
               selectedPath={selection.path}
               onSelect={(path) =>
                 useSelection.getState().select(repo, {

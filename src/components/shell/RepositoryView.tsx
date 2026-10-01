@@ -405,7 +405,7 @@ export const RepositoryView = memo(function RepositoryView({
       )}
       <div className="flex min-h-0 flex-1">
         <aside
-          className="flex w-sidebar shrink-0 flex-col bg-sub dark:bg-sub-dark"
+          className="@container flex w-sidebar shrink-0 flex-col bg-sub dark:bg-sub-dark"
           style={dynamic({ '--sidebar-width': `${sidebarWidth}px` })}
         >
           <SidebarModeToggle repo={repo} />

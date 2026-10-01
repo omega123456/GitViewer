@@ -48,7 +48,10 @@ export function setup() {
   ]);
   mockCommand('stashes', () => []);
   mockCommand('history', () => ({ commits: [commit], cursor: null }));
-  mockCommand('commit_files', () => ({ 'src/app.ts': 'M' }));
+  mockCommand('commit_files', () => ({
+    statuses: { 'src/app.ts': 'M' },
+    lines: {},
+  }));
   mockCommand('branches', () => branches);
   mockCommand('diff', () => diff);
   mockCommand('diff_stack', () => stack);

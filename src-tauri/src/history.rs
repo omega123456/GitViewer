@@ -3,6 +3,7 @@ use crate::{
     error::{Error, Result},
     git,
     graph::{lanes, Commit, Lane},
+    lines::{numstat, Lines},
     repo::Repo,
 };
 use serde::Serialize;
@@ -143,7 +144,12 @@ pub async fn page(repo: &Repo, cursor: &str, path: &str) -> Result<Page> {
         .page(cursor)
         .await
 }
-pub async fn files(repo: &Repo, revision: &str) -> Result<BTreeMap<String, String>> {
+#[derive(Debug, Default, Serialize)]
+pub struct CommitFiles {
+    pub statuses: BTreeMap<String, String>,
+    pub lines: BTreeMap<String, Lines>,
+}
+pub async fn files(repo: &Repo, revision: &str) -> Result<CommitFiles> {
     let sha = resolve(repo, revision).await?;
     let parents = git::text(&repo.root, &["rev-list", "--parents", "-n", "1", &sha]).await?;
     let parent = parents.split_whitespace().nth(1);
@@ -151,7 +157,8 @@ pub async fn files(repo: &Repo, revision: &str) -> Result<BTreeMap<String, Strin
         "diff-tree",
         "--root",
         "--no-commit-id",
-        "--name-status",
+        "--raw",
+        "--numstat",
         "-r",
         "-z",
     ];
@@ -160,11 +167,23 @@ pub async fn files(repo: &Repo, revision: &str) -> Result<BTreeMap<String, Strin
     }
     args.push(&sha);
     let output = git::text(&repo.root, &args).await?;
-    let fields: Vec<&str> = output.split('\0').filter(|s| !s.is_empty()).collect();
-    Ok(fields
-        .chunks(2)
-        .map(|entry| (entry[1].to_owned(), entry[0].chars().take(1).collect()))
-        .collect())
+    let mut files = CommitFiles::default();
+    let mut fields = output.split('\0');
+    let mut counts = String::new();
+    while let Some(field) = fields.next() {
+        if let Some(raw) = field.strip_prefix(':') {
+            let letter = raw.rsplit(' ').next().unwrap_or_default();
+            let path = fields.next().unwrap_or_default();
+            files
+                .statuses
+                .insert(path.to_owned(), letter.chars().take(1).collect());
+        } else {
+            counts.push_str(field);
+            counts.push('\0');
+        }
+    }
+    files.lines = numstat(&counts);
+    Ok(files)
 }
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

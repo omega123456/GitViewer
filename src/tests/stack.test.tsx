@@ -19,7 +19,7 @@ import { client } from '../lib/query';
 import { mockCommand, calls, emit } from './harness';
 import { intersect, intersecting, release, workers } from './setup';
 import { settings, status, repository, diff, stack } from './fixtures';
-import type { Diff, DiffStack } from '../lib/types';
+import type { CommitFiles, Diff, DiffStack } from '../lib/types';
 import {
   commit,
   branches,
@@ -39,11 +39,10 @@ import {
 describe('all changes pane', () => {
   it('shows a loading state until the commit file list arrives', async () => {
     setup();
-    let release: (files: Record<string, string>) => void = () => {};
+    let release: (files: CommitFiles) => void = () => {};
     mockCommand(
       'commit_files',
-      () =>
-        new Promise<Record<string, string>>((resolve) => (release = resolve)),
+      () => new Promise<CommitFiles>((resolve) => (release = resolve)),
     );
     render(
       <QueryProvider>
@@ -62,7 +61,9 @@ describe('all changes pane', () => {
     });
     expect(within(pane).getByText('Loading changes')).toBeInTheDocument();
     expect(within(pane).queryByText('Nothing here')).not.toBeInTheDocument();
-    await act(async () => release({ 'src/app.ts': 'A' }));
+    await act(async () =>
+      release({ statuses: { 'src/app.ts': 'A' }, lines: {} }),
+    );
     await within(pane).findByRole('button', { name: /app\.ts/ });
     expect(within(pane).queryByText('Loading changes')).not.toBeInTheDocument();
   });
@@ -90,7 +91,10 @@ describe('all changes pane', () => {
   });
   it('reads a whole commit stack in one request', async () => {
     setup();
-    mockCommand('commit_files', () => ({ 'src/app.ts': 'M', 'new.txt': 'A' }));
+    mockCommand('commit_files', () => ({
+      statuses: { 'src/app.ts': 'M', 'new.txt': 'A' },
+      lines: {},
+    }));
     const pane = await renderStack();
     await waitFor(() => expect(shown(pane, 'new value')).toBe(2));
     expect(calls).toContainEqual({
@@ -103,7 +107,10 @@ describe('all changes pane', () => {
   it('falls back to a per-file read for a settled missing entry near the viewport', async () => {
     for (const truncated of [true, false]) {
       setup();
-      mockCommand('commit_files', () => ({ 'src/app.ts': 'M', 'lib.ts': 'M' }));
+      mockCommand('commit_files', () => ({
+        statuses: { 'src/app.ts': 'M', 'lib.ts': 'M' },
+        lines: {},
+      }));
       mockCommand('diff_stack', () => ({
         files: { 'src/app.ts': diff },
         truncated,
@@ -143,7 +150,10 @@ describe('all changes pane', () => {
       intersecting.initially = true;
     }
     setup();
-    mockCommand('commit_files', () => ({ 'src/app.ts': 'M', 'lib.ts': 'M' }));
+    mockCommand('commit_files', () => ({
+      statuses: { 'src/app.ts': 'M', 'lib.ts': 'M' },
+      lines: {},
+    }));
     let fail: (error: Error) => void = () => {};
     mockCommand(
       'diff_stack',
@@ -164,8 +174,11 @@ describe('all changes pane', () => {
     setup();
     intersecting.initially = false;
     mockCommand('commit_files', () => ({
-      'src/app.ts': 'M',
-      'photo.png': 'M',
+      statuses: {
+        'src/app.ts': 'M',
+        'photo.png': 'M',
+      },
+      lines: {},
     }));
     mockCommand('diff_stack', () => ({
       files: { 'src/app.ts': diff, 'photo.png': picture },

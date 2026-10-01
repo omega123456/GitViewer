@@ -116,7 +116,11 @@ async fn typed_commands_events_and_protocol_are_wired() {
         call("commit_files", json!({"repo":id,"revision":"HEAD"}))
             .await
             .unwrap(),
-        json!({"file.txt":"A"})
+        json!({"statuses":{"file.txt":"A"},"lines":{"file.txt":[3,0]}})
+    );
+    assert_eq!(
+        call("line_stats", json!({"repo":id})).await.unwrap(),
+        json!({"staged":{},"unstaged":{}})
     );
     call(
         "branch_create",

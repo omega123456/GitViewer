@@ -276,7 +276,7 @@ export const StashSection = memo(function StashSection({
               >
                 <GroupHeader
                   title="Stash files"
-                  count={Object.keys(files.data ?? {}).length}
+                  count={Object.keys(files.data?.statuses ?? {}).length}
                   actions={
                     <Button
                       variant="icon"
@@ -302,8 +302,8 @@ export const StashSection = memo(function StashSection({
                   <RevisionTree
                     key={selected}
                     label="Stash files"
-                    paths={Object.keys(files.data)}
-                    statuses={files.data}
+                    paths={Object.keys(files.data.statuses)}
+                    statuses={files.data.statuses}
                     selectedPath={
                       selection?.source === 'stash' &&
                       selection.revision === selected

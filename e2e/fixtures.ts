@@ -287,7 +287,29 @@ export const test = base.extend({
                       cursor: null,
                     };
                   case 'commit_files':
-                    return { 'src/app.ts': 'M' };
+                    return {
+                      statuses: { 'src/app.ts': 'M' },
+                      lines: { 'src/app.ts': [12, 3] },
+                    };
+                  case 'line_stats':
+                    return {
+                      staged: Object.fromEntries(
+                        status.entries.map((entry) => [
+                          entry.path,
+                          entry.path.endsWith('.png') ? null : [3, 1],
+                        ]),
+                      ),
+                      unstaged: Object.fromEntries(
+                        status.entries.map((entry, index) => [
+                          entry.path,
+                          entry.path.endsWith('.png')
+                            ? null
+                            : index === 0
+                              ? [12, 3]
+                              : [27, 0],
+                        ]),
+                      ),
+                    };
                   case 'branches':
                     return [
                       {

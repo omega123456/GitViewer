@@ -1,7 +1,7 @@
 use crate::{
     actions, ai, branch, diff, edit,
     error::{Error, Result},
-    git, history,
+    git, history, lines,
     repo::Registry,
     settings, stash, tree, watch,
 };
@@ -253,6 +253,7 @@ pub async fn dispatch<R: tauri::Runtime>(
     let outcome: Result<Box<RawValue>> = async {
         let value = match command.as_str() {
             "status" => return raw(&repo.snapshot().await?),
+            "line_stats" => return raw(&lines::working(&repo).await?),
             "tree" => return raw(&tree::list(&repo, path).await?),
             "files" => {
                 return raw(&tree::files(&repo, flag(&args, "ignored")).await?);
@@ -387,7 +388,7 @@ pub async fn dispatch<R: tauri::Runtime>(
                 let mut files = history::files(&repo, revision).await?;
                 if optional(&args, "source") == "stash" {
                     for path in stash::untracked(&repo, revision).await? {
-                        files.entry(path).or_insert_with(|| "?".into());
+                        files.statuses.entry(path).or_insert_with(|| "?".into());
                     }
                 }
                 return raw(&files);

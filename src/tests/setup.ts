@@ -52,8 +52,14 @@ const rect = {
   y: 0,
   toJSON: () => ({}),
 };
+const flat = (): DOMRect => rect as DOMRect;
+export const geometry: { rect: (element: Element) => DOMRect } = {
+  rect: flat,
+};
 Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', {
-  value: () => rect,
+  value(this: HTMLElement) {
+    return geometry.rect(this);
+  },
 });
 Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
   value: () => rect,
@@ -245,6 +251,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  geometry.rect = flat;
   terminate();
   client.clear();
   vi.useRealTimers();
