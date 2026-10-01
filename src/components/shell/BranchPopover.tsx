@@ -1,5 +1,5 @@
 import { TextInput } from '../shared/TextInput';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DropdownMenu, Popover } from 'radix-ui';
 import {
   GitBranch,
@@ -85,6 +85,20 @@ export function BranchPopover({
   disabled: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const pressedInside = useRef(false);
+  useEffect(() => {
+    if (!open) return;
+    pressedInside.current = false;
+    const dismiss = () => {
+      if (!pressedInside.current) setOpen(false);
+      pressedInside.current = false;
+    };
+    document.addEventListener('pointerdown', dismiss);
+    return () => document.removeEventListener('pointerdown', dismiss);
+  }, [open]);
+  const markPressedInside = () => {
+    pressedInside.current = true;
+  };
   const activity = useCurrentActivity(repo);
   const switching = branchCommands.some((command) => runs(activity, command));
   const [filter, setFilter] = useState('');
@@ -157,7 +171,10 @@ export function BranchPopover({
   return (
     <>
       <Popover.Root open={open} onOpenChange={setOpen}>
-        <span className="relative flex">
+        <span
+          className="relative flex"
+          onPointerDownCapture={markPressedInside}
+        >
           <Popover.Trigger asChild>
             <Button
               aria-busy={switching}
@@ -174,6 +191,7 @@ export function BranchPopover({
         </span>
         <Popover.Portal>
           <Popover.Content
+            onPointerDownCapture={markPressedInside}
             align="start"
             style={dynamic({
               '--branches-width': `clamp(320px, min(calc(${longest}ch + 150px), var(--radix-popover-content-available-width, 640px)), 640px)`,

@@ -160,6 +160,27 @@ describe('application shell', () => {
     expect(screen.getByText('Offline')).toBeVisible();
     expect(screen.queryByText(/^network/)).not.toBeInTheDocument();
   });
+  it('closes the branch popover when another tab is clicked', async () => {
+    setup();
+    mockCommand('branches', () => [
+      { name: 'main', current: true, remote: false, upstream: '' },
+    ]);
+    useTabs.getState().open('/second', 'Second');
+    useTabs.getState().open(repository.id, repository.name);
+    const user = userEvent.setup();
+    mountApp();
+    await screen.findByLabelText('Commit message');
+    await user.click(screen.getByRole('button', { name: 'main' }));
+    expect(await screen.findByLabelText('Filter branches')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Second' }));
+    await waitFor(() =>
+      expect(
+        screen.queryByLabelText('Filter branches'),
+      ).not.toBeInTheDocument(),
+    );
+    await user.click(screen.getByRole('button', { name: repository.name }));
+    expect(screen.queryByLabelText('Filter branches')).not.toBeInTheDocument();
+  });
   it('stacks failures per tab as floating cards with details and recovery', async () => {
     setup();
     mockCommand('sync', () => null);
