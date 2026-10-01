@@ -7,6 +7,7 @@ import {
 } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { SessionProvider } from '../providers/SessionProvider';
+import { client, queryKey } from '../lib/query';
 import { useTabs } from '../stores/tabs';
 import { layoutDefaults, tabLayout, useLayout } from '../stores/layout';
 import { calls, emit, lastError, mockCommand } from './harness';
@@ -48,6 +49,9 @@ describe('session persistence', () => {
     expect(useTabs.getState().active).toBe('/a');
     expect(tabLayout('/a').width).toBe(420);
     expect(tabLayout('/b')).toEqual(layoutDefaults);
+    expect(client.getQueryData(queryKey('status', { repo: '/b' }))).toEqual(
+      repository.status,
+    );
     expect(calls.some(({ command }) => command === 'session_set')).toBe(false);
     act(() => {
       useTabs.getState().setMessage('/a', 'updated');

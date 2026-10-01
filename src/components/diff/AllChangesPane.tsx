@@ -34,7 +34,7 @@ import {
 } from '../sidebar/CompareSection';
 import { groupEntries, treeOrder } from '../sidebar/nodes';
 import { useDiffView } from '../../stores/diff-view';
-import { useFilter } from '../../stores/filter';
+import { useDeferredFilter } from '../../stores/filter';
 import { useSelection, type Stack } from '../../stores/selection';
 import { Button } from '../shared/Button';
 import { CopyButton } from '../shared/CopyButton';
@@ -109,7 +109,7 @@ export const AllChangesPane = memo(function AllChangesPane({
   settings: Settings;
   disabled: boolean;
 }) {
-  const filter = useFilter(repo);
+  const filter = useDeferredFilter(repo);
   const stashed = commit?.source === 'stash';
   const files = useBackend(
     'commit_files',

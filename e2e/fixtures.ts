@@ -220,7 +220,7 @@ export const test = base.extend({
                       detail: 'patch',
                     };
                   case 'repo_open':
-                    return repository;
+                    return { ...repository, status };
                   case 'status':
                     return status;
                   case 'files':

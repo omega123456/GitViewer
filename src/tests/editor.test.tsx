@@ -188,12 +188,15 @@ describe('working-tree editor', () => {
     setup();
     mount();
     await screen.findByRole('button', { name: 'Edit' });
+    const diffs = () => calls.filter((call) => call.command === 'diff').length;
+    const before = diffs();
     await act(async () => {
       await registeredActions(repository.id)
         .find((action) => action.id === 'edit')
         ?.run();
     });
     const view = await editor();
+    expect(diffs()).toBe(before);
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Find' }));
     expect(view.dom.querySelector('.cm-search')).not.toBeNull();
@@ -621,6 +624,17 @@ describe('change gutter', () => {
     expect(marked(typed)).toEqual(
       numbers(3000, (line) => everyFifth(line) || line === 1),
     );
+  });
+
+  it('compares against a CRLF base with a byte-order mark as plain lines', () => {
+    const text = source(200, () => false);
+    const base = `\uFEFF${text.replaceAll('\n', '\r\n')}`;
+    const start = state(text, base);
+    expect(marked(start)).toEqual([]);
+    const typed = start.update({
+      changes: { from: start.doc.line(100).from, insert: 'x' },
+    }).state;
+    expect(marked(typed)).toEqual([100]);
   });
 
   it('marks the whole file when it has more distinct lines than symbols', () => {

@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { perform } from '../../lib/query';
 import { revertFiles } from '../../lib/revert';
 import { Button } from '../shared/Button';
@@ -11,7 +11,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { Entry, Status } from '../../lib/types';
-import { useFilter } from '../../stores/filter';
+import { useDeferredFilter } from '../../stores/filter';
 import { useSelection } from '../../stores/selection';
 import { State } from '../states/State';
 import { ChangesTree } from './FileTree';
@@ -30,13 +30,18 @@ export const ChangesSection = memo(function ChangesSection({
   status: Status;
   disabled: boolean;
 }) {
-  const filter = useFilter(repo);
-  const visible = status.entries.filter((entry) =>
-    entry.path.toLowerCase().includes(filter.toLowerCase()),
-  );
-  const conflicts = groupEntries(status, 'conflicts', filter);
-  const staged = groupEntries(status, 'staged', filter);
-  const unstaged = groupEntries(status, 'unstaged', filter);
+  const filter = useDeferredFilter(repo);
+  const { visible, conflicts, staged, unstaged } = useMemo(() => {
+    const needle = filter.toLowerCase();
+    return {
+      visible: status.entries.filter((entry) =>
+        entry.path.toLowerCase().includes(needle),
+      ),
+      conflicts: groupEntries(status, 'conflicts', filter),
+      staged: groupEntries(status, 'staged', filter),
+      unstaged: groupEntries(status, 'unstaged', filter),
+    };
+  }, [status, filter]);
   const paths = (entries: Entry[]) => entries.map((entry) => entry.path);
   return (
     <div className="flex min-h-changes-floor flex-1 flex-col">

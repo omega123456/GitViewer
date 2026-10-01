@@ -243,7 +243,7 @@ async fn push_remote(repo: &Repo) -> Result<String> {
         .ok_or_else(|| Error::refused("Add a remote before pushing"))
 }
 async fn mergeable(repo: &Repo, name: &str) -> Result<()> {
-    let current = repo.snapshot().await?.branch;
+    let current = repo.snapshot().await?.branch.clone();
     if current == "(detached)" {
         return Err(Error::refused("Switch to a branch before merging"));
     }
@@ -393,5 +393,5 @@ pub async fn default_branch(repo: &Repo) -> Result<String> {
             return Ok(name.into());
         }
     }
-    Ok(repo.snapshot().await?.branch)
+    Ok(repo.snapshot().await?.branch.clone())
 }

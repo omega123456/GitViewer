@@ -1,6 +1,6 @@
 import { revertFiles } from '../../lib/revert';
 import { Button } from '../shared/Button';
-import { useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTree } from '@headless-tree/react';
 import {
   asyncDataLoaderFeature,
@@ -23,7 +23,7 @@ import { client, perform, queryKey } from '../../lib/query';
 import { invoke, normalizeError } from '../../lib/ipc';
 import { useErrors } from '../../stores/errors';
 import { useSelection, useWorkingSelection } from '../../stores/selection';
-import { useFilter } from '../../stores/filter';
+import { useDeferredFilter } from '../../stores/filter';
 import { useCompact } from '../../stores/density';
 import type { Source, Status, TreeEntry } from '../../lib/types';
 import { dynamic, focus, revealSlot, rowTint } from '../shared/styles';
@@ -66,7 +66,7 @@ export function ChangesTree({
   count: number;
   actions: ReactNode;
 }) {
-  const filter = useFilter(repo);
+  const filter = useDeferredFilter(repo);
   const compact = useCompact();
   const selection = useWorkingSelection(repo);
   const target: Source = source === 'conflicts' ? 'unstaged' : source;
@@ -74,11 +74,10 @@ export function ChangesTree({
     () => changeNodes(status.entries, source, filter),
     [status.entries, source, filter],
   );
+  const [expandedItems] = useState(() => directoryIds(nodes));
   const tree = useTree<Node>({
     rootItemId: treeRoot,
-    initialState: {
-      expandedItems: directoryIds(nodes),
-    },
+    initialState: { expandedItems },
     getItemName: (item) => item.getItemData()?.name ?? '',
     isItemFolder: (item) => item.getItemData()?.directory ?? false,
     dataLoader: {
@@ -112,8 +111,10 @@ export function ChangesTree({
     estimateSize: () => (compact ? 24 : 28),
     overscan: 8,
   });
-  const hasDirectory = Object.keys(nodes).some(
-    (id) => id !== treeRoot && nodes[id].directory,
+  const hasDirectory = useMemo(
+    () =>
+      Object.keys(nodes).some((id) => id !== treeRoot && nodes[id].directory),
+    [nodes],
   );
   return (
     <>
@@ -275,7 +276,7 @@ export function ChangesTree({
   );
 }
 export function FilesTree({ repo, status }: { repo: string; status: Status }) {
-  const filter = useFilter(repo);
+  const filter = useDeferredFilter(repo);
   const compact = useCompact();
   const selection = useWorkingSelection(repo);
   const cache = useRef(new Map<string, TreeEntry>());

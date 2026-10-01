@@ -2,6 +2,7 @@ import {
   act,
   fireEvent,
   render,
+  renderHook,
   screen,
   waitFor,
   within,
@@ -16,6 +17,7 @@ import { useSelection } from '../stores/selection';
 import { useDiffView } from '../stores/diff-view';
 import { useTheme } from '../stores/theme';
 import { DiffPane } from '../components/diff/DiffPane';
+import { useTokens } from '../components/diff/tokens';
 import { mockCommand, calls } from './harness';
 import { release, workers } from './setup';
 import { renders } from './renders';
@@ -112,6 +114,19 @@ describe('highlighting in a worker', () => {
       expect(colored(blockOf(pane, /app\.ts/))).toBeGreaterThan(0);
       expect(colored(blockOf(pane, /lib\.ts/))).toBeGreaterThan(0);
     });
+  });
+  it('hands every remount the same merged tokens without copying them again', async () => {
+    const first = renderHook(() => useTokens(diff, 'src/app.ts'));
+    await waitFor(() =>
+      expect(Object.keys(first.result.current).length).toBeGreaterThan(0),
+    );
+    await act(settled);
+    const finished = first.result.current;
+    first.unmount();
+    const again = renderHook(() => useTokens(diff, 'src/app.ts'));
+    const twice = renderHook(() => useTokens(diff, 'src/app.ts'));
+    expect(again.result.current).toBe(finished);
+    expect(twice.result.current).toBe(finished);
   });
   it('reuses finished tokens across a file tab switch, with the full file shown, and retokenizes on a theme change', async () => {
     setup();

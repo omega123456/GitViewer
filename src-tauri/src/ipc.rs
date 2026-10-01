@@ -246,7 +246,7 @@ pub async fn dispatch<R: tauri::Runtime>(
     };
     let previous_head = if mutating {
         let status = repo.snapshot().await?;
-        (status.oid, status.branch)
+        (status.oid.clone(), status.branch.clone())
     } else {
         Default::default()
     };

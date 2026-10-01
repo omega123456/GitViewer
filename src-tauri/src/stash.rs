@@ -248,9 +248,9 @@ pub async fn apply(repo: &Repo, hash: &str, pop: bool, smart: bool) -> Result<()
 pub async fn smart_checkout(repo: &Repo, name: &str) -> Result<()> {
     let status = repo.writable().await?;
     let original = if status.branch == "(detached)" {
-        status.oid
+        status.oid.clone()
     } else {
-        status.branch
+        status.branch.clone()
     };
     let temporary = save(repo, "GitViewer: smart checkout").await?;
     let switched = branch::switch(repo, name).await;

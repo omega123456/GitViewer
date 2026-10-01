@@ -51,7 +51,9 @@ const original = Facet.define<Text, Text>({
   compare: (a, b) => a.eq(b),
 });
 export function baseText(text: string | null | undefined) {
-  return original.of(Text.of((text ?? '').split('\n')));
+  return original.of(
+    Text.of((text ?? '').replace(/^\uFEFF/, '').split(/\r?\n/)),
+  );
 }
 const highlight = HighlightStyle.define([
   { tag: tags.keyword, class: 'text-code-keyword dark:text-code-keyword-dark' },
@@ -170,14 +172,19 @@ function markers(chunks: readonly Chunk[], doc: Text) {
   );
 }
 const lastLineSymbol = 0xd7ff;
-const lineBudgetMs = 100;
+const buildBudgetMs = 100;
+const keystrokeBudgetMs = 8;
 function lineStarts(lines: string[]) {
   const starts = [0];
   for (const line of lines)
     starts.push(starts[starts.length - 1] + line.length + 1);
   return starts;
 }
-function diffLines(a: string, b: string): readonly DiffChange[] {
+function diffLines(
+  a: string,
+  b: string,
+  budget: number,
+): readonly DiffChange[] {
   const linesA = a.split('\n');
   const linesB = b.split('\n');
   const symbols = new Map<string, string>();
@@ -198,7 +205,7 @@ function diffLines(a: string, b: string): readonly DiffChange[] {
     return [new DiffChange(0, a.length, 0, b.length)];
   const startsA = lineStarts(linesA);
   const startsB = lineStarts(linesB);
-  return diff(encodedA, encodedB, { timeout: lineBudgetMs }).map(
+  return diff(encodedA, encodedB, { timeout: budget }).map(
     (change) =>
       new DiffChange(
         Math.min(startsA[change.fromA], a.length),
@@ -208,7 +215,12 @@ function diffLines(a: string, b: string): readonly DiffChange[] {
       ),
   );
 }
-const byLine = { override: diffLines };
+const byLine = {
+  override: (a: string, b: string) => diffLines(a, b, buildBudgetMs),
+};
+const byLineQuickly = {
+  override: (a: string, b: string) => diffLines(a, b, keystrokeBudgetMs),
+};
 interface Changes {
   chunks: readonly Chunk[];
   markers: RangeSet<GutterMarker>;
@@ -229,7 +241,7 @@ export const changes = StateField.define<Changes>({
       base,
       transaction.state.doc,
       transaction.changes,
-      byLine,
+      byLineQuickly,
     );
     return { chunks, markers: markers(chunks, transaction.state.doc) };
   },

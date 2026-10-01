@@ -1,5 +1,12 @@
 import { TextInput } from '../shared/TextInput';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { Eye, EyeOff, Search } from 'lucide-react';
 import { useActionRegistry } from '../../lib/actions';
 import { fuzzyFilter } from '../../lib/fuzzy';
@@ -31,6 +38,7 @@ interface Row {
   disabled?: boolean;
   run: () => void;
 }
+const groupOrder = Object.keys(groupNames);
 const rowLimit = 50;
 function Keys({ shortcut }: { shortcut: string }) {
   const keys = shortcutLabel(shortcut)
@@ -82,6 +90,21 @@ export function CommandPalette({ repo }: { repo: string }) {
     open && mode === 'files',
   );
   const status = useBackend('status', { repo }, open && mode === 'files');
+  const query = useDeferredValue(filter);
+  const matches = useMemo(
+    () =>
+      mode === 'files'
+        ? fuzzyFilter(query, files.data ?? [], (path) => path).slice(
+            0,
+            rowLimit,
+          )
+        : [],
+    [mode, query, files.data],
+  );
+  const entries = useMemo(
+    () => new Map(status.data?.entries.map((entry) => [entry.path, entry])),
+    [status.data],
+  );
   const close = () => {
     setFilter('');
     setIndex(0);
@@ -92,48 +115,48 @@ export function CommandPalette({ repo }: { repo: string }) {
       ? [
           {
             name: 'Files',
-            rows: fuzzyFilter(filter, files.data ?? [], (path) => path)
-              .slice(0, rowLimit)
-              .map((path): Row => {
-                const entry = status.data?.entries.find(
-                  (entry) => entry.path === path,
-                );
-                return {
-                  id: path,
-                  icon: (
-                    <FileIcon
-                      name={path.slice(path.lastIndexOf('/') + 1)}
-                      directory={false}
-                      size="size-3.5"
-                    />
-                  ),
-                  label: <FileLabel path={path} />,
-                  title: path,
-                  trailing: (
-                    <StatusBadge
-                      status={
-                        !entry
-                          ? ''
-                          : entry.worktree !== '.'
-                            ? entry.worktree
-                            : entry.index
-                      }
-                    />
-                  ),
-                  run: () => {
-                    useLayout.getState().update(repo, { mode: 'working' });
-                    useSelection
-                      .getState()
-                      .select(repo, { path, source: sourceFor(entry) });
-                  },
-                };
-              }),
+            rows: matches.map((path): Row => {
+              const entry = entries.get(path);
+              return {
+                id: path,
+                icon: (
+                  <FileIcon
+                    name={path.slice(path.lastIndexOf('/') + 1)}
+                    directory={false}
+                    size="size-3.5"
+                  />
+                ),
+                label: <FileLabel path={path} />,
+                title: path,
+                trailing: (
+                  <StatusBadge
+                    status={
+                      !entry
+                        ? ''
+                        : entry.worktree !== '.'
+                          ? entry.worktree
+                          : entry.index
+                    }
+                  />
+                ),
+                run: () => {
+                  useLayout.getState().update(repo, { mode: 'working' });
+                  useSelection
+                    .getState()
+                    .select(repo, { path, source: sourceFor(entry) });
+                },
+              };
+            }),
           },
         ]
       : Object.entries(scopes)
           .filter(([scope]) => scope === 'app' || scope.startsWith(`${repo}:`))
-          .map(([scope, actions]) => ({
-            name: groupNames[scope.split(':').at(-1)!] ?? scope,
+          .map(
+            ([scope, actions]) => [scope.split(':').at(-1)!, actions] as const,
+          )
+          .sort(([a], [b]) => groupOrder.indexOf(a) - groupOrder.indexOf(b))
+          .map(([group, actions]) => ({
+            name: groupNames[group] ?? group,
             rows: fuzzyFilter(filter, actions, (action) => action.label).map(
               (action): Row => ({
                 id: action.id,

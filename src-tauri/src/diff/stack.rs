@@ -3,7 +3,7 @@ use crate::{
     error::{Error, Result},
     git,
     repo::Repo,
-    status::{Entry, Status},
+    status::Entry,
 };
 use serde::Serialize;
 use std::{
@@ -392,7 +392,7 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
     let status = if matches!(source, "staged" | "unstaged") {
         repo.snapshot().await?
     } else {
-        Status::default()
+        Default::default()
     };
     let mut args = vec![if source == "unstaged" {
         "diff-files"

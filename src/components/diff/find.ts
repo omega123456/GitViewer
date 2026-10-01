@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { markedTokens } from '../../lib/highlight';
 export interface Hit {
   index: number;
@@ -42,13 +42,28 @@ export function findClass(token: { found: boolean; current: boolean }) {
       ? 'bg-find dark:bg-find-dark'
       : '';
 }
-export function useFind(texts: string[], scroll: (index: number) => void) {
+export function useFind(
+  texts: () => string[],
+  scroll: (index: number) => void,
+) {
   const input = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [current, setCurrent] = useState(0);
-  const hits = useMemo(() => findMatches(texts, query), [texts, query]);
+  const searched = useDeferredValue(query);
+  const lines = useMemo(() => (open ? texts() : []), [open, texts]);
+  const hits = useMemo(() => findMatches(lines, searched), [lines, searched]);
   const selected = Math.min(current, hits.length - 1);
+  const reveal = useRef(false);
+  const latest = useRef(scroll);
+  useEffect(() => {
+    latest.current = scroll;
+  });
+  useEffect(() => {
+    if (!reveal.current || searched !== query) return;
+    reveal.current = false;
+    if (hits[0]) latest.current(hits[0].index);
+  }, [hits, searched, query]);
   const found = useMemo((): Found | undefined => {
     if (!open) return undefined;
     const marks = new Map<number, [number, number][]>();
@@ -75,14 +90,16 @@ export function useFind(texts: string[], scroll: (index: number) => void) {
     search: (value: string) => {
       setQuery(value);
       setCurrent(0);
-      const first = findMatches(texts, value)[0];
-      if (first) scroll(first.index);
+      reveal.current = true;
     },
     step: (direction: number) => {
-      if (!hits.length) return;
-      const next = (selected + direction + hits.length) % hits.length;
+      const latestHits = searched === query ? hits : findMatches(lines, query);
+      if (!latestHits.length) return;
+      reveal.current = false;
+      const at = Math.min(current, latestHits.length - 1);
+      const next = (at + direction + latestHits.length) % latestHits.length;
       setCurrent(next);
-      scroll(hits[next].index);
+      scroll(latestHits[next].index);
     },
   };
 }

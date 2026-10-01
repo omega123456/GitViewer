@@ -1,3 +1,4 @@
+import { useDeferredValue } from 'react';
 import { create } from 'zustand';
 interface Filter {
   text: Record<string, string>;
@@ -16,4 +17,7 @@ export const useFilterStore = create<Filter>((set) => ({
 }));
 export function useFilter(id: string) {
   return useFilterStore((s) => s.text[id] ?? '');
+}
+export function useDeferredFilter(id: string) {
+  return useDeferredValue(useFilter(id));
 }

@@ -1,8 +1,12 @@
 import { open, confirm } from '@tauri-apps/plugin-dialog';
 import { reportAppError } from './ipc';
-import { perform } from './query';
+import { client, perform, queryKey } from './query';
+import type { Repository } from './types';
 import { unsavedNames } from '../stores/editor';
 import { useTabs, type Tab } from '../stores/tabs';
+export function seedStatus(info: Repository) {
+  client.setQueryData(queryKey('status', { repo: info.id }), info.status);
+}
 export async function openRepository() {
   try {
     const path = await open({
@@ -12,7 +16,10 @@ export async function openRepository() {
     });
     if (typeof path === 'string') {
       const repo = await perform('repo_open', { path });
-      if (repo) useTabs.getState().open(repo.id, repo.name);
+      if (repo) {
+        seedStatus(repo);
+        useTabs.getState().open(repo.id, repo.name);
+      }
     }
   } catch (error) {
     reportAppError(error);

@@ -1,4 +1,12 @@
-import { lazy, memo, Suspense, useMemo, useRef, useState } from 'react';
+import {
+  lazy,
+  memo,
+  Suspense,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -101,7 +109,15 @@ function SelectedDiff({
   const rendered = markdown && Boolean(selection.rendered);
   const query = useBackend(
     'diff',
-    { repo, ...selection, context: rendered ? 50000 : 3, overrideLimit },
+    {
+      repo,
+      path: selection.path,
+      source: selection.source,
+      revision: selection.revision,
+      base: selection.base,
+      context: rendered ? 50000 : 3,
+      overrideLimit,
+    },
     !selection.blame,
     !overrideLimit && !rendered ? cachedEntry(repo, selection) : undefined,
   );
@@ -124,13 +140,20 @@ function SelectedDiff({
       removed: lines.filter((line) => line.kind === 'remove').length,
     };
   }, [data]);
-  const tokens = useTokens(data, selection.path, true, expansion.reveal.lines);
+  const editable = canEdit(selection.source, entry?.worktree, data);
+  const editing = Boolean(selection.editing) && editable;
+  const tokens = useTokens(
+    data,
+    selection.path,
+    !editing,
+    expansion.reveal.lines,
+  );
   const blame = useBackend(
     'blame',
     { repo, path: selection.path },
     Boolean(selection.blame),
   );
-  const texts = useMemo(
+  const texts = useCallback(
     () =>
       selection.blame
         ? (blame.data ?? []).map((line) => line.content)
@@ -146,11 +169,9 @@ function SelectedDiff({
       ? blameList.current?.scrollToIndex(index, 'center')
       : surface.current?.scrollToRow(Math.floor(index / 2), 'center'),
   );
-  const editable = canEdit(selection.source, entry?.worktree, data);
-  const editing = Boolean(selection.editing) && editable;
   const dirty = useDirty(repo, selection.path);
   const preview = useMemo(() => {
-    if (!data) return { text: '', deleted: false };
+    if (!data || !rendered) return { text: '', deleted: false };
     if (data.content !== null) return { text: data.content, deleted: false };
     const all = data.hunks.flatMap((hunk) => hunk.lines);
     const kept = all.filter((line) => line.kind !== 'remove');
@@ -159,7 +180,7 @@ function SelectedDiff({
       text: (deleted ? all : kept).map((line) => line.content).join('\n'),
       deleted,
     };
-  }, [data]);
+  }, [data, rendered]);
   const toggleRendered = () =>
     useSelection.getState().select(repo, {
       ...selection,

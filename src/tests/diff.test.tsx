@@ -16,6 +16,7 @@ import { useDiffView } from '../stores/diff-view';
 import { DiffPane } from '../components/diff/DiffPane';
 import { ImageDiff } from '../components/image/ImageDiff';
 import { absolutePath } from '../components/shared/FileMenu';
+import { fuzzyFilter } from '../lib/fuzzy';
 import { mockCommand, dialog, calls, emit } from './harness';
 import { workers } from './setup';
 import { settings, repository, diff, gapped, gappedText } from './fixtures';
@@ -32,6 +33,7 @@ import {
   blameLines,
   rows,
 } from './workbench';
+vi.mock('../lib/fuzzy', { spy: true });
 describe('file context menu', () => {
   it('copies the name and full path and opens a changed file', async () => {
     setup();
@@ -520,8 +522,11 @@ describe('keyboard and pointer access', () => {
     expect(within(palette).getAllByRole('button', { name: /\./ })).toHaveLength(
       1,
     );
+    const scored = vi.mocked(fuzzyFilter).mock.calls.length;
     fireEvent.keyDown(input, { key: 'ArrowDown' });
     fireEvent.keyDown(input, { key: 'ArrowUp' });
+    fireEvent.mouseEnter(within(palette).getByRole('button', { name: /app/ }));
+    expect(fuzzyFilter).toHaveBeenCalledTimes(scored);
     fireEvent.keyDown(input, { key: 'Enter' });
     await waitFor(() =>
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
@@ -754,10 +759,12 @@ describe('find in file', () => {
     fireEvent.keyDown(window, { key: 'f', metaKey: true });
     const input = await screen.findByRole('textbox', { name: 'Find in file' });
     expect(input).toHaveFocus();
+    const scroll = vi.mocked(HTMLElement.prototype.scrollTo);
+    scroll.mockClear();
     await user.type(input, 'NEEDLE');
     expect(counter()).toHaveTextContent('1 of 4');
     expect(current()).toEqual(['needle']);
-    const scroll = vi.mocked(HTMLElement.prototype.scrollTo);
+    expect(scroll).toHaveBeenCalled();
     scroll.mockClear();
     await user.keyboard('{Enter}');
     expect(counter()).toHaveTextContent('2 of 4');

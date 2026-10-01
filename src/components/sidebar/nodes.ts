@@ -30,10 +30,10 @@ export function inSection(entry: Entry, section: Section) {
     : entry.worktree !== '.';
 }
 export function groupEntries(status: Status, group: Section, filter: string) {
+  const needle = filter.toLowerCase();
   return status.entries.filter(
     (entry) =>
-      entry.path.toLowerCase().includes(filter.toLowerCase()) &&
-      inSection(entry, group),
+      entry.path.toLowerCase().includes(needle) && inSection(entry, group),
   );
 }
 export interface Node extends TreeEntry {
@@ -53,9 +53,10 @@ export function changeNodes(entries: Entry[], source: Section, filter: string) {
     paths: [],
     partial: false,
   };
+  const needle = filter.toLowerCase();
   const selected = entries
     .filter((entry) => inSection(entry, source))
-    .filter((entry) => entry.path.toLowerCase().includes(filter.toLowerCase()));
+    .filter((entry) => entry.path.toLowerCase().includes(needle));
   for (const entry of selected) {
     const parts = entry.path.split('/');
     let parent = treeRoot;

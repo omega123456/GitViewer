@@ -21,7 +21,7 @@ pub struct Registry {
 }
 pub struct Repo {
     pub root: PathBuf,
-    status: Mutex<Status>,
+    status: Mutex<Arc<Status>>,
     pub stale: Arc<AtomicBool>,
     pub history_stale: Arc<AtomicBool>,
     pub writes: Mutex<()>,
@@ -30,7 +30,7 @@ pub struct Repo {
     pub directory_reads: AtomicUsize,
 }
 pub struct Reread {
-    pub status: Status,
+    pub status: Arc<Status>,
     pub changed: bool,
     pub moved: bool,
 }
@@ -75,7 +75,7 @@ impl Repo {
     pub fn new(root: PathBuf) -> Self {
         Self {
             root,
-            status: Mutex::new(Status::default()),
+            status: Mutex::new(Arc::default()),
             stale: Arc::new(AtomicBool::new(true)),
             history_stale: Arc::new(AtomicBool::new(false)),
             writes: Mutex::new(()),
@@ -94,11 +94,10 @@ impl Repo {
                 .to_string_lossy()
                 .into_owned(),
             root: self.root.to_string_lossy().into_owned(),
-            status: self.status.lock().await.clone(),
+            status: Status::clone(&*self.status.lock().await),
         }
     }
-    async fn read(&self, status: &mut Status) -> Result<Reread> {
-        let previous = std::mem::take(status);
+    async fn read(&self, status: &mut Arc<Status>) -> Result<Reread> {
         self.stale.store(false, Ordering::SeqCst);
         let read = git::run(
             &self.root,
@@ -114,14 +113,14 @@ impl Repo {
         .await
         .and_then(|output| output.accept(&[0]))
         .and_then(|output| status::parse(&output.bytes));
-        *status = match read {
-            Ok(status) => status,
+        let next = match read {
+            Ok(next) => next,
             Err(error) => {
-                *status = previous;
                 self.stale.store(true, Ordering::SeqCst);
                 return Err(error);
             }
         };
+        let previous = std::mem::replace(status, Arc::new(next));
         let moved = (&previous.oid, &previous.branch) != (&status.oid, &status.branch);
         if moved {
             self.history_stale.store(true, Ordering::SeqCst);
@@ -136,7 +135,7 @@ impl Repo {
             .accept(&[0, 128])?;
             let name = named.text().trim().to_owned();
             if named.code == 0 && !name.is_empty() {
-                status.merging = Some(
+                Arc::make_mut(status).merging = Some(
                     name.strip_prefix("remotes/")
                         .unwrap_or(name.as_str())
                         .to_owned(),
@@ -153,17 +152,17 @@ impl Repo {
         let mut status = self.status.lock().await;
         self.read(&mut status).await
     }
-    pub async fn refresh(&self) -> Result<Status> {
+    pub async fn refresh(&self) -> Result<Arc<Status>> {
         Ok(self.reread().await?.status)
     }
-    pub async fn snapshot(&self) -> Result<Status> {
+    pub async fn snapshot(&self) -> Result<Arc<Status>> {
         let mut status = self.status.lock().await;
         if self.stale.load(Ordering::SeqCst) {
             return Ok(self.read(&mut status).await?.status);
         }
         Ok(status.clone())
     }
-    pub async fn writable(&self) -> Result<Status> {
+    pub async fn writable(&self) -> Result<Arc<Status>> {
         let status = self.refresh().await?;
         if status.conflicted {
             return Err(Error::refused(
