@@ -19,7 +19,7 @@ import {
   syntaxHighlighting,
 } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
-import { Chunk } from '@codemirror/merge';
+import { Change as DiffChange, Chunk, diff } from '@codemirror/merge';
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
 import {
   Compartment,
@@ -48,6 +48,7 @@ export const languageSlot = new Compartment();
 export const baseSlot = new Compartment();
 const original = Facet.define<Text, Text>({
   combine: (values) => values[0] ?? Text.empty,
+  compare: (a, b) => a.eq(b),
 });
 export function baseText(text: string | null | undefined) {
   return original.of(Text.of((text ?? '').split('\n')));
@@ -168,12 +169,52 @@ function markers(chunks: readonly Chunk[], doc: Text) {
     true,
   );
 }
+const lastLineSymbol = 0xd7ff;
+const lineBudgetMs = 100;
+function lineStarts(lines: string[]) {
+  const starts = [0];
+  for (const line of lines)
+    starts.push(starts[starts.length - 1] + line.length + 1);
+  return starts;
+}
+function diffLines(a: string, b: string): readonly DiffChange[] {
+  const linesA = a.split('\n');
+  const linesB = b.split('\n');
+  const symbols = new Map<string, string>();
+  const encode = (lines: string[]) =>
+    lines
+      .map((line) => {
+        let symbol = symbols.get(line);
+        if (symbol === undefined) {
+          symbol = String.fromCharCode(symbols.size + 1);
+          symbols.set(line, symbol);
+        }
+        return symbol;
+      })
+      .join('');
+  const encodedA = encode(linesA);
+  const encodedB = encode(linesB);
+  if (symbols.size > lastLineSymbol)
+    return [new DiffChange(0, a.length, 0, b.length)];
+  const startsA = lineStarts(linesA);
+  const startsB = lineStarts(linesB);
+  return diff(encodedA, encodedB, { timeout: lineBudgetMs }).map(
+    (change) =>
+      new DiffChange(
+        Math.min(startsA[change.fromA], a.length),
+        Math.min(startsA[change.toA], a.length),
+        Math.min(startsB[change.fromB], b.length),
+        Math.min(startsB[change.toB], b.length),
+      ),
+  );
+}
+const byLine = { override: diffLines };
 interface Changes {
   chunks: readonly Chunk[];
   markers: RangeSet<GutterMarker>;
 }
 function build(state: EditorState): Changes {
-  const chunks = Chunk.build(state.facet(original), state.doc);
+  const chunks = Chunk.build(state.facet(original), state.doc, byLine);
   return { chunks, markers: markers(chunks, state.doc) };
 }
 export const changes = StateField.define<Changes>({
@@ -188,6 +229,7 @@ export const changes = StateField.define<Changes>({
       base,
       transaction.state.doc,
       transaction.changes,
+      byLine,
     );
     return { chunks, markers: markers(chunks, transaction.state.doc) };
   },

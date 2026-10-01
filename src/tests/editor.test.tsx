@@ -8,13 +8,19 @@ import {
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { undo } from '@codemirror/commands';
+import type { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { describe, expect, it } from 'vitest';
 import App from '../App';
 import { Providers } from '../providers';
 import { QueryProvider } from '../providers/QueryProvider';
 import { AllChangesPane } from '../components/diff/AllChangesPane';
-import { changes } from '../components/editor/setup';
+import {
+  baseSlot,
+  baseText,
+  changes,
+  createState,
+} from '../components/editor/setup';
 import { registeredActions } from '../lib/actions';
 import { closeRepository } from '../lib/repository';
 import type { Opened, Selection } from '../lib/types';
@@ -564,5 +570,62 @@ describe('working-tree editor', () => {
       editing: true,
     });
     expect(useSelection.getState().all[repository.id]).toBeUndefined();
+  });
+});
+
+describe('change gutter', () => {
+  const everyFifth = (line: number) => line % 5 === 0;
+  const source = (count: number, edited: (line: number) => boolean) =>
+    Array.from({ length: count }, (_, line) =>
+      edited(line)
+        ? `  return changed${line};`
+        : `  const keep${line} = compute(${line});`,
+    ).join('\n');
+  function state(text: string, base: string) {
+    return createState({ text, base, dark: false, leave: () => {} });
+  }
+  function marked(current: EditorState) {
+    const lines: number[] = [];
+    current.field(changes).markers.between(0, current.doc.length, (from) => {
+      lines.push(current.doc.lineAt(from).number);
+    });
+    return lines;
+  }
+  const numbers = (count: number, keep: (line: number) => boolean) =>
+    Array.from({ length: count }, (_, line) => line)
+      .filter(keep)
+      .map((line) => line + 1);
+
+  it('keeps the gutter when the base is reconfigured with equal text', () => {
+    const start = state(working, index);
+    const same = start.update({
+      effects: baseSlot.reconfigure(baseText(index)),
+    }).state;
+    const moved = start.update({
+      effects: baseSlot.reconfigure(baseText(working)),
+    }).state;
+    expect(same.field(changes)).toBe(start.field(changes));
+    expect(moved.field(changes)).not.toBe(start.field(changes));
+    expect(moved.field(changes).chunks).toEqual([]);
+  });
+
+  it('marks exactly the edited lines of a file edited throughout', () => {
+    const start = state(
+      source(3000, everyFifth),
+      source(3000, () => false),
+    );
+    expect(marked(start)).toEqual(numbers(3000, everyFifth));
+    const typed = start.update({
+      changes: { from: start.doc.line(2).from, insert: 'x' },
+    }).state;
+    expect(marked(typed)).toEqual(
+      numbers(3000, (line) => everyFifth(line) || line === 1),
+    );
+  });
+
+  it('marks the whole file when it has more distinct lines than symbols', () => {
+    const base = source(0xd800, () => false);
+    const edited = state(base.replace('keep0 ', 'kept0 '), base);
+    expect(marked(edited)).toEqual(numbers(0xd800, () => true));
   });
 });
