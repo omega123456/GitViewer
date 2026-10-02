@@ -163,26 +163,35 @@ fn word_marks_are_utf16_ranges_over_changed_words_only() {
     let parsed = diff::parse(text, "a.rs", "commit").unwrap();
     let lines = &parsed.hunks[0].lines;
     assert!(lines[0].marks.is_empty());
-    assert_eq!(lines[1].marks, vec![[12, 16]]);
-    assert_eq!(lines[3].marks, vec![[12, 16]]);
+    assert_eq!(lines[1].marks, vec![[12, 15]]);
+    assert_eq!(lines[3].marks, vec![[12, 15]]);
     assert_eq!(lines[2].marks, vec![[9, 14]]);
     assert_eq!(lines[4].marks, vec![[9, 14]]);
     let units: Vec<u16> = lines[4].content.encode_utf16().collect();
     assert_eq!(String::from_utf16(&units[9..14]).unwrap(), "world");
-    let adjacent = diff::parse("@@ -1 +1 @@\n-one two\n+three\n", "a", "commit").unwrap();
-    assert_eq!(adjacent.hunks[0].lines[0].marks, vec![[0, 7]]);
-    assert_eq!(adjacent.hunks[0].lines[1].marks, vec![[0, 5]]);
+    let adjacent = diff::parse(
+        "@@ -1 +1 @@\n-call(one two, keep)\n+call(three, keep)\n",
+        "a",
+        "commit",
+    )
+    .unwrap();
+    assert_eq!(adjacent.hunks[0].lines[0].marks, vec![[5, 12]]);
+    assert_eq!(adjacent.hunks[0].lines[1].marks, vec![[5, 10]]);
 }
 #[test]
 fn word_marks_skip_long_lines_and_stop_at_the_file_budget() {
     let limit = diff::MARK_LINE_LIMIT;
     let long = diff::parse(
         &pairs(
-            &["a".repeat(limit + 1), "short old".into(), "a".repeat(limit)],
+            &[
+                "a".repeat(limit + 1),
+                "short old".into(),
+                format!("{} a", "w".repeat(limit - 2)),
+            ],
             &[
                 "b ".repeat(limit / 2),
                 "short new".into(),
-                "b".repeat(limit),
+                format!("{} b", "w".repeat(limit - 2)),
             ],
         ),
         "a",
@@ -193,9 +202,10 @@ fn word_marks_skip_long_lines_and_stop_at_the_file_budget() {
     assert!(lines[0].marks.is_empty() && lines[3].marks.is_empty());
     assert_eq!(lines[1].marks, vec![[6, 9]]);
     assert_eq!(lines[4].marks, vec![[6, 9]]);
-    assert_eq!(lines[2].marks, vec![[0, limit as u32]]);
-    assert_eq!(lines[5].marks, vec![[0, limit as u32]]);
-    let side = |fill: &str, n: usize| format!("{n:04} {}", fill.repeat(limit - 5));
+    let last = vec![[(limit - 1) as u32, limit as u32]];
+    assert_eq!(lines[2].marks, last);
+    assert_eq!(lines[5].marks, last);
+    let side = |fill: &str, n: usize| format!("{n:04} {} {fill}", "w".repeat(limit - 7));
     let fits = diff::MARK_BUDGET / (2 * limit);
     let old: Vec<String> = (0..=fits).map(|n| side("a", n)).collect();
     let new: Vec<String> = (0..=fits).map(|n| side("b", n)).collect();
@@ -222,6 +232,64 @@ fn word_marks_skip_long_lines_and_stop_at_the_file_budget() {
         .rev()
         .take(1)
         .all(|line| line.marks.is_empty()));
+}
+#[test]
+fn word_marks_pair_lines_by_content() {
+    let wrapped = diff::parse(
+        "@@ -1,3 +1,4 @@\n-  <Popover.Content\n-    align=\"start\"\n-    disabled={disabled || branch.current}\n+  {open && (\n+    <Popover.Content\n+      align=\"start\"\n+      disabled={disabled || branch.isHead}\n",
+        "a.tsx",
+        "commit",
+    )
+    .unwrap();
+    let lines = &wrapped.hunks[0].lines;
+    for index in [0, 1, 3, 4, 5] {
+        assert!(lines[index].marks.is_empty(), "line {index}");
+    }
+    assert_eq!(lines[2].marks, vec![[33, 40]]);
+    assert_eq!(lines[6].marks, vec![[35, 41]]);
+    let inserted = diff::parse(
+        "@@ -1 +1,2 @@\n-let total = price * count;\n+let shipping = 5;\n+let total = price * amount;\n",
+        "a.rs",
+        "commit",
+    )
+    .unwrap();
+    let lines = &inserted.hunks[0].lines;
+    assert_eq!(lines[0].marks, vec![[20, 25]]);
+    assert!(lines[1].marks.is_empty());
+    assert_eq!(lines[2].marks, vec![[20, 26]]);
+}
+#[test]
+fn word_marks_skip_unrelated_and_mostly_rewritten_lines() {
+    for text in [
+        "@@ -1 +1 @@\n-  const rows = branches.filter(Boolean);\n+  return query.data?.map(toRow) ?? [];\n",
+        "@@ -1 +1 @@\n-x = alpha_beta_gamma(1);\n+x = delta_epsilon_zeta(1);\n",
+    ] {
+        let parsed = diff::parse(text, "a", "commit").unwrap();
+        assert!(parsed.hunks[0].lines.iter().all(|line| line.marks.is_empty()));
+    }
+}
+#[test]
+fn word_marks_fall_back_to_position_for_large_or_costly_gaps() {
+    let numbered = |count: usize, word: &str| -> Vec<String> {
+        (0..count).map(|n| format!("value {n} = {word}")).collect()
+    };
+    let marked = |text: &str| -> Vec<bool> {
+        diff::parse(text, "a", "commit").unwrap().hunks[0]
+            .lines
+            .iter()
+            .map(|line| !line.marks.is_empty())
+            .collect()
+    };
+    let equal = marked(&pairs(&numbered(101, "old"), &numbered(101, "new")));
+    assert!(equal.iter().all(|marked| *marked));
+    let unequal = marked(&pairs(&numbered(101, "old"), &numbered(100, "new")));
+    assert!(unequal.iter().all(|marked| !marked));
+    let body = "z".repeat(diff::MARK_LINE_LIMIT - 40);
+    let wide = |order: &str| -> Vec<String> {
+        (0..100).map(|n| format!("{body} {n:03} {order}")).collect()
+    };
+    let costly = marked(&pairs(&wide("1 2 3 4 5 6 7 8"), &wide("9 8 7 6 5 4 3 2")));
+    assert!(costly.iter().all(|marked| *marked));
 }
 #[test]
 fn a_large_modify_heavy_diff_serializes_compactly() {

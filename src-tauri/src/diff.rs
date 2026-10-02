@@ -4,7 +4,8 @@ use crate::{
     repo::Repo,
 };
 use serde::{Deserialize, Serialize};
-use similar::{ChangeTag, TextDiff};
+use similar::{ChangeTag, DiffTag, TextDiff};
+use std::ops::Range;
 
 pub mod stack;
 
@@ -255,27 +256,223 @@ fn push(marks: &mut Vec<[u32; 2]>, start: u32, end: u32) {
         _ => marks.push([start, end]),
     }
 }
-fn mark_pair(old: &mut Line, new: &mut Line) {
-    let mut at_old = 0;
-    let mut at_new = 0;
-    for change in
-        TextDiff::from_words(old.content.as_str(), new.content.as_str()).iter_all_changes()
-    {
-        let size = width(change.value());
+const PAIR_THRESHOLD: f32 = 0.4;
+const EMPHASIS_LIMIT: f32 = 0.5;
+const ALIGN_CELLS: usize = 10_000;
+const ANCHOR_LINES: usize = 4_000;
+fn blank(token: &str) -> bool {
+    token.starts_with(char::is_whitespace)
+}
+fn tokens(text: &str) -> Vec<&str> {
+    let class = |c: char| {
+        if c.is_whitespace() {
+            0
+        } else if c.is_alphanumeric() || c == '_' {
+            1
+        } else {
+            2
+        }
+    };
+    let mut found = Vec::new();
+    let mut start = 0;
+    let mut previous = None;
+    for (at, c) in text.char_indices() {
+        let kind = class(c);
+        if at > start && (kind == 2 || previous != Some(kind)) {
+            found.push(&text[start..at]);
+            start = at;
+        }
+        previous = Some(kind);
+    }
+    if start < text.len() {
+        found.push(&text[start..]);
+    }
+    found
+}
+fn words(text: &str) -> Vec<&str> {
+    tokens(text.trim())
+        .into_iter()
+        .filter(|token| !blank(token))
+        .collect()
+}
+fn similarity(old: &str, new: &str) -> f32 {
+    TextDiff::from_slices(&words(old), &words(new)).ratio()
+}
+fn ranges(line: &str, tokens: &[&str], changed: &[bool]) -> Marks {
+    let mut marks = Vec::new();
+    let mut at = width(&line[..line.len() - line.trim_start().len()]);
+    for (index, token) in tokens.iter().enumerate() {
+        let size = width(token);
+        let bridged = blank(token)
+            && index > 0
+            && changed[index - 1]
+            && changed.get(index + 1) == Some(&true);
+        if changed[index] || bridged {
+            push(&mut marks, at, at + size);
+        }
+        at += size;
+    }
+    marks
+}
+type Marks = Vec<[u32; 2]>;
+fn mark_pair(old: &str, new: &str) -> Option<(Marks, Marks)> {
+    let (old_trimmed, new_trimmed) = (old.trim(), new.trim());
+    let (old_tokens, new_tokens) = (tokens(old_trimmed), tokens(new_trimmed));
+    let mut old_changed = Vec::with_capacity(old_tokens.len());
+    let mut new_changed = Vec::with_capacity(new_tokens.len());
+    for change in TextDiff::from_slices(&old_tokens, &new_tokens).iter_all_changes() {
         match change.tag() {
             ChangeTag::Equal => {
-                at_old += size;
-                at_new += size;
+                old_changed.push(false);
+                new_changed.push(false);
             }
-            ChangeTag::Delete => {
-                push(&mut old.marks, at_old, at_old + size);
-                at_old += size;
-            }
-            ChangeTag::Insert => {
-                push(&mut new.marks, at_new, at_new + size);
-                at_new += size;
-            }
+            ChangeTag::Delete => old_changed.push(true),
+            ChangeTag::Insert => new_changed.push(true),
         }
+    }
+    let changed_bytes = |tokens: &[&str], changed: &[bool]| -> usize {
+        tokens
+            .iter()
+            .zip(changed)
+            .filter(|(token, changed)| **changed && !blank(token))
+            .map(|(token, _)| token.len())
+            .sum()
+    };
+    let changed =
+        changed_bytes(&old_tokens, &old_changed).max(changed_bytes(&new_tokens, &new_changed));
+    let longest = old_trimmed.len().max(new_trimmed.len());
+    if changed as f32 > EMPHASIS_LIMIT * longest as f32 {
+        return None;
+    }
+    Some((
+        ranges(old, &old_tokens, &old_changed),
+        ranges(new, &new_tokens, &new_changed),
+    ))
+}
+fn align(
+    removed: &[Line],
+    added: &[Line],
+    old: Range<usize>,
+    new: Range<usize>,
+    budget: &mut usize,
+    pairs: &mut Vec<(usize, usize)>,
+) {
+    let (rows, cols) = (old.len(), new.len());
+    if rows == 0 || cols == 0 {
+        return;
+    }
+    let scorable = |line: &Line| line.content.len() <= MARK_LINE_LIMIT;
+    let cost: usize = if rows * cols > ALIGN_CELLS {
+        usize::MAX
+    } else {
+        removed[old.clone()]
+            .iter()
+            .flat_map(|a| added[new.clone()].iter().map(move |b| (a, b)))
+            .filter(|(a, b)| scorable(a) && scorable(b))
+            .map(|(a, b)| a.content.len() + b.content.len())
+            .sum()
+    };
+    if cost > *budget {
+        if rows == cols {
+            pairs.extend(old.zip(new));
+        }
+        return;
+    }
+    *budget -= cost;
+    let score: Vec<Vec<f32>> = removed[old.clone()]
+        .iter()
+        .map(|a| {
+            added[new.clone()]
+                .iter()
+                .map(|b| {
+                    if scorable(a) && scorable(b) {
+                        similarity(&a.content, &b.content)
+                    } else {
+                        0.0
+                    }
+                })
+                .collect()
+        })
+        .collect();
+    let mut best = vec![vec![0.0f32; cols + 1]; rows + 1];
+    for i in (0..rows).rev() {
+        for j in (0..cols).rev() {
+            let skip = best[i + 1][j].max(best[i][j + 1]);
+            best[i][j] = if score[i][j] >= PAIR_THRESHOLD {
+                skip.max(best[i + 1][j + 1] + score[i][j])
+            } else {
+                skip
+            };
+        }
+    }
+    let (mut i, mut j) = (0, 0);
+    while i < rows && j < cols {
+        let skip = best[i + 1][j].max(best[i][j + 1]);
+        if score[i][j] >= PAIR_THRESHOLD && best[i + 1][j + 1] + score[i][j] > skip {
+            pairs.push((old.start + i, new.start + j));
+            i += 1;
+            j += 1;
+        } else if best[i + 1][j] >= best[i][j + 1] {
+            i += 1;
+        } else {
+            j += 1;
+        }
+    }
+}
+fn pairs(removed: &[Line], added: &[Line], budget: &mut usize) -> Vec<(usize, usize)> {
+    let mut found = Vec::new();
+    if removed.len() + added.len() > ANCHOR_LINES {
+        align(
+            removed,
+            added,
+            0..removed.len(),
+            0..added.len(),
+            budget,
+            &mut found,
+        );
+        return found;
+    }
+    let old: Vec<&str> = removed.iter().map(|line| line.content.trim()).collect();
+    let new: Vec<&str> = added.iter().map(|line| line.content.trim()).collect();
+    let (mut old_at, mut new_at) = (0, 0);
+    for op in TextDiff::from_slices(&old, &new).ops() {
+        if op.tag() == DiffTag::Equal {
+            let (old_range, new_range) = (op.old_range(), op.new_range());
+            align(
+                removed,
+                added,
+                old_at..old_range.start,
+                new_at..new_range.start,
+                budget,
+                &mut found,
+            );
+            (old_at, new_at) = (old_range.end, new_range.end);
+        }
+    }
+    align(
+        removed,
+        added,
+        old_at..removed.len(),
+        new_at..added.len(),
+        budget,
+        &mut found,
+    );
+    found
+}
+fn mark(lines: &mut [Line], old: usize, new: usize, budget: &mut usize) {
+    let (old_text, new_text) = (&lines[old].content, &lines[new].content);
+    if old_text.len() > MARK_LINE_LIMIT || new_text.len() > MARK_LINE_LIMIT {
+        return;
+    }
+    let cost = old_text.len() + new_text.len();
+    if cost > *budget {
+        *budget = 0;
+        return;
+    }
+    *budget -= cost;
+    if let Some((old_marks, new_marks)) = mark_pair(old_text, new_text) {
+        lines[old].marks = old_marks;
+        lines[new].marks = new_marks;
     }
 }
 fn mark_words(lines: &mut [Line], budget: &mut usize) {
@@ -293,19 +490,8 @@ fn mark_words(lines: &mut [Line], budget: &mut usize) {
         while position < lines.len() && lines[position].kind == "add" {
             position += 1;
         }
-        for offset in 0..(added - start).min(position - added) {
-            let (removed, rest) = lines.split_at_mut(added + offset);
-            let (old, new) = (&mut removed[start + offset], &mut rest[0]);
-            if old.content.len() > MARK_LINE_LIMIT || new.content.len() > MARK_LINE_LIMIT {
-                continue;
-            }
-            let cost = old.content.len() + new.content.len();
-            if cost > *budget {
-                *budget = 0;
-                continue;
-            }
-            *budget -= cost;
-            mark_pair(old, new);
+        for (old, new) in pairs(&lines[start..added], &lines[added..position], budget) {
+            mark(lines, start + old, added + new, budget);
         }
     }
 }
