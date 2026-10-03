@@ -69,7 +69,7 @@ export function MarkdownView({
         </p>
       )}
       <article
-        className="prose prose-sm max-w-none px-6 py-5 prose-code:before:content-none prose-code:after:content-none prose-pre:border prose-pre:border-line prose-pre:bg-sub prose-pre:text-ink dark:prose-invert dark:prose-pre:border-line-dark dark:prose-pre:bg-sub-dark dark:prose-pre:text-ink-dark"
+        className="prose prose-sm max-w-none px-6 py-5 select-text prose-code:before:content-none prose-code:after:content-none prose-pre:border prose-pre:border-line prose-pre:bg-sub prose-pre:text-ink dark:prose-invert dark:prose-pre:border-line-dark dark:prose-pre:bg-sub-dark dark:prose-pre:text-ink-dark"
         dangerouslySetInnerHTML={{ __html: html }}
       />
     </div>

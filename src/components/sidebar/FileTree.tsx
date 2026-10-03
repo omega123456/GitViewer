@@ -303,6 +303,7 @@ export function FilesTree({ repo, status }: { repo: string; status: Status }) {
     const entries = await client.fetchQuery({
       queryKey: queryKey('tree', args),
       queryFn: () => invoke('tree', args),
+      gcTime: Infinity,
     });
     entries.forEach((entry) => {
       cache.current.set(entry.path, entry);

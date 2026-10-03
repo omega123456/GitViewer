@@ -6,7 +6,8 @@ import {
   within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { milliseconds } from 'date-fns';
 import { undo } from '@codemirror/commands';
 import { EditorView } from '@codemirror/view';
 import { useTabs } from '../stores/tabs';
@@ -143,6 +144,31 @@ describe('focus refresh and hidden tabs', () => {
         ),
       ).toHaveLength(1);
     }
+  });
+  it('re-lists the Files tree on a status change long after it first loaded', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    setup();
+    let listed = ['app.ts'];
+    mockCommand('tree', () =>
+      listed.map((name) => ({
+        path: name,
+        name,
+        directory: false,
+        ignored: false,
+        status: '',
+      })),
+    );
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    mount();
+    await user.click(await screen.findByRole('button', { name: /^Files/ }));
+    const files = await screen.findByRole('tree', { name: 'All files' });
+    await within(files).findByRole('treeitem', { name: 'app.ts' });
+    act(() => vi.advanceTimersByTime(milliseconds({ minutes: 10 })));
+    listed = [...listed, 'later.ts'];
+    act(() => emit('repo://status-changed', { repo: repository.id }));
+    expect(
+      await within(files).findByRole('treeitem', { name: 'later.ts' }),
+    ).toBeVisible();
   });
   it('returns to a hidden editor with its text, history, scroll and focus', async () => {
     setup();
