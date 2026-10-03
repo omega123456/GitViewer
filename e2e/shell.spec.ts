@@ -314,7 +314,7 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`success, error and decision cards ${theme}`, async ({ page }) => {
+  test(`success, info, error and decision cards ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme });
     await page.goto('/?scenario=stash');
     await page
@@ -329,6 +329,12 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(success).toHaveScreenshot(`success-card-${theme}.png`);
     await success.getByRole('button', { name: 'Dismiss', exact: true }).click();
     await expect(success).toBeHidden();
+    await page.getByRole('button', { name: /^fetch/i }).click();
+    const info = page.locator('li', { hasText: 'Fetched' });
+    await expect(info.getByText('Up to date')).toBeVisible();
+    await expect(info).toHaveScreenshot(`info-card-${theme}.png`);
+    await info.getByRole('button', { name: 'Dismiss', exact: true }).click();
+    await expect(info).toBeHidden();
     await page.getByRole('button', { name: /^push/ }).click();
     const card = page.locator('li', { hasText: 'Push rejected' });
     await expect(card.getByRole('button', { name: 'Pull' })).toBeVisible();

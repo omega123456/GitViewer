@@ -397,6 +397,7 @@ export const test = base.extend({
                   case 'stash_drop':
                     return null;
                   case 'sync':
+                    if (payload.args.action === 'fetch') return 0;
                     throw {
                       category: 'refused',
                       message:

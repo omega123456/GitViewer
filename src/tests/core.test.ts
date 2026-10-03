@@ -903,24 +903,32 @@ describe('success notices', () => {
     expect(say('sync', { action: 'fetch' }, 1)?.description).toBe(
       '1 new commit',
     );
-    expect(say('sync', { action: 'fetch' }, 0)?.description).toBe('Up to date');
+    expect(say('sync', { action: 'fetch' }, 1)?.info).toBeUndefined();
+    expect(say('sync', { action: 'fetch' }, 0)).toMatchObject({
+      description: 'Up to date',
+      info: true,
+    });
     expect(say('sync', { action: 'fetch' })?.description).toBeUndefined();
     expect(say('sync', { action: 'pull' }, 2)).toMatchObject({
       title: 'Pulled from origin/main',
       description: '2 commits',
     });
+    expect(say('sync', { action: 'pull' }, 2)?.info).toBeUndefined();
     expect(say('sync', { action: 'pull' }, 0, {})).toMatchObject({
       title: 'Pulled from the remote',
       description: 'Already up to date',
+      info: true,
     });
     expect(say('sync', { action: 'push' }, 3)).toMatchObject({
       title: 'Pushed to origin/main',
       description: '3 commits',
       replaces: 'commit',
     });
+    expect(say('sync', { action: 'push' }, 3)?.info).toBeUndefined();
     expect(say('sync', { action: 'push' }, 0)).toMatchObject({
       title: 'Nothing to push',
       description: 'origin/main already has every commit',
+      info: true,
     });
     expect(say('sync', { action: 'push' })?.title).toBe('Published main');
     expect(say('sync', { action: 'push' }, null, {})?.title).toBe(

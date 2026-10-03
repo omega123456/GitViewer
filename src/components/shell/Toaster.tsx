@@ -3,6 +3,7 @@ import { Toaster as Stack, toast } from 'sonner';
 import {
   AlertTriangle,
   Check,
+  Info,
   Lock,
   RotateCw,
   Undo2,
@@ -25,6 +26,9 @@ const closer =
   'size-6 self-start text-faint hover:text-ink dark:text-faint-dark dark:hover:text-ink-dark';
 const title = 'text-sm font-semibold';
 const description = 'text-xs break-words text-muted dark:text-muted-dark';
+const tile = 'grid size-6.5 shrink-0 place-items-center rounded';
+const neutral = `${tile} border border-line bg-chrome dark:border-line-dark dark:bg-chrome-dark`;
+const positive = `${tile} bg-add text-add-ink dark:bg-add-dark dark:text-add-ink-dark`;
 const none: Failure[] = [];
 const quiet: Notice[] = [];
 function recovery(scope: string, failure: Failure, kind: Recovery) {
@@ -61,7 +65,9 @@ function FailureCard({
   const action = recovery(scope, failure, described.recovery);
   return (
     <div className={card}>
-      <span className="grid size-6.5 shrink-0 place-items-center rounded bg-error text-error-ink dark:bg-error-dark dark:text-error-ink-dark">
+      <span
+        className={`${tile} bg-error text-error-ink dark:bg-error-dark dark:text-error-ink-dark`}
+      >
         <Icon className="size-3.5" />
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -106,11 +112,12 @@ function SuccessCard({ scope, initial }: { scope: string; initial: Notice }) {
     useSuccesses((s) => s.scopes[scope]?.find((n) => n.id === initial.id)) ??
     initial;
   const dismiss = () => useSuccesses.getState().dismiss(scope, initial.id);
-  const { restore } = notice;
+  const { restore, info } = notice;
+  const Icon = info ? Info : Check;
   return (
     <div className={card}>
-      <span className="grid size-6.5 shrink-0 place-items-center rounded border border-line bg-chrome dark:border-line-dark dark:bg-chrome-dark">
-        <Check className="size-3.5" />
+      <span className={info ? neutral : positive}>
+        <Icon className="size-3.5" />
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <div className="flex flex-col gap-0.5 pr-1">

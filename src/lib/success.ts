@@ -7,6 +7,7 @@ export interface Success {
   key: string;
   title: string;
   description?: string;
+  info?: true;
   replaces?: string;
   restore?: { hash: string; message: string };
 }
@@ -24,18 +25,19 @@ function synced(
     return {
       key,
       title: 'Fetched',
-      description:
-        commits === null
-          ? undefined
-          : commits
-            ? plural(commits, 'new commit')
-            : 'Up to date',
+      ...(commits === null
+        ? {}
+        : commits
+          ? { description: plural(commits, 'new commit') }
+          : { description: 'Up to date', info: true }),
     };
   if (action === 'pull')
     return {
       key,
       title: `Pulled from ${upstream}`,
-      description: commits ? plural(commits, 'commit') : 'Already up to date',
+      ...(commits
+        ? { description: plural(commits, 'commit') }
+        : { description: 'Already up to date', info: true }),
     };
   if (commits === null)
     return { key, title: `Published ${status?.branch ?? 'branch'}` };
@@ -50,6 +52,7 @@ function synced(
         key,
         title: 'Nothing to push',
         description: `${upstream} already has every commit`,
+        info: true,
       };
 }
 function changed(
