@@ -81,11 +81,14 @@ export function ImageDiff({
     },
   ];
   useActions(`${repo}:image`, view === repo ? shortcuts : []);
+  const dimensions = { old: diff.oldDimensions, new: diff.newDimensions };
   const image = (side: 'old' | 'new') =>
     (side === 'old' ? diff.oldSize : diff.newSize) > 0 ? (
       <img
         draggable={false}
         alt={side === 'old' ? 'Before' : 'After'}
+        width={dimensions[side]?.width}
+        height={dimensions[side]?.height}
         src={imageUrl(repo, selection, side, version)}
         onError={() => setImageError(true)}
         className={`max-h-full object-contain ${zoom ? 'w-image max-w-none shrink-0' : 'max-w-full'}`}

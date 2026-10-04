@@ -170,7 +170,7 @@ describe('all changes pane', () => {
     );
     expect(count('diff')).toBe(0);
   });
-  it('reserves the estimated height until a surface nears the viewport and keeps it mounted after', async () => {
+  it('reserves the estimated height until a surface nears the viewport, keeps it mounted after, and sizes images at once', async () => {
     setup();
     intersecting.initially = false;
     mockCommand('commit_files', () => ({
@@ -181,7 +181,10 @@ describe('all changes pane', () => {
       lines: {},
     }));
     mockCommand('diff_stack', () => ({
-      files: { 'src/app.ts': diff, 'photo.png': picture },
+      files: {
+        'src/app.ts': diff,
+        'photo.png': { ...picture, newDimensions: { width: 40, height: 30 } },
+      },
       truncated: false,
     }));
     const pane = await renderStack();
@@ -196,18 +199,16 @@ describe('all changes pane', () => {
       expect(within(block).getByText('Loading…')).toHaveClass('h-virtual'),
     );
     expect(height(block)).toBe('64px');
-    expect(within(image).getByText('Loading…')).toHaveClass('min-h-32');
+    expect(within(image).queryByText('Loading…')).toBeNull();
+    expect(within(image).getByAltText('After')).toHaveAttribute('width', '40');
+    expect(within(image).getByAltText('After')).toHaveAttribute('height', '30');
     expect(shown(pane, 'new value')).toBe(0);
-    expect(pane.querySelector('img')).toBeNull();
     act(() => intersect(block, true));
     await act(settled);
     expect(shown(block, 'new value')).toBe(1);
     act(() => intersect(block, false));
     await act(settled);
     expect(shown(block, 'new value')).toBe(1);
-    act(() => intersect(image, true));
-    await act(settled);
-    expect(image.querySelector('img')).not.toBeNull();
   });
   it('highlights a stacked file only near the viewport and drops stale tokens', async () => {
     setup();

@@ -440,12 +440,10 @@ const FileDiff = memo(function FileDiff({
     setInner(body.current?.offsetTop ?? 0);
   }, [surface]);
   const cut = selection.path.lastIndexOf('/') + 1;
-  const reserved = data?.image
-    ? null
-    : rows.reduce(
-        (sum, row) => sum + (row.hunk === undefined && !row.gap ? 20 : 24),
-        0,
-      );
+  const reserved = rows.reduce(
+    (sum, row) => sum + (row.hunk === undefined && !row.gap ? 20 : 24),
+    0,
+  );
   return (
     <div ref={box} className="border-b border-line dark:border-line-dark">
       <div className="sticky top-0 z-10 flex h-tab items-center gap-1 bg-sub pr-3 dark:bg-sub-dark">
@@ -515,14 +513,10 @@ const FileDiff = memo(function FileDiff({
           >
             {message}
           </p>
-        ) : !mounted ? (
+        ) : !mounted && !data!.image ? (
           <p
-            className={`px-3 py-2 text-xs text-muted ${reserved === null ? 'min-h-32' : 'h-virtual'}`}
-            style={
-              reserved === null
-                ? undefined
-                : dynamic({ '--virtual-height': `${reserved}px` })
-            }
+            className="h-virtual px-3 py-2 text-xs text-muted"
+            style={dynamic({ '--virtual-height': `${reserved}px` })}
           >
             Loading…
           </p>
