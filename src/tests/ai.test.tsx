@@ -254,22 +254,17 @@ describe('commit message generation', () => {
     ).toBeVisible();
     expect(sourceNotice(generated)).toBeNull();
   });
-  it('asks before replacing a draft, from the palette action as well', async () => {
+  it('replaces a draft without asking, from the palette action as well', async () => {
     setup(configured);
     const user = userEvent.setup();
     mount();
     const message = await screen.findByLabelText('Commit message');
     await user.type(message, 'wip sidebar');
     await run('generate-message');
+    await waitFor(() => expect(message).toHaveValue(generated.message));
     expect(
-      await screen.findByText('Replace your draft with the generated message?'),
-    ).toBeVisible();
-    expect(message).toHaveValue('wip sidebar');
-    await user.click(screen.getByRole('button', { name: 'Keep draft' }));
-    expect(message).toHaveValue('wip sidebar');
-    await user.click(screen.getByRole('button', { name: 'Generate' }));
-    await user.click(await screen.findByRole('button', { name: 'Replace' }));
-    expect(message).toHaveValue(generated.message);
+      screen.queryByText('Replace your draft with the generated message?'),
+    ).not.toBeInTheDocument();
   });
   it('reports a failed request inline and leaves the draft alone', async () => {
     setup(configured);

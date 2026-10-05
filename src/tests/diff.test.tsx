@@ -622,7 +622,9 @@ describe('keyboard and pointer access', () => {
     expect(sections).toHaveAttribute('aria-valuenow', '50');
     const messageHandle = screen.getByLabelText('Resize commit message');
     fireEvent.keyDown(messageHandle, { key: 'ArrowDown' });
-    expect(useLayout.getState().tabs[repository.id].messageHeight).toBe(90);
+    expect(useLayout.getState().tabs[repository.id].commitMessageHeight).toBe(
+      170,
+    );
     fireEvent.pointerDown(messageHandle);
     fireEvent.pointerMove(messageHandle, { clientY: 400 });
     expect(messageHandle).toHaveAttribute('aria-valuenow', '200');

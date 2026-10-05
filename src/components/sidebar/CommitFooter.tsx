@@ -97,7 +97,7 @@ export function CommitFooter({
       stage: changes,
     });
   };
-  const { messageHeight } = useTabLayout(repo);
+  const { commitMessageHeight } = useTabLayout(repo);
   return (
     <section
       aria-label="Commit"
@@ -126,14 +126,14 @@ export function CommitFooter({
             min={40}
             max={400}
             step={10}
-            value={messageHeight}
+            value={commitMessageHeight}
             className="absolute inset-x-0 top-0 z-10 h-2 cursor-row-resize rounded-t focus-visible:bg-accent"
             measure={(event) =>
               event.currentTarget.nextElementSibling!.getBoundingClientRect()
                 .bottom - event.clientY
             }
             onChange={(next) =>
-              useLayout.getState().update(repo, { messageHeight: next })
+              useLayout.getState().update(repo, { commitMessageHeight: next })
             }
           />
           <TextArea
@@ -141,7 +141,7 @@ export function CommitFooter({
             placeholder="Commit message"
             value={message}
             className={`${field} h-message resize-none`}
-            style={dynamic({ '--message-height': `${messageHeight}px` })}
+            style={dynamic({ '--message-height': `${commitMessageHeight}px` })}
             onChange={(event) =>
               useTabs.getState().setMessage(repo, event.target.value)
             }
@@ -150,24 +150,6 @@ export function CommitFooter({
         {generate.error && <FieldError>{generate.error}</FieldError>}
         {notice && (
           <p className="text-label text-muted dark:text-muted-dark">{notice}</p>
-        )}
-        {generate.pending && (
-          <div className="flex flex-col gap-2 rounded border border-line bg-surface p-2 dark:border-line-dark dark:bg-surface-dark">
-            <p className="text-label text-muted dark:text-muted-dark">
-              Replace your draft with the generated message?
-            </p>
-            <div className="flex justify-end gap-1.5">
-              <Button onClick={() => useGenerate.getState().dismiss(repo)}>
-                Keep draft
-              </Button>
-              <Button
-                variant="primary"
-                onClick={() => useGenerate.getState().confirm(repo)}
-              >
-                Replace
-              </Button>
-            </div>
-          </div>
         )}
         {flow.prompt && (
           <div

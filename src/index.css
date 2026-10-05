@@ -163,7 +163,7 @@
   --spacing-files: var(--files-height, 40%);
   --spacing-stash: var(--stash-height, 30%);
   --spacing-stash-files: var(--stash-files-height, 50%);
-  --spacing-message: var(--message-height, 80px);
+  --spacing-message: var(--message-height, 160px);
   --spacing-row: var(--row-offset);
   --translate-row: var(--row-offset);
   --animate-rise: rise 260ms cubic-bezier(0.2, 0.8, 0.2, 1);

@@ -10,7 +10,7 @@ export interface TabLayout {
   stashHeight: number;
   stashFilesHeight: number;
   stashOpen: boolean;
-  messageHeight: number;
+  commitMessageHeight: number;
   compareBase: string;
   compareTarget: string;
   mergeBase: boolean;
@@ -24,7 +24,7 @@ export const layoutDefaults: TabLayout = {
   stashHeight: 30,
   stashFilesHeight: 50,
   stashOpen: false,
-  messageHeight: 80,
+  commitMessageHeight: 160,
   compareBase: '',
   compareTarget: '',
   mergeBase: true,
