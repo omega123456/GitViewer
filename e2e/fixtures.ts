@@ -52,6 +52,52 @@ export const test = base.extend({
         const scenario = new URLSearchParams(window.location.search).get(
           'scenario',
         );
+        const linked = scenario === 'worktrees';
+        const worktree = (
+          id: string,
+          branch: string,
+          extra: Record<string, unknown> = {},
+        ) => ({
+          id,
+          name: id.split('/').at(-1),
+          main: id === repository.id,
+          bare: false,
+          branch,
+          oid: '3f9c2a1b'.padEnd(40, '0'),
+          detached: false,
+          locked: null,
+          prunable: false,
+          missing: false,
+          ...extra,
+        });
+        const worktrees = linked
+          ? [
+              worktree(repository.id, 'main'),
+              worktree('/worktrees/gv-hotfix', 'fix/watcher-gitdir'),
+              worktree('/worktrees/gv-review', 'feature'),
+              worktree('/worktrees/gv-spike', '', { detached: true }),
+              worktree('/worktrees/gv-release', 'release/2.20', {
+                locked: 'on external drive',
+              }),
+              worktree('/worktrees/gv-legacy', 'feature/legacy-sync', {
+                missing: true,
+                prunable: true,
+              }),
+            ]
+          : [worktree(repository.id, 'main')];
+        const statusOf = (repo: string) =>
+          repo === '/worktrees/gv-hotfix'
+            ? { ...status, branch: 'fix/watcher-gitdir' }
+            : repo === repository.id
+              ? status
+              : {
+                  ...status,
+                  branch:
+                    worktrees.find((entry) => entry.id === repo)?.branch ||
+                    '(detached)',
+                  oid: '3f9c2a1b',
+                  entries: [],
+                };
         const editorText = [
           "import { createHighlighter, bundledLanguages } from 'shiki';",
           'const aliases: Record<string, string> = {',
@@ -220,9 +266,16 @@ export const test = base.extend({
                       detail: 'patch',
                     };
                   case 'repo_open':
-                    return { ...repository, status };
+                    return {
+                      ...repository,
+                      id: payload.args.path,
+                      root: payload.args.path,
+                      status: statusOf(payload.args.path),
+                    };
                   case 'status':
-                    return status;
+                    return statusOf(payload.args.repo);
+                  case 'worktrees':
+                    return worktrees;
                   case 'files':
                     return [
                       'README.md',
@@ -323,6 +376,7 @@ export const test = base.extend({
                         remote: false,
                         current: false,
                         upstream: '',
+                        ...(linked ? { worktree: '/worktrees/gv-review' } : {}),
                       },
                     ];
                   case 'default_branch':

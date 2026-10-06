@@ -1,26 +1,34 @@
 import { TextInput } from '../shared/TextInput';
 import { useEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { DropdownMenu, Popover } from 'radix-ui';
 import {
+  Eraser,
+  FolderGit2,
+  FolderSymlink,
   GitBranch,
   GitCompare,
   GitMerge,
+  Lock,
   MoreHorizontal,
   Plus,
   Search,
   Trash2,
   Check,
   ChevronDown,
+  TriangleAlert,
 } from 'lucide-react';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { useActions } from '../../lib/actions';
-import { attempt, useBackend, perform } from '../../lib/query';
+import { attempt, useBackend, useStatuses, perform } from '../../lib/query';
+import { switchWorktree } from '../../lib/repository';
 import { normalizeError } from '../../lib/ipc';
 import { overwrittenPaths } from '../../lib/failure';
 import { runs, useCurrentActivity } from '../../stores/activity';
 import { ask } from '../../stores/decision';
 import { useErrors } from '../../stores/errors';
-import type { Branch, Status } from '../../lib/types';
+import type { Branch, Status, Worktree } from '../../lib/types';
+import { anchorOf, useProject } from '../../stores/tabs';
 import { Button } from '../shared/Button';
 import { Decision } from '../shared/Decision';
 import { ErrorRow, FieldError } from '../states/Errors';
@@ -31,6 +39,65 @@ import { VirtualList } from '../shared/VirtualList';
 import { dynamic, field, focus } from '../shared/styles';
 import { openCompare } from '../sidebar/CompareSection';
 import { mergeBranch } from '../../lib/merge';
+type Row =
+  | { kind: 'heading'; heading: string }
+  | { kind: 'worktree'; worktree: Worktree }
+  | { kind: 'branch'; branch: Branch };
+function headLabel(detached: boolean, oid: string, branch: string) {
+  return detached ? `${oid.slice(0, 7)} detached` : branch;
+}
+function WorktreeIcon({ worktree }: { worktree: Worktree }) {
+  const Icon = worktree.main ? FolderGit2 : FolderSymlink;
+  return <Icon className="size-3 shrink-0 text-muted dark:text-muted-dark" />;
+}
+function Marker({ worktree, status }: { worktree: Worktree; status?: Status }) {
+  const running = Boolean(useCurrentActivity(worktree.id));
+  const failed = useErrors((s) => Boolean(s.scopes[worktree.id]?.length));
+  const count = status?.entries.length ?? 0;
+  if (running)
+    return (
+      <span role="img" aria-label="Git operation running">
+        <Spinner className="size-3 text-accent dark:text-accent-dark" />
+      </span>
+    );
+  if (worktree.missing)
+    return (
+      <>
+        missing
+        <TriangleAlert
+          role="img"
+          aria-label="Folder missing"
+          className="size-3"
+        />
+      </>
+    );
+  if (failed)
+    return (
+      <span
+        role="img"
+        aria-label="Errors waiting"
+        className="size-1.5 rounded-full bg-error-ink dark:bg-error-ink-dark"
+      />
+    );
+  if (count)
+    return (
+      <>
+        <span
+          role="img"
+          aria-label="Uncommitted changes"
+          className="size-2 rounded-full bg-modified dark:bg-modified-dark"
+        />
+        <span className="font-mono">{count}</span>
+      </>
+    );
+  if (worktree.locked !== null)
+    return (
+      <span title={worktree.locked || 'Locked'}>
+        <Lock role="img" aria-label="Locked" className="size-3" />
+      </span>
+    );
+  return null;
+}
 const item = `flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs outline-none data-disabled:opacity-40 data-highlighted:bg-hover dark:data-highlighted:bg-hover-dark ${focus}`;
 const branchCommands = [
   'branch_switch',
@@ -99,6 +166,24 @@ export function BranchPopover({
   const markPressedInside = () => {
     pressedInside.current = true;
   };
+  const project = useProject(repo);
+  const members = project?.members ?? [repo];
+  const anchor = project ? anchorOf(project) : repo;
+  const worktreeQuery = useBackend('worktrees', { repo: anchor });
+  const worktrees = worktreeQuery.data ?? [];
+  const linked = worktrees.length > 1;
+  const current = worktrees.find((worktree) => worktree.id === repo);
+  const statuses = useStatuses(members);
+  const othersFailed = useErrors((s) =>
+    members.some((member) => member !== repo && s.scopes[member]?.length),
+  );
+  const othersDirty = members.some(
+    (member) => member !== repo && statuses[member]?.entries.length,
+  );
+  const go = (worktree: Worktree) => {
+    flushSync(() => setOpen(false));
+    if (project) void switchWorktree(project, worktree.id);
+  };
   const activity = useCurrentActivity(repo);
   const switching = branchCommands.some((command) => runs(activity, command));
   const [filter, setFilter] = useState('');
@@ -118,22 +203,47 @@ export function BranchPopover({
     query.data?.filter((branch) =>
       branch.name.toLowerCase().includes(filter.toLowerCase()),
     ) ?? [];
-  const longest = (query.data ?? []).reduce(
-    (widest, branch) => Math.max(widest, branch.name.length),
-    0,
-  );
-  const branchRows = [false, true].flatMap((remote) => {
-    const group = branches.filter((branch) => branch.remote === remote);
-    return group.length
+  const longest = [
+    ...(query.data ?? []).map((branch) => branch.name.length),
+    ...worktrees.map((w) => w.name.length + w.branch.length + 2),
+  ].reduce((widest, length) => Math.max(widest, length), 0);
+  const shownWorktrees = linked
+    ? worktrees.filter((worktree) =>
+        `${worktree.name} ${worktree.branch}`
+          .toLowerCase()
+          .includes(filter.toLowerCase()),
+      )
+    : [];
+  const rows: Row[] = [
+    ...(shownWorktrees.length
       ? [
-          {
-            heading: remote ? 'Remote branches' : 'Local branches',
-            branch: null,
-          },
-          ...group.map((branch) => ({ heading: '', branch })),
+          { kind: 'heading' as const, heading: 'Worktrees' },
+          ...shownWorktrees.map((worktree) => ({
+            kind: 'worktree' as const,
+            worktree,
+          })),
         ]
-      : [];
-  });
+      : []),
+    ...[false, true].flatMap((remote) => {
+      const group = branches.filter((branch) => branch.remote === remote);
+      return group.length
+        ? [
+            {
+              kind: 'heading' as const,
+              heading: remote ? 'Remote branches' : 'Local branches',
+            },
+            ...group.map((branch) => ({ kind: 'branch' as const, branch })),
+          ]
+        : [];
+    }),
+  ];
+  const holderOf = (branch: Branch) =>
+    branch.worktree && branch.worktree !== repo
+      ? worktrees.find((worktree) => worktree.id === branch.worktree)
+      : undefined;
+  const filterLabel = linked
+    ? 'Filter worktrees and branches'
+    : 'Filter branches';
   useActions(`${repo}:branches`, [
     {
       id: 'branches',
@@ -168,6 +278,32 @@ export function BranchPopover({
       run: () => setOpen(true),
     },
   ]);
+  useActions(
+    `${repo}:worktrees`,
+    linked
+      ? [
+          {
+            id: 'worktrees',
+            icon: <FolderSymlink className="size-3.5" />,
+            label: 'Switch worktree…',
+            key: '',
+            run: () => setOpen(true),
+          },
+          ...worktrees
+            .filter(
+              (worktree) =>
+                worktree.id !== repo && !worktree.missing && !worktree.bare,
+            )
+            .map((worktree) => ({
+              id: `worktree:${worktree.id}`,
+              icon: <FolderSymlink className="size-3.5" />,
+              label: `Switch to worktree ${worktree.name}`,
+              key: '',
+              run: () => go(worktree),
+            })),
+        ]
+      : [],
+  );
   return (
     <>
       <Popover.Root open={open} onOpenChange={setOpen}>
@@ -180,6 +316,17 @@ export function BranchPopover({
               aria-busy={switching}
               className="border border-line bg-surface dark:border-line-dark dark:bg-surface-dark"
             >
+              {linked && current && (
+                <>
+                  {current.main ? (
+                    <FolderGit2 className="size-4 text-muted dark:text-muted-dark" />
+                  ) : (
+                    <FolderSymlink className="size-4 text-muted dark:text-muted-dark" />
+                  )}
+                  <span className="max-w-28 truncate">{current.name}</span>
+                  <span className="text-muted dark:text-muted-dark">/</span>
+                </>
+              )}
               {switching ? <Spinner /> : <GitBranch className="size-4" />}
               {status.branch === '(detached)'
                 ? `${status.oid.slice(0, 7)} · detached`
@@ -187,6 +334,17 @@ export function BranchPopover({
               <ChevronDown className="size-3" />
             </Button>
           </Popover.Trigger>
+          {linked && (othersFailed || othersDirty) && (
+            <span
+              role="img"
+              aria-label={
+                othersFailed
+                  ? 'Errors waiting in another worktree'
+                  : 'Another worktree has uncommitted changes'
+              }
+              className={`pointer-events-none absolute -top-0.5 -right-0.5 size-1.5 rounded-full ${othersFailed ? 'bg-error-ink dark:bg-error-ink-dark' : 'bg-modified dark:bg-modified-dark'}`}
+            />
+          )}
           <Decision repo={repo} slot="branch" className="inset-0" />
         </span>
         <Popover.Portal>
@@ -201,9 +359,9 @@ export function BranchPopover({
             <div className="flex items-center gap-2 border-b border-line pb-2 dark:border-line-dark">
               <Search className="size-3.5 shrink-0 text-faint dark:text-faint-dark" />
               <TextInput
-                aria-label="Filter branches"
+                aria-label={filterLabel}
                 className={field}
-                placeholder="Filter branches"
+                placeholder={filterLabel}
                 value={filter}
                 onChange={(event) => setFilter(event.target.value)}
               />
@@ -217,25 +375,89 @@ export function BranchPopover({
             )}
             <VirtualList
               label="Branches"
-              items={branchRows}
+              items={rows}
               height={28}
-              render={({ heading, branch }) =>
-                branch ? (
+              render={(row) => {
+                if (row.kind === 'heading')
+                  return (
+                    <h3 className="flex h-group items-center px-2 text-label font-semibold tracking-wider text-faint uppercase dark:text-faint-dark">
+                      {row.heading}
+                    </h3>
+                  );
+                if (row.kind === 'worktree') {
+                  const { worktree } = row;
+                  const status = statuses[worktree.id];
+                  return (
+                    <div className="flex h-section items-center">
+                      <Button
+                        title={worktree.id}
+                        disabled={
+                          worktree.id === repo ||
+                          worktree.missing ||
+                          worktree.bare
+                        }
+                        className="min-w-0 flex-1 justify-start"
+                        onClick={() => go(worktree)}
+                      >
+                        <Check
+                          className={`size-3 shrink-0 ${worktree.id === repo ? '' : 'opacity-0'}`}
+                        />
+                        <WorktreeIcon worktree={worktree} />
+                        <span className="truncate">{worktree.name}</span>
+                        <span className="truncate font-mono text-label text-muted dark:text-muted-dark">
+                          {worktree.bare
+                            ? 'bare'
+                            : status
+                              ? headLabel(
+                                  status.branch === '(detached)',
+                                  status.oid,
+                                  status.branch,
+                                )
+                              : headLabel(
+                                  worktree.detached,
+                                  worktree.oid,
+                                  worktree.branch,
+                                )}
+                        </span>
+                        <span className="ml-auto flex shrink-0 items-center gap-1.5 text-label text-muted dark:text-muted-dark">
+                          <Marker worktree={worktree} status={status} />
+                        </span>
+                      </Button>
+                    </div>
+                  );
+                }
+                const { branch } = row;
+                const holder = holderOf(branch);
+                return (
                   <div className="flex h-section items-center">
                     <Button
-                      disabled={disabled || branch.current}
+                      disabled={
+                        disabled || branch.current || Boolean(holder?.missing)
+                      }
                       className="min-w-0 flex-1 justify-start"
                       onClick={() => {
-                        setOpen(false);
-                        void checkout(repo, branch.name);
+                        if (holder) go(holder);
+                        else {
+                          setOpen(false);
+                          void checkout(repo, branch.name);
+                        }
                       }}
                     >
                       <Check
                         className={`size-3 ${branch.current ? '' : 'opacity-0'}`}
                       />
                       <span className="truncate">{branch.name}</span>
-                      <span className="ml-auto text-label text-muted">
-                        {branch.remote ? 'remote' : 'local'}
+                      <span className="ml-auto flex items-center gap-1.5 text-label text-muted">
+                        {holder ? (
+                          <>
+                            in {holder.name}
+                            <WorktreeIcon worktree={holder} />
+                          </>
+                        ) : branch.remote ? (
+                          'remote'
+                        ) : (
+                          'local'
+                        )}
                       </span>
                     </Button>
                     <Button
@@ -294,7 +516,9 @@ export function BranchPopover({
                           </DropdownMenu.Item>
                           <DropdownMenu.Separator className="my-1 h-px bg-line dark:bg-line-dark" />
                           <DropdownMenu.Item
-                            disabled={disabled || branch.current}
+                            disabled={
+                              disabled || branch.current || Boolean(holder)
+                            }
                             className={`${item} text-deleted dark:text-deleted-dark`}
                             onSelect={() => {
                               void confirm(
@@ -312,16 +536,17 @@ export function BranchPopover({
                             <Trash2 className="size-3" />
                             Delete branch
                           </DropdownMenu.Item>
+                          {holder && (
+                            <p className="px-2 pb-1 pl-7 text-label text-muted dark:text-muted-dark">
+                              Checked out in {holder.name}
+                            </p>
+                          )}
                         </DropdownMenu.Content>
                       </DropdownMenu.Portal>
                     </DropdownMenu.Root>
                   </div>
-                ) : (
-                  <h3 className="flex h-group items-center px-2 text-label font-semibold tracking-wider text-faint uppercase dark:text-faint-dark">
-                    {heading}
-                  </h3>
-                )
-              }
+                );
+              }}
             />
             <div className="mt-2 flex gap-1.5 border-t border-line pt-2 dark:border-line-dark">
               <Button
@@ -335,6 +560,17 @@ export function BranchPopover({
                 <Plus className="size-3" />
                 New branch
               </Button>
+              {worktrees.some((worktree) => worktree.prunable) && (
+                <Button
+                  disabled={disabled}
+                  onClick={() =>
+                    void perform('worktree_prune', { repo: anchor })
+                  }
+                >
+                  <Eraser className="size-3" />
+                  Prune missing
+                </Button>
+              )}
             </div>
           </Popover.Content>
         </Popover.Portal>

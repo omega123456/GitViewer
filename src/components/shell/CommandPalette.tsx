@@ -25,6 +25,7 @@ const groupNames: Record<string, string> = {
   app: 'Application',
   repository: 'Repository',
   branches: 'Branches',
+  worktrees: 'Worktrees',
   diff: 'Diff',
   stashes: 'Stashes',
   image: 'Image',

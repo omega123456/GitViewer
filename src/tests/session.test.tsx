@@ -31,6 +31,7 @@ describe('session persistence', () => {
     mockCommand('repo_open', ({ path }) => ({
       ...repository,
       id: path,
+      project: path,
       name: path,
       root: path,
     }));
@@ -41,7 +42,10 @@ describe('session persistence', () => {
     );
     await screen.findByText('Ready');
     expect(
-      useTabs.getState().tabs.map(({ id, message }) => ({ id, message })),
+      useTabs.getState().tabs.map(({ id }) => ({
+        id,
+        message: useTabs.getState().messages[id],
+      })),
     ).toEqual([
       { id: '/a', message: 'draft' },
       { id: '/b', message: '' },
@@ -70,6 +74,7 @@ describe('session persistence', () => {
           path: '/a',
           message: 'updated',
           layout: { ...layoutDefaults, width: 420 },
+          shown: true,
         },
       ],
       active: '/a',
@@ -94,7 +99,13 @@ describe('session persistence', () => {
           pending.set(path, () =>
             path === '/missing'
               ? reject(new Error('Repository unavailable'))
-              : resolve({ ...repository, id: path, name: path, root: path }),
+              : resolve({
+                  ...repository,
+                  id: path,
+                  project: path,
+                  name: path,
+                  root: path,
+                }),
           );
         }),
     );
@@ -118,7 +129,10 @@ describe('session persistence', () => {
     await act(async () => pending.get('/a')?.());
     await screen.findByText('Ready');
     expect(
-      useTabs.getState().tabs.map(({ id, message }) => ({ id, message })),
+      useTabs.getState().tabs.map(({ id }) => ({
+        id,
+        message: useTabs.getState().messages[id],
+      })),
     ).toEqual([
       { id: '/a', message: 'first' },
       { id: '/b', message: 'second' },
@@ -155,6 +169,7 @@ describe('session persistence', () => {
             path: '/a',
             message: '',
             layout: { ...layoutDefaults, width: 512 },
+            shown: true,
           },
         ],
         active: '/a',
@@ -175,7 +190,7 @@ describe('session persistence', () => {
     }));
     mockCommand('repo_open', ({ path }) => {
       if (path === '/missing') throw new Error('Repository unavailable');
-      return { ...repository, id: path, root: path };
+      return { ...repository, id: path, project: path, root: path };
     });
     render(
       <SessionProvider>
@@ -305,7 +320,12 @@ it('flushes the final draft after pending updates before acknowledging close', a
         command: 'session_close',
         args: {
           tabs: [
-            { path: '/a', message: 'last keystroke', layout: layoutDefaults },
+            {
+              path: '/a',
+              message: 'last keystroke',
+              layout: layoutDefaults,
+              shown: true,
+            },
           ],
           active: '/a',
         },
@@ -355,6 +375,7 @@ it('restores the active repository using its canonical path', async () => {
   mockCommand('repo_open', ({ path }) => ({
     ...repository,
     id: path === '/alias' ? '/canonical' : path,
+    project: path === '/alias' ? '/canonical' : path,
   }));
   render(
     <SessionProvider>
@@ -384,7 +405,14 @@ it('resumes snapshots after native shutdown cancellation', async () => {
     expect(calls).toContainEqual({
       command: 'session_set',
       args: {
-        tabs: [{ path: '/after-cancel', message: '', layout: layoutDefaults }],
+        tabs: [
+          {
+            path: '/after-cancel',
+            message: '',
+            layout: layoutDefaults,
+            shown: true,
+          },
+        ],
         active: '/after-cancel',
       },
     }),
@@ -394,5 +422,61 @@ it('resumes snapshots after native shutdown cancellation', async () => {
     expect(
       calls.filter(({ command }) => command === 'session_close'),
     ).toHaveLength(2),
+  );
+});
+
+it('restores worktrees into their project tab, shows the saved one and saves each draft', async () => {
+  mockCommand('session_get', () => ({
+    tabs: [
+      { path: '/main', message: 'main draft' },
+      { path: '/wt/fix', message: 'fix draft', shown: true },
+      { path: '/other', message: '' },
+    ],
+    active: '/wt/fix',
+  }));
+  mockCommand('repo_open', ({ path }) => ({
+    ...repository,
+    id: path,
+    root: path,
+    project: path === '/other' ? '/other' : '/main',
+  }));
+  render(
+    <SessionProvider>
+      <div>Ready</div>
+    </SessionProvider>,
+  );
+  await screen.findByText('Ready');
+  expect(useTabs.getState().tabs).toEqual([
+    {
+      id: '/main',
+      name: 'main',
+      view: '/wt/fix',
+      members: ['/main', '/wt/fix'],
+    },
+    { id: '/other', name: 'other', view: '/other', members: ['/other'] },
+  ]);
+  expect(useTabs.getState().active).toBe('/main');
+  act(() => useTabs.getState().setMessage('/main', 'edited'));
+  await waitFor(() =>
+    expect(
+      calls.filter(({ command }) => command === 'session_set').at(-1)?.args,
+    ).toEqual({
+      tabs: [
+        {
+          path: '/main',
+          message: 'edited',
+          layout: layoutDefaults,
+          shown: false,
+        },
+        {
+          path: '/wt/fix',
+          message: 'fix draft',
+          layout: layoutDefaults,
+          shown: true,
+        },
+        { path: '/other', message: '', layout: layoutDefaults, shown: true },
+      ],
+      active: '/wt/fix',
+    }),
   );
 });

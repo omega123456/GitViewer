@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
+import { useTabs } from './tabs';
 export type SidebarMode = 'working' | 'history' | 'compare';
 export interface TabLayout {
   mode: SidebarMode;
@@ -29,6 +30,17 @@ export const layoutDefaults: TabLayout = {
   compareTarget: '',
   mergeBase: true,
 };
+const projectWide = ['width', 'historyWidth'] as const;
+function siblingsOf(id: string) {
+  return (
+    useTabs.getState().tabs.find((tab) => tab.members.includes(id))
+      ?.members ?? [id]
+  );
+}
+export function projectWidths(id: string) {
+  const layout = useLayout.getState().tabs[id] ?? layoutDefaults;
+  return Object.fromEntries(projectWide.map((key) => [key, layout[key]]));
+}
 interface Layout {
   tabs: Record<string, TabLayout>;
   update: (id: string, patch: Partial<TabLayout>) => void;
@@ -37,9 +49,17 @@ interface Layout {
 export const useLayout = create<Layout>((set) => ({
   tabs: {},
   update: (id, patch) =>
-    set((s) => ({
-      tabs: { ...s.tabs, [id]: { ...layoutDefaults, ...s.tabs[id], ...patch } },
-    })),
+    set((s) => {
+      const shared = Object.fromEntries(
+        projectWide.flatMap((key) => (key in patch ? [[key, patch[key]]] : [])),
+      );
+      const tabs = { ...s.tabs };
+      for (const member of siblingsOf(id))
+        if (member !== id)
+          tabs[member] = { ...layoutDefaults, ...tabs[member], ...shared };
+      tabs[id] = { ...layoutDefaults, ...tabs[id], ...patch };
+      return { tabs };
+    }),
   forget: (id) =>
     set((s) => ({
       tabs: Object.fromEntries(

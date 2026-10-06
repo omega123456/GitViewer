@@ -48,6 +48,7 @@ export const repository: Repository = {
   id: '/fixture',
   name: 'fixture',
   root: '/fixture',
+  project: '/fixture',
   status,
 };
 export const diff: Diff = {

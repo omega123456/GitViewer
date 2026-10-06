@@ -1,5 +1,6 @@
 import {
   QueryClient,
+  useQueries,
   useQuery,
   type InfiniteData,
 } from '@tanstack/react-query';
@@ -34,6 +35,18 @@ export function useBackend<K extends keyof Commands>(
     enabled,
     initialData: initial?.data,
     initialDataUpdatedAt: initial?.updatedAt,
+  });
+}
+export function useStatuses(repos: string[]) {
+  return useQueries({
+    queries: repos.map((repo) => ({
+      queryKey: queryKey('status', { repo }),
+      queryFn: () => invoke('status', { repo }),
+    })),
+    combine: (results) =>
+      Object.fromEntries(
+        repos.map((repo, index) => [repo, results[index].data]),
+      ),
   });
 }
 const immutable = ['commit', 'stash', 'compare'];

@@ -1,10 +1,16 @@
 import { FolderGit2, Plus, Settings as SettingsIcon, X } from 'lucide-react';
-import { closeRepository, openRepository } from '../../lib/repository';
-import { useBackend } from '../../lib/query';
-import { useCurrentActivity } from '../../stores/activity';
+import { useEffect } from 'react';
+import {
+  closeRepository,
+  folderName,
+  openRepository,
+  syncMembers,
+} from '../../lib/repository';
+import { useBackend, useStatuses } from '../../lib/query';
+import { useActivity } from '../../stores/activity';
 import { useErrors } from '../../stores/errors';
 import { usePalette } from '../../stores/palette';
-import { useTabs, type Tab } from '../../stores/tabs';
+import { anchorOf, useTabs, type Tab } from '../../stores/tabs';
 import { Button } from '../shared/Button';
 import { Spinner } from '../shared/Spinner';
 const strip =
@@ -37,10 +43,27 @@ export function RepoTabStrip() {
   );
 }
 function RepoTab({ tab, active }: { tab: Tab; active: boolean }) {
-  const status = useBackend('status', { repo: tab.id });
-  const dirty = Boolean(status.data?.entries.length);
-  const failed = useErrors((s) => Boolean(s.scopes[tab.id]?.length));
-  const working = Boolean(useCurrentActivity(tab.id)) && !active;
+  const statuses = useStatuses(tab.members);
+  const anchor = anchorOf(tab);
+  const worktrees = useBackend(
+    'worktrees',
+    { repo: anchor },
+    Boolean(anchor) && active,
+  );
+  useEffect(() => {
+    if (worktrees.data) void syncMembers(tab.id, worktrees.data);
+  }, [tab.id, worktrees.data]);
+  const dirty = tab.members.some((member) => statuses[member]?.entries.length);
+  const failed = useErrors((s) =>
+    tab.members.some((member) => s.scopes[member]?.length),
+  );
+  const working =
+    useActivity((s) =>
+      tab.members.some((member) =>
+        (s.scopes[member] ?? []).some((entry) => entry.visible),
+      ),
+    ) && !active;
+  const branch = statuses[tab.view]?.branch;
   return (
     <div
       className={`group relative flex min-w-0 max-w-52 items-center border-r border-line pr-1 dark:border-line-dark ${active ? 'bg-surface text-ink dark:bg-surface-dark dark:text-ink-dark' : 'text-muted hover:bg-track hover:text-ink dark:hover:bg-track-dark dark:hover:text-ink-dark'}`}
@@ -51,6 +74,11 @@ function RepoTab({ tab, active }: { tab: Tab; active: boolean }) {
       <Button
         variant="chrome"
         className="min-w-0 flex-1 justify-start gap-2 self-stretch pl-2.5"
+        title={
+          tab.members.length > 1
+            ? `${tab.name} · worktree ${folderName(tab.view)} on ${branch}`
+            : undefined
+        }
         onClick={() => useTabs.getState().activate(tab.id)}
       >
         <FolderGit2

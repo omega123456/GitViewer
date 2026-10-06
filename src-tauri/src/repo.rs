@@ -2,6 +2,7 @@ use crate::{
     error::{Error, Result},
     git,
     status::{self, Status},
+    worktree,
 };
 use serde::Serialize;
 use std::{
@@ -21,6 +22,9 @@ pub struct Registry {
 }
 pub struct Repo {
     pub root: PathBuf,
+    pub git_dir: PathBuf,
+    pub common_dir: PathBuf,
+    pub project: PathBuf,
     status: Mutex<Arc<Status>>,
     pub stale: Arc<AtomicBool>,
     pub history_stale: Arc<AtomicBool>,
@@ -41,6 +45,7 @@ pub struct Info {
     pub id: String,
     pub name: String,
     pub root: String,
+    pub project: String,
     pub status: Status,
 }
 impl Registry {
@@ -48,17 +53,42 @@ impl Registry {
         if !git::detect::environment().await.supported {
             return Err(Error::new("missing_git", "Git 2.38 or newer is required"));
         }
-        let output = git::run(Path::new(path), &["rev-parse", "--show-toplevel"], None)
-            .await?
-            .accept(&[0])
-            .map_err(|e| Error::new("invalid_repository", e.message))?;
-        let root = std::fs::canonicalize(output.text().trim())?;
+        let output = git::run(
+            Path::new(path),
+            &[
+                "rev-parse",
+                "--path-format=absolute",
+                "--show-toplevel",
+                "--git-dir",
+                "--git-common-dir",
+            ],
+            None,
+        )
+        .await?
+        .accept(&[0])
+        .map_err(|e| Error::new("invalid_repository", e.message))?;
+        let text = output.text();
+        let mut lines = text.lines().map(str::trim);
+        let root = std::fs::canonicalize(lines.next().unwrap_or_default())?;
         let id = root.to_string_lossy().into_owned();
         let existing = self.repos.lock().await.get(&id).cloned();
         if let Some(repo) = existing {
             return Ok(repo.info().await);
         }
-        let repo = Arc::new(Repo::new(root));
+        let git_dir = worktree::canonical(lines.next().unwrap_or_default());
+        let common_dir = worktree::canonical(lines.next().unwrap_or_default());
+        let project = worktree::list(&root)
+            .await?
+            .into_iter()
+            .next()
+            .map(|main| PathBuf::from(main.id))
+            .unwrap_or_default();
+        let repo = Arc::new(Repo {
+            git_dir,
+            common_dir,
+            project,
+            ..Repo::new(root)
+        });
         repo.refresh().await?;
         let winner = self.repos.lock().await.entry(id).or_insert(repo).clone();
         Ok(winner.info().await)
@@ -75,6 +105,9 @@ impl Registry {
 impl Repo {
     pub fn new(root: PathBuf) -> Self {
         Self {
+            git_dir: root.join(".git"),
+            common_dir: root.join(".git"),
+            project: root.clone(),
             root,
             status: Mutex::new(Arc::default()),
             stale: Arc::new(AtomicBool::new(true)),
@@ -96,6 +129,7 @@ impl Repo {
                 .to_string_lossy()
                 .into_owned(),
             root: self.root.to_string_lossy().into_owned(),
+            project: self.project.to_string_lossy().into_owned(),
             status: Status::clone(&*self.status.lock().await),
         }
     }

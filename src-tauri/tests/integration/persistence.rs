@@ -14,6 +14,7 @@ fn session_round_trip_preserves_geometry_tabs_and_drafts() {
             path: "/repo".into(),
             message: "draft".into(),
             layout: Some(serde_json::json!({ "width": 420, "stashFilesHeight": 65 })),
+            shown: false,
         }],
         "/repo".into(),
     );
@@ -205,6 +206,7 @@ async fn close_timeout_preserves_saved_state_and_failed_saves_cancel_exit() {
             path: "/repo".into(),
             message: "last known".into(),
             layout: None,
+            shown: false,
         }],
         "/repo".into(),
     );

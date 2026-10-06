@@ -22,6 +22,7 @@ pub mod status;
 pub mod tree;
 pub mod updater;
 pub mod watch;
+pub mod worktree;
 
 pub fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     #[cfg(feature = "test-utils")]

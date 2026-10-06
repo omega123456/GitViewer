@@ -277,6 +277,7 @@ async fn lifecycle_saves_before_install_and_failed_saves_never_install() {
             path: "/repo".into(),
             message: "final draft".into(),
             layout: None,
+            shown: false,
         }],
         "/repo".into(),
     );

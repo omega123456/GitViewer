@@ -8,3 +8,5 @@ mod lines;
 mod persistence;
 
 mod updater;
+
+mod worktree;

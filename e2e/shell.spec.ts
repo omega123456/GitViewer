@@ -562,3 +562,20 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(tabs).toHaveScreenshot(`file-tabs-${theme}.png`);
   });
 }
+for (const theme of ['light', 'dark'] as const) {
+  test(`branch popover with worktrees ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto('/?scenario=worktrees');
+    await page
+      .getByRole('button', { name: 'Open repository', exact: true })
+      .last()
+      .click();
+    const trigger = page.getByRole('button', { name: /^fixture \/ main/ });
+    await expect(trigger).toBeVisible();
+    await trigger.click();
+    await expect(page.getByText('gv-legacy')).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveScreenshot(
+      `branch-popover-${theme}.png`,
+    );
+  });
+}

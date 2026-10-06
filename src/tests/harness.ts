@@ -32,6 +32,20 @@ export function resetHarness() {
   mockCommand('ai_key_set', () => null);
   mockCommand('ai_generate', () => ({ ...generated }));
   mockCommand('line_stats', () => ({ staged: {}, unstaged: {} }));
+  mockCommand('worktrees', ({ repo }) => [
+    {
+      id: repo,
+      name: repo.split('/').at(-1) ?? repo,
+      main: true,
+      bare: false,
+      branch: 'main',
+      oid: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0',
+      detached: false,
+      locked: null,
+      prunable: false,
+      missing: false,
+    },
+  ]);
   listeners.clear();
   calls.length = 0;
   host.platform = 'macos';

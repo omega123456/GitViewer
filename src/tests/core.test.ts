@@ -362,7 +362,7 @@ describe('presentation state', () => {
     useSelection.getState().select('one', { path: 'b', source: 'commit' });
     expect(useSelection.getState().working.one?.path).toBe('a');
     expect(useSelection.getState().history.one?.path).toBe('b');
-    expect(useTabs.getState().tabs[1].message).toBe('');
+    expect(useTabs.getState().messages.two).toBeUndefined();
     tabs.activate('two');
     tabs.close('one');
     expect(useTabs.getState().active).toBe('two');

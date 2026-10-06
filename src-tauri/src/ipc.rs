@@ -3,7 +3,7 @@ use crate::{
     error::{Error, Result},
     git, history, lines,
     repo::Registry,
-    settings, stash, tree, watch,
+    settings, stash, tree, watch, worktree,
 };
 use serde::Serialize;
 use serde_json::{json, value::RawValue, Value};
@@ -238,6 +238,7 @@ pub async fn dispatch<R: tauri::Runtime>(
             | "stash_apply"
             | "stash_drop"
             | "stash_restore"
+            | "worktree_prune"
     );
     let _write = if mutating {
         Some(repo.writes.lock().await)
@@ -324,6 +325,11 @@ pub async fn dispatch<R: tauri::Runtime>(
             }
             "commit" => raw(&actions::commit(&repo, string(&args, "message")?).await?)?,
             "branches" => return raw(&branch::list(&repo).await?),
+            "worktrees" => return raw(&worktree::list(&repo.root).await?),
+            "worktree_prune" => {
+                worktree::prune(&repo.root).await?;
+                done()?
+            }
             "default_branch" => return raw(&branch::default_branch(&repo).await?),
             "compare_files" => {
                 return raw(&diff::compare(

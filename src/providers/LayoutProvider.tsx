@@ -8,12 +8,13 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   useEffect(
     () =>
       useTabs.subscribe((state, previous) => {
-        for (const tab of previous.tabs)
-          if (!state.tabs.some((open) => open.id === tab.id)) {
-            useLayout.getState().forget(tab.id);
-            useSelection.getState().forget(tab.id);
-            useFilterStore.getState().forget(tab.id);
-            useImageViews.getState().forget(tab.id);
+        const open = new Set(state.tabs.flatMap((tab) => tab.members));
+        for (const member of previous.tabs.flatMap((tab) => tab.members))
+          if (!open.has(member)) {
+            useLayout.getState().forget(member);
+            useSelection.getState().forget(member);
+            useFilterStore.getState().forget(member);
+            useImageViews.getState().forget(member);
           }
       }),
     [],

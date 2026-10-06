@@ -6,7 +6,7 @@ import { runShortcut } from '../lib/keyboard';
 import { useBackend } from '../lib/query';
 import { closeRepository, openRepository } from '../lib/repository';
 import { usePalette } from '../stores/palette';
-import { useTabs } from '../stores/tabs';
+import { activeView, useTabs } from '../stores/tabs';
 export function CommandProvider({ children }: { children: ReactNode }) {
   const environment = useBackend('env', {});
   const supported = environment.data?.supported ?? false;
@@ -59,7 +59,7 @@ export function CommandProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       if (!document.querySelector('[role="dialog"]'))
-        runShortcut(event, registeredActions(useTabs.getState().active));
+        runShortcut(event, registeredActions(activeView()));
       preventBrowserShortcut(event);
     };
     window.addEventListener('keydown', keydown);

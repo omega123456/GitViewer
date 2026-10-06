@@ -207,7 +207,7 @@ describe('commit and push', () => {
     const button = await screen.findByRole('button', {
       name: 'Commit & push 1 file to main',
     });
-    expect(useTabs.getState().tabs[0]?.commitMode).toBe('commitPush');
+    expect(useTabs.getState().modes[repository.id]).toBe('commitPush');
     await user.click(button);
     await waitFor(() => expect(commands()).toContain('sync'));
     const push = calls.find((call) => call.command === 'sync');
@@ -220,7 +220,7 @@ describe('commit and push', () => {
     expect(
       await screen.findByRole('button', { name: 'Commit 1 file to main' }),
     ).toBeVisible();
-    expect(useTabs.getState().tabs[0]?.commitMode).toBe('commit');
+    expect(useTabs.getState().modes[repository.id]).toBe('commit');
   });
   it('reports a failed push without hiding the commit', async () => {
     setup(staged);

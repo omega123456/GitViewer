@@ -12,6 +12,8 @@ pub struct Branch {
     pub remote: bool,
     pub current: bool,
     pub upstream: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub worktree: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -25,7 +27,7 @@ pub async fn list(repo: &Repo) -> Result<Vec<Branch>> {
         &repo.root,
         &[
             "for-each-ref",
-            "--format=%(refname)%00%(HEAD)%00%(upstream:short)",
+            "--format=%(refname)%00%(HEAD)%00%(upstream:short)%00%(worktreepath)",
             "refs/heads",
             "refs/remotes",
         ],
@@ -35,7 +37,7 @@ pub async fn list(repo: &Repo) -> Result<Vec<Branch>> {
         .lines()
         .filter_map(|line| {
             let fields: Vec<&str> = line.split('\0').collect();
-            if fields.len() != 3 || fields[0].ends_with("/HEAD") {
+            if fields.len() != 4 || fields[0].ends_with("/HEAD") {
                 return None;
             }
             Some(Branch {
@@ -46,6 +48,14 @@ pub async fn list(repo: &Repo) -> Result<Vec<Branch>> {
                 remote: fields[0].starts_with("refs/remotes/"),
                 current: fields[1] == "*",
                 upstream: fields[2].into(),
+                worktree: Some(fields[3])
+                    .filter(|path| !path.is_empty())
+                    .map(|path| {
+                        crate::worktree::canonical(path)
+                            .to_string_lossy()
+                            .into_owned()
+                    })
+                    .unwrap_or_default(),
             })
         })
         .collect())

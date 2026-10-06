@@ -1,8 +1,9 @@
 import { Activity } from 'react';
 import { UpdateBanner } from '../states/UpdateBanner';
 import type { SettingsResponse } from '../../lib/types';
+import { folderName } from '../../lib/repository';
 import { useCompact } from '../../stores/density';
-import { useTabs } from '../../stores/tabs';
+import { useActiveView, useTabs } from '../../stores/tabs';
 import { useDark } from '../../stores/theme';
 import { SettingsSurface } from '../settings/SettingsSurface';
 import { FirstRun } from '../states/FirstRun';
@@ -19,6 +20,10 @@ export function AppShell({
 }) {
   const tabs = useTabs((s) => s.tabs);
   const active = useTabs((s) => s.active);
+  const view = useActiveView();
+  const multiple = useTabs(
+    (s) => (s.tabs.find((tab) => tab.id === s.active)?.members.length ?? 0) > 1,
+  );
   const dark = useDark();
   const compact = useCompact();
   return (
@@ -37,18 +42,28 @@ export function AppShell({
             key={tab.id}
             mode={active === tab.id ? 'visible' : 'hidden'}
           >
-            <div className="flex min-h-0 flex-1 flex-col">
-              <RepositoryView
-                repo={tab.id}
-                settings={settings}
-                version={version}
-              />
-            </div>
+            {tab.members.map((member) => (
+              <Activity
+                key={member}
+                mode={tab.view === member ? 'visible' : 'hidden'}
+              >
+                <div className="flex min-h-0 flex-1 flex-col">
+                  <RepositoryView
+                    repo={member}
+                    settings={settings}
+                    version={version}
+                  />
+                </div>
+              </Activity>
+            ))}
           </Activity>
         ))
       )}
       <SettingsSurface settings={settings} />
-      <CommandPalette repo={active} />
+      <span className="sr-only" aria-live="polite">
+        {multiple ? `Switched to worktree ${folderName(view)}` : ''}
+      </span>
+      <CommandPalette repo={view} />
       <Toaster />
     </main>
   );

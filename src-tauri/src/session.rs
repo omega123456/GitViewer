@@ -22,6 +22,8 @@ pub struct Tab {
     pub message: String,
     #[serde(default)]
     pub layout: Option<serde_json::Value>,
+    #[serde(default)]
+    pub shown: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

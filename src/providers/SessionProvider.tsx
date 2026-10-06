@@ -2,9 +2,9 @@ import { listen } from '@tauri-apps/api/event';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { useEffect, useState, type ReactNode } from 'react';
 import { invoke, reportAppError } from '../lib/ipc';
-import { seedStatus } from '../lib/repository';
+import { joinProject } from '../lib/repository';
 import { unsavedNames, useEditor } from '../stores/editor';
-import { useTabs } from '../stores/tabs';
+import { activeView, useTabs } from '../stores/tabs';
 import { tabLayout, useLayout } from '../stores/layout';
 import type { Session } from '../lib/types';
 
@@ -48,6 +48,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         );
         if (cancelled) return;
         let active = session.active;
+        let latest = '';
         opened.forEach((result, index) => {
           const tab = session.tabs[index];
           if (result.status === 'rejected') {
@@ -55,15 +56,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             return;
           }
           const repo = result.value;
-          seedStatus(repo);
-          if (tab.path === session.active) active = repo.id;
-          useTabs.getState().open(repo.id, repo.name);
+          joinProject(repo);
+          latest = repo.project;
+          if (tab.path === session.active) active = repo.project;
+          if (tab.shown) useTabs.getState().show(repo.project, repo.id);
           useTabs.getState().setMessage(repo.id, tab.message);
           if (tab.layout) useLayout.getState().update(repo.id, tab.layout);
         });
-        if (useTabs.getState().tabs.some((tab) => tab.id === active)) {
-          useTabs.getState().activate(active);
-        }
+        if (latest)
+          useTabs
+            .getState()
+            .activate(
+              useTabs.getState().tabs.some((tab) => tab.id === active)
+                ? active
+                : latest,
+            );
       } catch (error) {
         if (!cancelled) reportAppError(error);
       }
@@ -73,12 +80,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const snapshot = (): Session => {
         const state = useTabs.getState();
         return {
-          tabs: state.tabs.map((tab) => ({
-            path: tab.id,
-            message: tab.message,
-            layout: tabLayout(tab.id),
-          })),
-          active: state.active,
+          tabs: state.tabs.flatMap((tab) =>
+            tab.members.map((member) => ({
+              path: member,
+              message: state.messages[member] ?? '',
+              layout: tabLayout(member),
+              shown: member === tab.view,
+            })),
+          ),
+          active: activeView(),
         };
       };
       const listening = (registration: Promise<() => void>) =>
@@ -131,7 +141,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         });
       };
       unsubscribe = useTabs.subscribe((state, previous) => {
-        if (state.tabs === previous.tabs && state.active === previous.active)
+        if (
+          state.tabs === previous.tabs &&
+          state.active === previous.active &&
+          state.messages === previous.messages
+        )
           return;
         save();
       });

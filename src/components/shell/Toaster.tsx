@@ -14,7 +14,7 @@ import { describe, type Recovery } from '../../lib/failure';
 import { perform } from '../../lib/query';
 import { appScope, useErrors, type Failure } from '../../stores/errors';
 import { useSuccesses, type Notice } from '../../stores/successes';
-import { useTabs } from '../../stores/tabs';
+import { useActiveView } from '../../stores/tabs';
 import { Button } from '../shared/Button';
 import { Details } from '../shared/Details';
 const icons = { network: WifiOff, authentication: Lock, alert: AlertTriangle };
@@ -153,7 +153,7 @@ function SuccessCard({ scope, initial }: { scope: string; initial: Notice }) {
   );
 }
 export function Toaster() {
-  const active = useTabs((s) => s.active);
+  const active = useActiveView();
   const app = useErrors((s) => s.scopes[appScope] ?? none);
   const tab = useErrors((s) => s.scopes[active] ?? none);
   const done = useSuccesses((s) => s.scopes[active] ?? quiet);

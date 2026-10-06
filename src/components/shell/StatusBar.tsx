@@ -1,4 +1,6 @@
-import { GitBranch } from 'lucide-react';
+import { FolderSymlink, GitBranch } from 'lucide-react';
+import { folderName } from '../../lib/repository';
+import { useProject } from '../../stores/tabs';
 import { describeActivity } from '../../lib/activity';
 import type { Status } from '../../lib/types';
 import { useCurrentActivity } from '../../stores/activity';
@@ -14,8 +16,15 @@ export function StatusBar({
 }) {
   const activity = useCurrentActivity(repo);
   const label = activity && describeActivity(activity, status);
+  const project = useProject(repo);
   return (
     <footer className="flex h-6 shrink-0 items-center gap-4 border-t border-line bg-chrome px-3 text-label text-muted dark:border-line-dark dark:bg-chrome-dark">
+      {project && project.members.length > 1 && (
+        <span className="flex items-center gap-1.5">
+          <FolderSymlink className="size-3" />
+          {folderName(repo)}
+        </span>
+      )}
       <span className="flex items-center gap-1.5">
         <GitBranch className="size-3" />
         {status.branch === '(detached)'

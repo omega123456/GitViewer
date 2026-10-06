@@ -349,7 +349,7 @@ async fn reads_proceed_while_a_write_holds_the_repository() {
     .unwrap();
 }
 
-fn app() -> tauri::App<tauri::test::MockRuntime> {
+pub(super) fn app() -> tauri::App<tauri::test::MockRuntime> {
     gitviewer_lib::configure(tauri::test::mock_builder())
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .unwrap()

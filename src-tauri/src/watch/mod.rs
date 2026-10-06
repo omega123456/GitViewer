@@ -82,9 +82,10 @@ pub fn start(repo: &Repository, changed: impl Fn(Change) + Send + Sync + 'static
     let stale = repo.stale.clone();
     let shared = Arc::downgrade(repo);
     let metadata = repo.root.join(".git");
-    let head = metadata.join("HEAD");
-    let packed = metadata.join("packed-refs");
-    let references = metadata.join("refs");
+    let git_dir = repo.git_dir.clone();
+    let head = git_dir.join("HEAD");
+    let packed = repo.common_dir.join("packed-refs");
+    let references = repo.common_dir.join("refs");
     let notify = Arc::new(changed);
     let working_tree_notify = notify.clone();
     let mut working_tree = debouncer(WORKING_TREE_INTERVAL, move |result: DebounceEventResult| {
@@ -117,11 +118,22 @@ pub fn start(repo: &Repository, changed: impl Fn(Change) + Send + Sync + 'static
         let Some(repo) = shared.upgrade() else {
             return;
         };
-        let head_changed = result.as_ref().map_or(true, |events| {
+        let paths = result.as_ref().map(|events| {
             events
                 .iter()
                 .flat_map(|event| &event.paths)
-                .any(|path| path == &head || path == &packed || path.starts_with(&referenced))
+                .filter(|path| {
+                    path.starts_with(&git_dir) || path == &&packed || path.starts_with(&referenced)
+                })
+                .collect::<Vec<_>>()
+        });
+        if paths.as_ref().is_ok_and(Vec::is_empty) {
+            return;
+        }
+        let head_changed = paths.map_or(true, |paths| {
+            paths
+                .iter()
+                .any(|path| *path == &head || *path == &packed || path.starts_with(&referenced))
         });
         if head_changed {
             repo.stale.store(true, Ordering::SeqCst);
@@ -138,7 +150,10 @@ pub fn start(repo: &Repository, changed: impl Fn(Change) + Send + Sync + 'static
             }
         }
     })?;
-    git_metadata.watch(&metadata, RecursiveMode::NonRecursive)?;
+    git_metadata.watch(&repo.git_dir, RecursiveMode::NonRecursive)?;
+    if repo.common_dir != repo.git_dir {
+        git_metadata.watch(&repo.common_dir, RecursiveMode::NonRecursive)?;
+    }
     if references.is_dir() {
         git_metadata.watch(&references, RecursiveMode::Recursive)?;
     }

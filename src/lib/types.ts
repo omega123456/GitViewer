@@ -42,6 +42,7 @@ export interface Repository {
   id: string;
   name: string;
   root: string;
+  project: string;
   status: Status;
 }
 export interface TreeEntry {
@@ -201,6 +202,19 @@ export interface Branch {
   remote: boolean;
   current: boolean;
   upstream: string;
+  worktree?: string;
+}
+export interface Worktree {
+  id: string;
+  name: string;
+  main: boolean;
+  bare: boolean;
+  branch: string;
+  oid: string;
+  detached: boolean;
+  locked: string | null;
+  prunable: boolean;
+  missing: boolean;
 }
 export interface Stash {
   hash: string;
@@ -220,7 +234,12 @@ type RepoArgs = { repo: string };
 type FileArgs = RepoArgs & { path: string };
 type Command<A, R> = { args: A; result: R };
 export interface Session {
-  tabs: { path: string; message: string; layout?: TabLayout | null }[];
+  tabs: {
+    path: string;
+    message: string;
+    layout?: TabLayout | null;
+    shown?: boolean;
+  }[];
   active: string;
 }
 export interface Commands {
@@ -289,6 +308,8 @@ export interface Commands {
   ai_key_set: Command<{ key: string }, null>;
   ai_generate: Command<RepoArgs, GeneratedMessage>;
   branches: Command<RepoArgs, Branch[]>;
+  worktrees: Command<RepoArgs, Worktree[]>;
+  worktree_prune: Command<RepoArgs, null>;
   default_branch: Command<RepoArgs, string>;
   compare_files: Command<
     RepoArgs & { base: string; target: string; mergeBase: boolean },
