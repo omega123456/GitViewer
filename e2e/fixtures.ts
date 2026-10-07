@@ -276,6 +276,21 @@ export const test = base.extend({
                     return statusOf(payload.args.repo);
                   case 'worktrees':
                     return worktrees;
+                  case 'worktree_target':
+                    return {
+                      path: '/Users/me/Projects/fixture-3f9c2a1',
+                      free: true,
+                      label: '3f9c2a1',
+                    };
+                  case 'worktree_summary':
+                    return { ahead: 2, orphans: 0, submodules: false };
+                  case 'worktree_apply':
+                    return {
+                      base: 'b'.repeat(40),
+                      tree: 'c'.repeat(40),
+                      files: 6,
+                      conflicts: 2,
+                    };
                   case 'files':
                     return [
                       'README.md',

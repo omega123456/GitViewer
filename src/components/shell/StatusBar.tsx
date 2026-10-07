@@ -1,5 +1,5 @@
 import { FolderSymlink, GitBranch } from 'lucide-react';
-import { folderName } from '../../lib/repository';
+import { folderName } from '../../lib/paths';
 import { useProject } from '../../stores/tabs';
 import { describeActivity } from '../../lib/activity';
 import type { Status } from '../../lib/types';

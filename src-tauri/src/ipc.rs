@@ -52,6 +52,16 @@ fn settings_path<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<std::pa
             .join("settings.json"))
     }
 }
+fn project_changed<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    repo: &crate::repo::Repo,
+) -> Result<()> {
+    app.emit(
+        "repo://status-changed",
+        json!({"repo":repo.project.to_string_lossy()}),
+    )
+    .map_err(Error::from)
+}
 #[tauri::command]
 pub async fn execute<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
@@ -239,6 +249,8 @@ pub async fn dispatch<R: tauri::Runtime>(
             | "stash_drop"
             | "stash_restore"
             | "worktree_prune"
+            | "worktree_add"
+            | "worktree_remove"
     );
     let _write = if mutating {
         Some(repo.writes.lock().await)
@@ -329,6 +341,65 @@ pub async fn dispatch<R: tauri::Runtime>(
             "worktree_prune" => {
                 worktree::prune(&repo.root).await?;
                 done()?
+            }
+            "worktree_target" => {
+                return raw(&worktree::target(
+                    &repo,
+                    string(&args, "mode")?,
+                    optional(&args, "ref"),
+                    path,
+                )
+                .await?)
+            }
+            "worktree_summary" => {
+                let target = registry.get(string(&args, "target")?).await?;
+                return raw(&worktree::summary(&repo, &target.snapshot().await?.oid).await?);
+            }
+            "worktree_add" => {
+                let created = worktree::add(
+                    &repo,
+                    path,
+                    string(&args, "mode")?,
+                    optional(&args, "branch"),
+                    optional(&args, "base"),
+                )
+                .await?;
+                project_changed(&app, &repo)?;
+                raw(&created)?
+            }
+            "worktree_remove" => {
+                worktree::remove(
+                    &repo,
+                    string(&args, "worktree")?,
+                    args["force"].as_u64().unwrap_or_default(),
+                )
+                .await?;
+                project_changed(&app, &repo)?;
+                done()?
+            }
+            "worktree_apply" | "worktree_unapply" => {
+                let target_id = string(&args, "target")?;
+                let target = registry.get(target_id).await?;
+                let result = if command == "worktree_apply" {
+                    let source = registry.get(string(&args, "source")?).await?;
+                    if std::sync::Arc::ptr_eq(&source, &target) {
+                        return Err(Error::refused("Choose a worktree other than main"));
+                    }
+                    let _target = target.writes.lock().await;
+                    let _source = source.writes.lock().await;
+                    worktree::apply(&source, &target, flag(&args, "smart"))
+                        .await
+                        .and_then(|applied| raw(&applied))
+                } else {
+                    let _target = target.writes.lock().await;
+                    worktree::unapply(&target, string(&args, "base")?, string(&args, "tree")?)
+                        .await
+                        .and_then(|()| done())
+                };
+                target.refresh().await?;
+                app.emit("repo://status-changed", json!({"repo":target_id}))
+                    .map_err(Error::from)?;
+                return result;
             }
             "default_branch" => return raw(&branch::default_branch(&repo).await?),
             "compare_files" => {

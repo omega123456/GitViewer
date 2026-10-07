@@ -1,14 +1,12 @@
 import { open, confirm } from '@tauri-apps/plugin-dialog';
 import { reportAppError } from './ipc';
+import { folderName } from './paths';
 import { client, perform, queryKey } from './query';
 import type { Repository, Worktree } from './types';
 import { unsavedNames } from '../stores/editor';
 import { projectWidths, useLayout } from '../stores/layout';
 import { useSuccesses } from '../stores/successes';
 import { useTabs, type Tab } from '../stores/tabs';
-export function folderName(path: string) {
-  return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
-}
 export function seedStatus(info: Repository) {
   client.setQueryData(queryKey('status', { repo: info.id }), info.status);
 }
@@ -48,6 +46,10 @@ export async function switchWorktree(tab: Tab, id: string) {
     joinProject(repo);
   }
   useTabs.getState().show(tab.id, id);
+}
+export async function showWorktree(id: string) {
+  const tab = useTabs.getState().tabs.find((tab) => tab.members.includes(id));
+  if (tab) await switchWorktree(tab, id);
 }
 export async function syncMembers(id: string, list: Worktree[]) {
   const present = list.filter(

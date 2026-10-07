@@ -1,4 +1,5 @@
-import type { Stash, Status } from './types';
+import { folderName } from './paths';
+import type { Applied, Stash, Status } from './types';
 export interface Before {
   status?: Status;
   stashes?: Stash[];
@@ -8,8 +9,11 @@ export interface Success {
   title: string;
   description?: string;
   info?: true;
+  warning?: true;
   replaces?: string;
   restore?: { hash: string; message: string };
+  unapply?: { target: string; base: string; tree: string };
+  show?: string;
 }
 function plural(count: number, noun: string) {
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
@@ -54,6 +58,30 @@ function synced(
         description: `${upstream} already has every commit`,
         info: true,
       };
+}
+function applied(target: string, result: Applied): Success {
+  const key = 'worktree_apply';
+  if (!result.files)
+    return {
+      key,
+      title: 'Nothing to apply',
+      description: 'No changes since it split from main',
+      info: true,
+    };
+  if (result.conflicts)
+    return {
+      key,
+      title: `Applied to main with ${plural(result.conflicts, 'conflict')}`,
+      description: 'Resolve them in GitViewer before committing.',
+      warning: true,
+      show: target,
+    };
+  return {
+    key,
+    title: 'Applied to main',
+    description: `${plural(result.files, 'file')} changed in ${folderName(target)}.`,
+    unapply: { target, base: result.base, tree: result.tree },
+  };
 }
 function changed(
   action: unknown,
@@ -127,6 +155,25 @@ export function describeSuccess(
             description: status && `into ${status.branch}`,
           }
         : null;
+    case 'worktree_add':
+      return {
+        key: command,
+        title: `Created worktree ${folderName(String(result))}`,
+      };
+    case 'worktree_remove':
+      return {
+        key: command,
+        title: `Deleted worktree ${folderName(String(args.worktree))}`,
+      };
+    case 'worktree_apply':
+      return applied(String(args.target), result as Applied);
+    case 'worktree_unapply':
+      return {
+        key: command,
+        replaces: 'worktree_apply',
+        title: 'Undid apply',
+        description: `Changes removed from ${folderName(String(args.target))}`,
+      };
     case 'merge_abort':
       return { key: command, title: 'Merge aborted' };
     case 'files_action':

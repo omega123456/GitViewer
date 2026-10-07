@@ -1,8 +1,8 @@
 import { FolderGit2, Plus, Settings as SettingsIcon, X } from 'lucide-react';
 import { useEffect } from 'react';
+import { folderName } from '../../lib/paths';
 import {
   closeRepository,
-  folderName,
   openRepository,
   syncMembers,
 } from '../../lib/repository';

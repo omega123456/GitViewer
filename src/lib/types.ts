@@ -216,6 +216,23 @@ export interface Worktree {
   prunable: boolean;
   missing: boolean;
 }
+export type WorktreeMode = 'detached' | 'new' | 'existing';
+export interface WorktreeTarget {
+  path: string;
+  free: boolean;
+  label: string;
+}
+export interface WorktreeSummary {
+  ahead: number;
+  orphans: number;
+  submodules: boolean;
+}
+export interface Applied {
+  base: string;
+  tree: string;
+  files: number;
+  conflicts: number;
+}
 export interface Stash {
   hash: string;
   selector: string;
@@ -310,6 +327,32 @@ export interface Commands {
   branches: Command<RepoArgs, Branch[]>;
   worktrees: Command<RepoArgs, Worktree[]>;
   worktree_prune: Command<RepoArgs, null>;
+  worktree_target: Command<
+    RepoArgs & { mode: WorktreeMode; ref: string; path: string },
+    WorktreeTarget
+  >;
+  worktree_summary: Command<RepoArgs & { target: string }, WorktreeSummary>;
+  worktree_add: Command<
+    RepoArgs & {
+      path: string;
+      mode: WorktreeMode;
+      branch: string;
+      base: string;
+    },
+    string
+  >;
+  worktree_remove: Command<
+    RepoArgs & { worktree: string; force: number },
+    null
+  >;
+  worktree_apply: Command<
+    RepoArgs & { source: string; target: string; smart: boolean },
+    Applied
+  >;
+  worktree_unapply: Command<
+    RepoArgs & { target: string; base: string; tree: string },
+    null
+  >;
   default_branch: Command<RepoArgs, string>;
   compare_files: Command<
     RepoArgs & { base: string; target: string; mergeBase: boolean },

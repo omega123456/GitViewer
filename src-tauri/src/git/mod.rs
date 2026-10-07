@@ -32,13 +32,20 @@ impl Output {
 pub async fn run(root: &Path, args: &[&str], input: Option<&[u8]>) -> Result<Output> {
     run_binary("git", root, args, input).await
 }
+pub async fn run_indexed(root: &Path, index: &Path, args: &[&str]) -> Result<Output> {
+    let mut command = command("git", root, args);
+    command.env("GIT_INDEX_FILE", index);
+    execute(command, None).await
+}
 pub async fn run_binary(
     binary: &str,
     root: &Path,
     args: &[&str],
     input: Option<&[u8]>,
 ) -> Result<Output> {
-    let mut command = command(binary, root, args);
+    execute(command(binary, root, args), input).await
+}
+async fn execute(mut command: Command, input: Option<&[u8]>) -> Result<Output> {
     let mut child = command
         .spawn()
         .map_err(|error| Error::new("missing_git", error.to_string()))?;
@@ -55,6 +62,7 @@ pub async fn run_binary(
         write_result?;
     }
     if code == 129 {
+        let args: Vec<_> = command.as_std().get_args().collect();
         tracing::error!(?args, "Git rejected application arguments");
     }
     Ok(Output {

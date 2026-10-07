@@ -3,6 +3,7 @@ import { Toaster as Stack, toast } from 'sonner';
 import {
   AlertTriangle,
   Check,
+  FolderGit2,
   Info,
   Lock,
   RotateCw,
@@ -12,6 +13,7 @@ import {
 } from 'lucide-react';
 import { describe, type Recovery } from '../../lib/failure';
 import { perform } from '../../lib/query';
+import { showWorktree } from '../../lib/repository';
 import { appScope, useErrors, type Failure } from '../../stores/errors';
 import { useSuccesses, type Notice } from '../../stores/successes';
 import { useActiveView } from '../../stores/tabs';
@@ -29,6 +31,7 @@ const description = 'text-xs break-words text-muted dark:text-muted-dark';
 const tile = 'grid size-6.5 shrink-0 place-items-center rounded';
 const neutral = `${tile} border border-line bg-chrome dark:border-line-dark dark:bg-chrome-dark`;
 const positive = `${tile} bg-add text-add-ink dark:bg-add-dark dark:text-add-ink-dark`;
+const cautious = `${tile} bg-merge text-merge-ink dark:bg-merge-dark dark:text-merge-ink-dark`;
 const none: Failure[] = [];
 const quiet: Notice[] = [];
 function recovery(scope: string, failure: Failure, kind: Recovery) {
@@ -112,11 +115,18 @@ function SuccessCard({ scope, initial }: { scope: string; initial: Notice }) {
     useSuccesses((s) => s.scopes[scope]?.find((n) => n.id === initial.id)) ??
     initial;
   const dismiss = () => useSuccesses.getState().dismiss(scope, initial.id);
-  const { restore, info } = notice;
-  const Icon = info ? Info : Check;
+  const { restore, unapply, show, info, warning } = notice;
+  const Icon = warning ? AlertTriangle : info ? Info : Check;
+  const action = restore
+    ? () => perform('stash_restore', { repo: scope, ...restore })
+    : unapply
+      ? () => perform('worktree_unapply', { repo: scope, ...unapply })
+      : show
+        ? () => showWorktree(show)
+        : null;
   return (
     <div className={card}>
-      <span className={info ? neutral : positive}>
+      <span className={warning ? cautious : info ? neutral : positive}>
         <Icon className="size-3.5" />
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -126,17 +136,26 @@ function SuccessCard({ scope, initial }: { scope: string; initial: Notice }) {
             <p className={description}>{notice.description}</p>
           )}
         </div>
-        {restore && (
+        {action && (
           <div className="flex">
             <Button
               className={bordered}
               onClick={() => {
                 dismiss();
-                void perform('stash_restore', { repo: scope, ...restore });
+                void action();
               }}
             >
-              <Undo2 className="size-3" />
-              Undo
+              {show ? (
+                <>
+                  <FolderGit2 className="size-3" />
+                  Show main
+                </>
+              ) : (
+                <>
+                  <Undo2 className="size-3" />
+                  Undo
+                </>
+              )}
             </Button>
           </div>
         )}
@@ -196,7 +215,9 @@ export function Toaster() {
             id: handle,
             duration:
               'notice' in entry
-                ? entry.notice.restore
+                ? entry.notice.restore ||
+                  entry.notice.unapply ||
+                  entry.notice.show
                   ? 8000
                   : 6000
                 : Infinity,

@@ -11,6 +11,8 @@ export const dialog = {
   path: null as string | null,
   approved: true,
   asked: 0,
+  message: '',
+  title: '',
 };
 export const calls: { command: string; args: unknown }[] = [];
 export function mockCommand<K extends keyof Commands>(
@@ -52,6 +54,8 @@ export function resetHarness() {
   dialog.path = null;
   dialog.approved = true;
   dialog.asked = 0;
+  dialog.message = '';
+  dialog.title = '';
 }
 export function lastError(scope: string) {
   return useErrors.getState().scopes[scope]?.slice(-1)[0]?.error;
@@ -86,8 +90,10 @@ vi.mock('@tauri-apps/api/event', () => ({
 }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({
   open: async () => dialog.path,
-  confirm: async () => {
+  confirm: async (message: string, options?: { title?: string }) => {
     dialog.asked += 1;
+    dialog.message = message;
+    dialog.title = options?.title ?? '';
     return dialog.approved;
   },
   message: async () => undefined,

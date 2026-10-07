@@ -4,6 +4,7 @@ use crate::{
     error::{Error, Result},
     git,
     repo::Repo,
+    status::Status,
 };
 use serde::Serialize;
 use std::collections::HashSet;
@@ -97,6 +98,20 @@ async fn changed_paths(repo: &Repo, hash: &str) -> Result<HashSet<String>> {
 fn directories(path: &str) -> impl Iterator<Item = &str> {
     path.match_indices('/').map(|(at, _)| &path[..at])
 }
+pub fn overlapping(status: &Status, target: &HashSet<String>) -> Vec<String> {
+    let containing: HashSet<&str> = target.iter().flat_map(|path| directories(path)).collect();
+    let shared = |path: &str| {
+        target.contains(path)
+            || containing.contains(path)
+            || directories(path).any(|directory| target.contains(directory))
+    };
+    status
+        .entries
+        .iter()
+        .filter(|e| shared(e.path()) || e.original_path().is_some_and(shared))
+        .map(|e| e.path().to_string())
+        .collect()
+}
 pub async fn untracked(repo: &Repo, hash: &str) -> Result<Vec<String>> {
     let third = git::run(
         &repo.root,
@@ -189,7 +204,7 @@ pub async fn precheck(repo: &Repo, hash: &str) -> Result<()> {
     }
     Ok(())
 }
-async fn restore(repo: &Repo, hash: &str) -> Result<()> {
+pub(crate) async fn restore(repo: &Repo, hash: &str) -> Result<()> {
     precheck(repo, hash).await?;
     git::run(&repo.root, &["stash", "apply", "--index", hash], None)
         .await?
@@ -208,19 +223,7 @@ pub async fn apply(repo: &Repo, hash: &str, pop: bool, smart: bool) -> Result<()
                 "Local changes need a smart apply",
             ));
         }
-        let target = changed_paths(repo, hash).await?;
-        let containing: HashSet<&str> = target.iter().flat_map(|path| directories(path)).collect();
-        let shared = |path: &str| {
-            target.contains(path)
-                || containing.contains(path)
-                || directories(path).any(|directory| target.contains(directory))
-        };
-        let overlap: Vec<_> = status
-            .entries
-            .iter()
-            .filter(|e| shared(e.path()) || e.original_path().is_some_and(shared))
-            .map(|e| e.path().to_string())
-            .collect();
+        let overlap = overlapping(&status, &changed_paths(repo, hash).await?);
         if !overlap.is_empty() {
             return Err(Error::refused(format!(
                 "Stashes share paths: {}",

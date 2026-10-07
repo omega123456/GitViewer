@@ -324,7 +324,7 @@ describe('worktrees', () => {
       within(list)
         .getAllByRole('button')
         .map((button) => button.textContent),
-    ).toEqual([expect.stringMatching(/^release/)]);
+    ).toEqual([expect.stringMatching(/^release/), '']);
   });
   it('lands a linked folder in its project tab', async () => {
     project();
@@ -381,5 +381,349 @@ describe('worktrees', () => {
     );
     expect(bare).toBeDisabled();
     expect(bare).toHaveTextContent('bare');
+  });
+});
+
+describe('worktree actions', () => {
+  function actions() {
+    project();
+    mockCommand('worktree_target', ({ mode, ref, path }) => ({
+      path:
+        path ||
+        `/wt/fixture-${mode === 'detached' ? '3f9c2a1' : ref.replace(/^origin\//, '').replaceAll('/', '-')}`,
+      free: path !== '/wt/taken',
+      label: mode === 'detached' ? '3f9c2a1' : ref,
+    }));
+    mockCommand('worktree_add', ({ path }) => path);
+    mockCommand('worktree_summary', ({ repo }) => ({
+      ahead: repo === '/wt/review' ? 0 : 2,
+      orphans: repo === '/wt/spike' ? 2 : 0,
+      submodules: false,
+    }));
+    mockCommand('worktree_remove', () => null);
+    mockCommand('worktree_unapply', () => null);
+    mockCommand('worktree_apply', () => ({
+      base: 'b'.repeat(40),
+      tree: 'c'.repeat(40),
+      files: 6,
+      conflicts: 0,
+    }));
+  }
+  const menuFor = async (name: string, view = main) => {
+    const user = userEvent.setup();
+    await run(view, 'branches');
+    await user.click(
+      within(screen.getByLabelText('Branches')).getByRole('button', {
+        name: `Actions for ${name}`,
+      }),
+    );
+    return user;
+  };
+  const changes = (repo: string) => statuses[repo].entries.length;
+  it('creates a detached worktree beside the project by default and switches to it', async () => {
+    actions();
+    await opened();
+    const user = userEvent.setup();
+    await action('branches');
+    const branchList = screen.getByLabelText('Branches');
+    expect(
+      within(branchList).queryByRole('button', { name: 'Actions for fixture' }),
+    ).toBeNull();
+    expect(
+      within(branchList).queryByRole('button', { name: 'Actions for legacy' }),
+    ).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'New worktree' }));
+    const form = await screen.findByRole('dialog', { name: 'New worktree' });
+    expect(
+      within(form).getByRole('radio', { name: 'detached' }),
+    ).toHaveAttribute('aria-checked', 'true');
+    const folder = within(form).getByLabelText('Folder');
+    await waitFor(() => expect(folder).toHaveValue('/wt/fixture-3f9c2a1'));
+    expect(within(form).getByText('3f9c2a1')).toBeVisible();
+    await user.clear(folder);
+    await user.type(folder, '/wt/taken');
+    expect(
+      await within(form).findByText(
+        'This folder already exists and is not empty.',
+      ),
+    ).toBeVisible();
+    expect(
+      within(form).getByRole('button', { name: 'Create & switch' }),
+    ).toBeDisabled();
+    await user.clear(folder);
+    await user.type(folder, '/wt/fresh');
+    const create = within(form).getByRole('button', {
+      name: 'Create & switch',
+    });
+    await waitFor(() => expect(create).toBeEnabled());
+    await user.click(create);
+    expect(calls).toContainEqual({
+      command: 'worktree_add',
+      args: {
+        repo: main,
+        path: '/wt/fresh',
+        mode: 'detached',
+        branch: '',
+        base: 'main',
+      },
+    });
+    await waitFor(() => expect(tab().view).toBe('/wt/fresh'));
+    expect(await screen.findByText('Created worktree fresh')).toBeVisible();
+    expect(screen.queryByRole('dialog', { name: 'New worktree' })).toBeNull();
+  });
+  it('creates worktrees on a new or an existing branch without switching', async () => {
+    actions();
+    mockCommand('branches', () => [
+      { ...branches[0], worktree: main },
+      { ...branches[1], worktree: '/wt/review' },
+      { name: 'idle', current: false, remote: false, upstream: '' },
+      branches[2],
+    ]);
+    await opened();
+    const user = userEvent.setup();
+    await run(main, 'new-worktree');
+    let form = await screen.findByRole('dialog', { name: 'New worktree' });
+    await user.click(within(form).getByRole('radio', { name: 'new branch' }));
+    await user.type(within(form).getByLabelText('Branch name'), 'main');
+    expect(
+      within(form).getByText('A branch named “main” already exists.'),
+    ).toBeVisible();
+    await user.clear(within(form).getByLabelText('Branch name'));
+    await user.type(within(form).getByLabelText('Branch name'), 'feature/x');
+    await waitFor(() =>
+      expect(within(form).getByLabelText('Folder')).toHaveValue(
+        '/wt/fixture-feature-x',
+      ),
+    );
+    await user.click(
+      within(form).getByRole('button', { name: 'Create worktree options' }),
+    );
+    await user.click(
+      await screen.findByRole('menuitemradio', { name: 'Create only' }),
+    );
+    await user.click(within(form).getByRole('button', { name: 'Create only' }));
+    expect(calls).toContainEqual({
+      command: 'worktree_add',
+      args: {
+        repo: main,
+        path: '/wt/fixture-feature-x',
+        mode: 'new',
+        branch: 'feature/x',
+        base: 'main',
+      },
+    });
+    expect(tab().view).toBe(main);
+    await run(main, 'new-worktree');
+    form = await screen.findByRole('dialog', { name: 'New worktree' });
+    expect(
+      within(form).getByRole('radio', { name: 'detached' }),
+    ).toHaveAttribute('aria-checked', 'true');
+    await user.click(
+      within(form).getByRole('radio', { name: 'existing branch' }),
+    );
+    expect(
+      within(form).getByRole('button', { name: 'Create only' }),
+    ).toBeDisabled();
+    await user.click(within(form).getByLabelText('Branch'));
+    expect(screen.queryByRole('option', { name: /^feature/ })).toBeNull();
+    expect(screen.getByRole('option', { name: 'idle' })).toBeVisible();
+    await user.click(screen.getByRole('option', { name: /^origin\/main/ }));
+    expect(within(form).getByText('main', { selector: 'span' })).toBeVisible();
+    await waitFor(() =>
+      expect(within(form).getByLabelText('Folder')).toHaveValue(
+        '/wt/fixture-main',
+      ),
+    );
+    dialog.path = '/picked';
+    await user.click(within(form).getByRole('button', { name: 'Choose…' }));
+    await waitFor(() =>
+      expect(within(form).getByLabelText('Folder')).toHaveValue('/picked'),
+    );
+    await user.click(within(form).getByRole('button', { name: 'Create only' }));
+    expect(calls).toContainEqual({
+      command: 'worktree_add',
+      args: {
+        repo: main,
+        path: '/picked',
+        mode: 'existing',
+        branch: 'origin/main',
+        base: 'main',
+      },
+    });
+  });
+  it('applies a worktree to main from its row and undoes it from the toast', async () => {
+    actions();
+    await opened();
+    const user = await menuFor('hotfix');
+    const apply = await screen.findByRole('menuitem', {
+      name: 'Apply to main checkout',
+    });
+    expect(apply).toHaveAttribute(
+      'title',
+      'Apply all changes to fixture on main',
+    );
+    await user.click(apply);
+    expect(calls).toContainEqual({
+      command: 'worktree_apply',
+      args: { repo: main, source: '/wt/hotfix', target: main, smart: false },
+    });
+    expect(await screen.findByText('Applied to main')).toBeVisible();
+    expect(screen.getByText('6 files changed in fixture.')).toBeVisible();
+    expect(tab().view).toBe(main);
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(calls).toContainEqual({
+      command: 'worktree_unapply',
+      args: {
+        repo: main,
+        target: main,
+        base: 'b'.repeat(40),
+        tree: 'c'.repeat(40),
+      },
+    });
+    expect(await screen.findByText('Undid apply')).toBeVisible();
+  });
+  it('disables apply when the worktree has nothing new and reports a no-op', async () => {
+    actions();
+    await opened();
+    await menuFor('review');
+    await waitFor(() =>
+      expect(
+        screen.getByRole('menuitem', { name: 'Apply to main checkout' }),
+      ).toHaveAttribute('data-disabled'),
+    );
+    expect(
+      screen.getByText('No changes since it split from main'),
+    ).toBeVisible();
+    mockCommand('worktree_apply', () => ({
+      base: 'b'.repeat(40),
+      tree: 'c'.repeat(40),
+      files: 0,
+      conflicts: 0,
+    }));
+    await run(main, 'apply:/wt/review');
+    expect(await screen.findByText('Nothing to apply')).toBeVisible();
+  });
+  it('asks before stashing overlapping main changes and shows conflicts in main', async () => {
+    actions();
+    mockCommand('worktree_apply', ({ smart }) => {
+      if (!smart)
+        throw {
+          category: 'overlap',
+          message: 'Main has changes to:\nsrc/app.ts\nsrc/lib.ts',
+        };
+      return {
+        base: 'b'.repeat(40),
+        tree: 'c'.repeat(40),
+        files: 2,
+        conflicts: 2,
+      };
+    });
+    await opened();
+    await act(() => switchWorktree(tab(), '/wt/hotfix'));
+    const user = userEvent.setup();
+    await run('/wt/hotfix', 'apply:/wt/spike');
+    const decision = await screen.findByRole('dialog', {
+      name: 'Apply spike to main?',
+    });
+    expect(within(decision).getByText('src/lib.ts')).toBeVisible();
+    await user.click(
+      within(decision).getByRole('button', { name: 'Stash and apply' }),
+    );
+    expect(calls).toContainEqual({
+      command: 'worktree_apply',
+      args: {
+        repo: '/wt/hotfix',
+        source: '/wt/spike',
+        target: main,
+        smart: true,
+      },
+    });
+    expect(
+      await screen.findByText('Applied to main with 2 conflicts'),
+    ).toBeVisible();
+    expect(tab().view).toBe('/wt/hotfix');
+    await user.click(screen.getByRole('button', { name: 'Show main' }));
+    await waitFor(() => expect(tab().view).toBe(main));
+    mockCommand('worktree_apply', () => {
+      throw { category: 'refused', message: 'Main is busy' };
+    });
+    await run(main, 'apply:/wt/spike');
+    await waitFor(() =>
+      expect(useErrors.getState().scopes[main]).toHaveLength(1),
+    );
+  });
+  it('confirms deletion with what is lost and leaves the worktree first', async () => {
+    actions();
+    await opened();
+    await act(() => switchWorktree(tab(), '/wt/spike'));
+    dialog.approved = false;
+    const user = await menuFor('spike', '/wt/spike');
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Delete worktree…' }),
+    );
+    await waitFor(() => expect(dialog.asked).toBe(1));
+    expect(dialog.title).toBe('Delete worktree spike?');
+    expect(dialog.message).toBe(
+      '2 commits are on no branch and will be lost. This deletes the folder /wt/spike, including ignored files.',
+    );
+    expect(calls.some((call) => call.command === 'worktree_remove')).toBe(
+      false,
+    );
+    dialog.approved = true;
+    await run('/wt/spike', 'delete-worktree');
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        command: 'worktree_remove',
+        args: { repo: main, worktree: '/wt/spike', force: 0 },
+      }),
+    );
+    expect(tab().view).toBe(main);
+    expect(tab().members).not.toContain('/wt/spike');
+    const order = calls.map((call) => call.command);
+    expect(order.lastIndexOf('repo_close')).toBeLessThan(
+      order.indexOf('worktree_remove'),
+    );
+    expect(await screen.findByText('Deleted worktree spike')).toBeVisible();
+  });
+  it('forces deletion of dirty and locked worktrees after saying so', async () => {
+    actions();
+    await opened();
+    let user = await menuFor('hotfix');
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Delete worktree…' }),
+    );
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        command: 'worktree_remove',
+        args: { repo: main, worktree: '/wt/hotfix', force: 1 },
+      }),
+    );
+    expect(dialog.message).toBe(
+      `Its ${changes('/wt/hotfix')} uncommitted changes will be lost. This deletes the folder /wt/hotfix, including ignored files. The branch fix is kept.`,
+    );
+    user = await menuFor('release');
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Delete worktree…' }),
+    );
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        command: 'worktree_remove',
+        args: { repo: main, worktree: '/wt/release', force: 2 },
+      }),
+    );
+    expect(dialog.title).toBe('release is locked');
+    expect(dialog.message).toBe(
+      'Reason: “on drive”\n\nDelete it anyway? This deletes the folder /wt/release, including ignored files. The branch release is kept.',
+    );
+    mockCommand('worktree_summary', () => {
+      throw { category: 'refused', message: 'Summary failed' };
+    });
+    user = await menuFor('review');
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Delete worktree…' }),
+    );
+    await waitFor(() =>
+      expect(useErrors.getState().scopes[main]?.length).toBeGreaterThan(0),
+    );
   });
 });

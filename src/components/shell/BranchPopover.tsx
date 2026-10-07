@@ -3,7 +3,9 @@ import { useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { DropdownMenu, Popover } from 'radix-ui';
 import {
+  ArrowRightFromLine,
   Eraser,
+  FolderPlus,
   FolderGit2,
   FolderSymlink,
   GitBranch,
@@ -22,14 +24,16 @@ import { confirm } from '@tauri-apps/plugin-dialog';
 import { useActions } from '../../lib/actions';
 import { attempt, useBackend, useStatuses, perform } from '../../lib/query';
 import { switchWorktree } from '../../lib/repository';
+import { applyWorktree, deleteWorktree } from '../../lib/worktree';
 import { normalizeError } from '../../lib/ipc';
 import { overwrittenPaths } from '../../lib/failure';
 import { runs, useCurrentActivity } from '../../stores/activity';
 import { ask } from '../../stores/decision';
 import { useErrors } from '../../stores/errors';
 import type { Branch, Status, Worktree } from '../../lib/types';
-import { anchorOf, useProject } from '../../stores/tabs';
+import { anchorOf, useProject, type Tab } from '../../stores/tabs';
 import { Button } from '../shared/Button';
+import { CreateButton, type CreateMode } from '../shared/CreateButton';
 import { Decision } from '../shared/Decision';
 import { ErrorRow, FieldError } from '../states/Errors';
 import { Modal } from '../shared/Modal';
@@ -39,6 +43,8 @@ import { VirtualList } from '../shared/VirtualList';
 import { dynamic, field, focus } from '../shared/styles';
 import { openCompare } from '../sidebar/CompareSection';
 import { mergeBranch } from '../../lib/merge';
+import { NewWorktree } from './NewWorktree';
+import { nameProblem } from '../../lib/branch-name';
 type Row =
   | { kind: 'heading'; heading: string }
   | { kind: 'worktree'; worktree: Worktree }
@@ -98,6 +104,83 @@ function Marker({ worktree, status }: { worktree: Worktree; status?: Status }) {
     );
   return null;
 }
+function WorktreeMenu({
+  worktree,
+  view,
+  project,
+  main,
+  changes,
+  onPick,
+}: {
+  worktree: Worktree;
+  view: string;
+  project: Tab;
+  main?: Worktree;
+  changes: number;
+  onPick: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const target = main?.id ?? '';
+  const summary = useBackend(
+    'worktree_summary',
+    { repo: worktree.id, target },
+    open && Boolean(main),
+  ).data;
+  const own = useCurrentActivity(worktree.id);
+  const mainActivity = useCurrentActivity(target);
+  const busy = Boolean(own || mainActivity);
+  const empty = Boolean(summary && !summary.ahead && !changes);
+  return (
+    <DropdownMenu.Root modal={false} open={open} onOpenChange={setOpen}>
+      <DropdownMenu.Trigger asChild>
+        <Button aria-label={`Actions for ${worktree.name}`}>
+          <MoreHorizontal className="size-3 text-muted dark:text-muted-dark" />
+        </Button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="end"
+          sideOffset={4}
+          className="z-40 flex w-52 flex-col rounded-md border border-line bg-surface p-1 text-ink shadow-lg dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark"
+        >
+          {main && (
+            <>
+              <DropdownMenu.Item
+                disabled={busy || empty}
+                title={`Apply all changes to ${main.name} on ${main.branch}`}
+                className={item}
+                onSelect={() => {
+                  onPick();
+                  void applyWorktree(view, worktree, target);
+                }}
+              >
+                <ArrowRightFromLine className="size-3" />
+                Apply to main checkout
+              </DropdownMenu.Item>
+              <DropdownMenu.Separator className="my-1 h-px bg-line dark:bg-line-dark" />
+            </>
+          )}
+          <DropdownMenu.Item
+            disabled={busy}
+            className={`${item} text-deleted dark:text-deleted-dark`}
+            onSelect={() => {
+              onPick();
+              void deleteWorktree(project, worktree, changes);
+            }}
+          >
+            <Trash2 className="size-3" />
+            Delete worktree…
+          </DropdownMenu.Item>
+          {empty && (
+            <p className="px-2 pb-1 pl-7 text-label text-muted dark:text-muted-dark">
+              No changes since it split from main
+            </p>
+          )}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+}
 const item = `flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs outline-none data-disabled:opacity-40 data-highlighted:bg-hover dark:data-highlighted:bg-hover-dark ${focus}`;
 const branchCommands = [
   'branch_switch',
@@ -106,17 +189,6 @@ const branchCommands = [
   'branch_delete',
   'branch_merge',
 ] as const;
-const createModes = { switch: 'Create & switch', stay: 'Create only' };
-type CreateMode = keyof typeof createModes;
-const invalidRef =
-  /[\s~^:?*[\\]|\.\.|@\{|\/\/|^[-./]|\/\.|[./]$|\.lock(\/|$)|^@$/;
-function nameProblem(name: string, branches: Branch[]) {
-  if (branches.some((branch) => branch.name === name))
-    return `A branch named “${name}” already exists.`;
-  if (invalidRef.test(name))
-    return 'Not a valid branch name. Avoid ~ ^ : ? * [ \\ @{ and .., a leading - . or /, and a trailing . / or .lock.';
-  return null;
-}
 export async function checkout(repo: string, name: string) {
   try {
     await attempt('branch_switch', { repo, name });
@@ -188,6 +260,12 @@ export function BranchPopover({
   const switching = branchCommands.some((command) => runs(activity, command));
   const [filter, setFilter] = useState('');
   const [creating, setCreating] = useState(false);
+  const [creatingWorktree, setCreatingWorktree] = useState(false);
+  const main = worktrees.find((worktree) => worktree.main && !worktree.bare);
+  const changesIn = (id: string) => statuses[id]?.entries.length ?? 0;
+  const present = worktrees.filter(
+    (worktree) => !worktree.main && !worktree.missing && !worktree.bare,
+  );
   const [name, setName] = useState('');
   const [base, setBase] = useState('');
   const [mode, setMode] = useState<CreateMode>('switch');
@@ -277,6 +355,14 @@ export function BranchPopover({
       disabled,
       run: () => setOpen(true),
     },
+    {
+      id: 'new-worktree',
+      icon: <FolderPlus className="size-3.5" />,
+      label: 'Create worktree…',
+      key: '',
+      disabled,
+      run: () => setCreatingWorktree(true),
+    },
   ]);
   useActions(
     `${repo}:worktrees`,
@@ -301,6 +387,27 @@ export function BranchPopover({
               key: '',
               run: () => go(worktree),
             })),
+          ...(main
+            ? present.map((worktree) => ({
+                id: `apply:${worktree.id}`,
+                icon: <ArrowRightFromLine className="size-3.5" />,
+                label: `Apply worktree ${worktree.name} to main`,
+                key: '',
+                run: () => void applyWorktree(repo, worktree, main.id),
+              }))
+            : []),
+          ...(project && current && present.includes(current)
+            ? [
+                {
+                  id: 'delete-worktree',
+                  icon: <Trash2 className="size-3.5" />,
+                  label: 'Delete worktree…',
+                  key: '',
+                  run: () =>
+                    void deleteWorktree(project, current, changesIn(repo)),
+                },
+              ]
+            : []),
         ]
       : [],
   );
@@ -423,6 +530,18 @@ export function BranchPopover({
                           <Marker worktree={worktree} status={status} />
                         </span>
                       </Button>
+                      {project && present.includes(worktree) ? (
+                        <WorktreeMenu
+                          worktree={worktree}
+                          view={repo}
+                          project={project}
+                          main={main}
+                          changes={changesIn(worktree.id)}
+                          onPick={() => setOpen(false)}
+                        />
+                      ) : (
+                        <span aria-hidden className="w-7 shrink-0" />
+                      )}
                     </div>
                   );
                 }
@@ -560,6 +679,17 @@ export function BranchPopover({
                 <Plus className="size-3" />
                 New branch
               </Button>
+              <Button
+                className="border border-line dark:border-line-dark"
+                disabled={disabled}
+                onClick={() => {
+                  setOpen(false);
+                  setCreatingWorktree(true);
+                }}
+              >
+                <FolderPlus className="size-3" />
+                New worktree
+              </Button>
               {worktrees.some((worktree) => worktree.prunable) && (
                 <Button
                   disabled={disabled}
@@ -646,60 +776,22 @@ export function BranchPopover({
             >
               Cancel
             </Button>
-            <div className="flex">
-              <Button
-                type="submit"
-                variant="primary"
-                disabled={blocked}
-                className="h-7 rounded-r-none px-3 font-medium"
-              >
-                {createModes[mode]}
-              </Button>
-              <DropdownMenu.Root>
-                <DropdownMenu.Trigger asChild>
-                  <Button
-                    variant="primary"
-                    disabled={blocked}
-                    aria-label="Create options"
-                    className="h-7 rounded-l-none border-l border-white/30 dark:border-surface-dark/30"
-                  >
-                    <ChevronDown className="size-3.5" />
-                  </Button>
-                </DropdownMenu.Trigger>
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content
-                    align="end"
-                    sideOffset={4}
-                    className="z-50 flex w-40 flex-col rounded-md border border-line bg-surface p-1 text-ink shadow-lg dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark"
-                  >
-                    <DropdownMenu.RadioGroup
-                      value={mode}
-                      onValueChange={(value) => setMode(value as CreateMode)}
-                    >
-                      {(Object.keys(createModes) as CreateMode[]).map(
-                        (option) => (
-                          <DropdownMenu.RadioItem
-                            key={option}
-                            value={option}
-                            className={item}
-                          >
-                            <span className="flex size-3 items-center justify-center">
-                              <DropdownMenu.ItemIndicator>
-                                <Check className="size-3" />
-                              </DropdownMenu.ItemIndicator>
-                            </span>
-                            {createModes[option]}
-                          </DropdownMenu.RadioItem>
-                        ),
-                      )}
-                    </DropdownMenu.RadioGroup>
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu.Root>
-            </div>
+            <CreateButton
+              mode={mode}
+              disabled={blocked}
+              optionsLabel="Create options"
+              onMode={setMode}
+            />
           </div>
         </form>
       </Modal>
+      <NewWorktree
+        repo={repo}
+        project={project}
+        open={creatingWorktree}
+        disabled={disabled}
+        onOpenChange={setCreatingWorktree}
+      />
     </>
   );
 }

@@ -577,5 +577,24 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.getByRole('dialog')).toHaveScreenshot(
       `branch-popover-${theme}.png`,
     );
+    await page.getByRole('button', { name: 'Actions for gv-hotfix' }).click();
+    await page
+      .getByRole('menuitem', { name: 'Apply to main checkout' })
+      .click();
+    const warning = page.locator('li', { hasText: 'Applied to main with' });
+    await expect(
+      warning.getByRole('button', { name: 'Show main' }),
+    ).toBeVisible();
+    await expect(warning).toHaveScreenshot(`warning-card-${theme}.png`);
+    await trigger.click();
+    await page.getByRole('button', { name: 'New worktree' }).click();
+    const form = page.getByRole('dialog', {
+      name: 'New worktree',
+      exact: true,
+    });
+    await expect(form.getByLabel('Folder', { exact: true })).toHaveValue(
+      '/Users/me/Projects/fixture-3f9c2a1',
+    );
+    await expect(form).toHaveScreenshot(`new-worktree-${theme}.png`);
   });
 }

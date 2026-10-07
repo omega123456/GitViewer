@@ -1,7 +1,7 @@
 import { Activity } from 'react';
 import { UpdateBanner } from '../states/UpdateBanner';
 import type { SettingsResponse } from '../../lib/types';
-import { folderName } from '../../lib/repository';
+import { folderName } from '../../lib/paths';
 import { useCompact } from '../../stores/density';
 import { useActiveView, useTabs } from '../../stores/tabs';
 import { useDark } from '../../stores/theme';
