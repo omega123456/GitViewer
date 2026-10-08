@@ -22,15 +22,27 @@ import {
 } from 'lucide-react';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { useActions } from '../../lib/actions';
-import { attempt, useBackend, useStatuses, perform } from '../../lib/query';
+import {
+  attempt,
+  client,
+  perform,
+  queryKey,
+  useBackend,
+  useStatuses,
+} from '../../lib/query';
 import { switchWorktree } from '../../lib/repository';
 import { applyWorktree, deleteWorktree } from '../../lib/worktree';
-import { normalizeError } from '../../lib/ipc';
+import { invoke, normalizeError } from '../../lib/ipc';
 import { overwrittenPaths } from '../../lib/failure';
 import { runs, useCurrentActivity } from '../../stores/activity';
 import { ask } from '../../stores/decision';
 import { useErrors } from '../../stores/errors';
-import type { Branch, Status, Worktree } from '../../lib/types';
+import type {
+  Branch,
+  SettingsResponse,
+  Status,
+  Worktree,
+} from '../../lib/types';
 import { anchorOf, useProject, type Tab } from '../../stores/tabs';
 import { Button } from '../shared/Button';
 import { CreateButton, type CreateMode } from '../shared/CreateButton';
@@ -211,11 +223,27 @@ export async function checkout(repo: string, name: string) {
         note: 'GitViewer stashes them, switches, and restores them. If they conflict, it returns to the original branch.',
         confirm: 'Stash and switch',
       }))
-    )
-      await perform('smart_checkout', { repo, name });
-    else
+    ) {
+      if ((await perform('smart_checkout', { repo, name })) === undefined)
+        return;
+    } else {
       useErrors.getState().report(repo, failure, { command: 'branch_switch' });
+      return;
+    }
   }
+  await pullOnCheckout(repo);
+}
+async function pullOnCheckout(repo: string) {
+  const settings = client.getQueryData<SettingsResponse>(
+    queryKey('settings_get', {}),
+  );
+  if (!settings?.pullOnCheckout) return;
+  const status = await client.fetchQuery({
+    queryKey: queryKey('status', { repo }),
+    queryFn: () => invoke('status', { repo }),
+    staleTime: 0,
+  });
+  if (status.upstream) await perform('sync', { repo, action: 'pull' });
 }
 export function BranchPopover({
   repo,

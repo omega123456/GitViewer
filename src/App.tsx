@@ -12,6 +12,7 @@ const defaults: SettingsResponse = {
   updateCheckInterval: '1d',
   installUpdateOnQuit: true,
   searchIgnoredFiles: false,
+  pullOnCheckout: false,
   smartCommit: 'ask',
   zoom: 100,
   maxFileTabs: 8,

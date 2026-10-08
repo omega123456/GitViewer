@@ -125,6 +125,7 @@ export interface Settings {
   updateCheckInterval: '1h' | '5h' | '1d' | '7d' | 'off';
   installUpdateOnQuit: boolean;
   searchIgnoredFiles: boolean;
+  pullOnCheckout: boolean;
   smartCommit: 'ask' | 'always' | 'never';
   zoom: number;
   maxFileTabs: number;

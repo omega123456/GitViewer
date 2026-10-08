@@ -23,6 +23,7 @@ export const settings: SettingsResponse = {
   smartCommit: 'ask',
   zoom: 100,
   maxFileTabs: 8,
+  pullOnCheckout: false,
   ai,
   keyStored: false,
 };

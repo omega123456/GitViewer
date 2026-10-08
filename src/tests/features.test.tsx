@@ -437,6 +437,42 @@ describe('repository workflows', () => {
     mockCommand('branch_switch', () => null);
     await act(() => checkout(repository.id, 'feature'));
     expect(lastError(repository.id)).toBeUndefined();
+    expect(calls.some((call) => call.command === 'sync')).toBe(false);
+  });
+  it('pulls after checkout only when enabled and the branch tracks an upstream', async () => {
+    setup();
+    let current = status;
+    mockCommand('status', () => current);
+    mockCommand('settings_get', () => ({ ...settings, pullOnCheckout: true }));
+    mockCommand('branch_switch', () => null);
+    mockCommand('sync', () => 2);
+    const user = userEvent.setup();
+    mount();
+    await screen.findByLabelText('Commit message');
+    const pulls = () => calls.filter((call) => call.command === 'sync');
+    await act(() => checkout(repository.id, 'feature'));
+    expect(calls).toContainEqual({
+      command: 'sync',
+      args: { repo: repository.id, action: 'pull' },
+    });
+    expect(pulls()).toHaveLength(1);
+    current = { ...status, upstream: null };
+    await act(() => checkout(repository.id, 'feature'));
+    expect(pulls()).toHaveLength(1);
+    current = status;
+    mockCommand('branch_switch', () => {
+      throw { category: 'refused', message: 'would be overwritten' };
+    });
+    mockCommand('smart_checkout', () => {
+      throw { category: 'refused', message: 'stash conflict' };
+    });
+    const switched = checkout(repository.id, 'feature');
+    await user.click(
+      await screen.findByRole('button', { name: 'Stash and switch' }),
+    );
+    await act(() => switched);
+    expect(lastError(repository.id)?.message).toBe('stash conflict');
+    expect(pulls()).toHaveLength(1);
   });
   it('runs registered repository navigation, synchronization, and file actions', async () => {
     setup();
@@ -710,6 +746,7 @@ describe('repository workflows', () => {
     await user.click(screen.getByRole('radio', { name: 'compact' }));
     await user.click(screen.getByRole('radio', { name: 'unified' }));
     await user.click(screen.getByLabelText('Search ignored files'));
+    await user.click(screen.getByLabelText('Pull on checkout'));
     await user.click(screen.getByLabelText('Zoom'));
     await user.click(await screen.findByRole('option', { name: '125%' }));
     await user.click(screen.getByLabelText('File tabs'));
@@ -721,6 +758,7 @@ describe('repository workflows', () => {
         density: 'compact',
         diffMode: 'unified',
         searchIgnoredFiles: true,
+        pullOnCheckout: true,
         zoom: 125,
         maxFileTabs: 5,
       }),

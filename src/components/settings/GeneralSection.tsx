@@ -115,6 +115,22 @@ export function GeneralSection({ settings }: { settings: Settings }) {
         />
       </SettingRow>
       <SettingRow
+        title="Pull on checkout"
+        description="Pull from the upstream after switching to a tracking branch"
+      >
+        <input
+          type="checkbox"
+          aria-label="Pull on checkout"
+          checked={settings.pullOnCheckout}
+          onChange={(event) =>
+            void perform('settings_set', {
+              ...settings,
+              pullOnCheckout: event.target.checked,
+            })
+          }
+        />
+      </SettingRow>
+      <SettingRow
         title="Search ignored files"
         description="Default for the file search in the command palette"
       >
