@@ -19,6 +19,7 @@ import { useSuccesses, type Notice } from '../../stores/successes';
 import { useActiveView } from '../../stores/tabs';
 import { Button } from '../shared/Button';
 import { Details } from '../shared/Details';
+import { Spinner } from '../shared/Spinner';
 const icons = { network: WifiOff, authentication: Lock, alert: AlertTriangle };
 const card =
   'flex w-toast gap-2.5 rounded-md font-sans border border-line bg-surface p-3 text-ink shadow-lg dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark';
@@ -115,7 +116,7 @@ function SuccessCard({ scope, initial }: { scope: string; initial: Notice }) {
     useSuccesses((s) => s.scopes[scope]?.find((n) => n.id === initial.id)) ??
     initial;
   const dismiss = () => useSuccesses.getState().dismiss(scope, initial.id);
-  const { restore, unapply, show, info, warning } = notice;
+  const { restore, unapply, show, info, warning, pending } = notice;
   const Icon = warning ? AlertTriangle : info ? Info : Check;
   const action = restore
     ? () => perform('stash_restore', { repo: scope, ...restore })
@@ -127,7 +128,11 @@ function SuccessCard({ scope, initial }: { scope: string; initial: Notice }) {
   return (
     <div className={card}>
       <span className={warning ? cautious : info ? neutral : positive}>
-        <Icon className="size-3.5" />
+        {pending ? (
+          <Spinner className="size-3.5" />
+        ) : (
+          <Icon className="size-3.5" />
+        )}
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <div className="flex flex-col gap-0.5 pr-1">
@@ -215,11 +220,13 @@ export function Toaster() {
             id: handle,
             duration:
               'notice' in entry
-                ? entry.notice.restore ||
-                  entry.notice.unapply ||
-                  entry.notice.show
-                  ? 8000
-                  : 6000
+                ? entry.notice.pending
+                  ? Infinity
+                  : entry.notice.restore ||
+                      entry.notice.unapply ||
+                      entry.notice.show
+                    ? 8000
+                    : 6000
                 : Infinity,
             onAutoClose: release,
             onDismiss: release,

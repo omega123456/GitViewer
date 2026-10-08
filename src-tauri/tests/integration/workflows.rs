@@ -1048,6 +1048,73 @@ async fn invalid_repositories_upstreams_and_watch_roots_fail_honestly() {
 }
 
 #[tokio::test]
+async fn prune_deletes_merged_branches_whose_remote_branch_is_gone() {
+    let (dir, handle) = fixture().await;
+    base(&dir, &handle).await;
+    let remote = tempfile::tempdir().unwrap();
+    command(remote.path(), &["init", "--bare", "--initial-branch=main"]).await;
+    command(
+        dir.path(),
+        &["remote", "add", "origin", remote.path().to_str().unwrap()],
+    )
+    .await;
+    for name in ["merged", "live", "held"] {
+        command(dir.path(), &["branch", name]).await;
+    }
+    command(dir.path(), &["switch", "-c", "unmerged"]).await;
+    record(&dir, &handle, "unmerged.txt", "work\n", "Unmerged work").await;
+    command(dir.path(), &["switch", "main"]).await;
+    command(dir.path(), &["branch", "local-only"]).await;
+    command(
+        dir.path(),
+        &[
+            "push", "-u", "origin", "main", "merged", "unmerged", "live", "held",
+        ],
+    )
+    .await;
+    let worktree = tempfile::tempdir().unwrap();
+    let held = worktree.path().join("held");
+    command(
+        dir.path(),
+        &["worktree", "add", held.to_str().unwrap(), "held"],
+    )
+    .await;
+    command(
+        remote.path(),
+        &["branch", "-D", "merged", "unmerged", "held"],
+    )
+    .await;
+    let repo = handle.clone();
+    assert!(branch::list(&repo).await.unwrap().iter().all(|b| !b.gone));
+    assert_eq!(branch::gone(&repo).await.unwrap(), ["merged", "unmerged"]);
+    let gone: Vec<String> = branch::list(&repo)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|b| b.gone)
+        .map(|b| b.name)
+        .collect();
+    assert_eq!(gone, ["held", "merged", "unmerged"]);
+    let pruned = branch::prune(
+        &repo,
+        ["merged", "unmerged", "live", "missing"]
+            .map(String::from)
+            .to_vec(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(pruned.deleted, ["merged"]);
+    assert_eq!(pruned.kept, ["unmerged"]);
+    let names: Vec<String> = branch::list(&repo)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|b| !b.remote)
+        .map(|b| b.name)
+        .collect();
+    assert_eq!(names, ["held", "live", "local-only", "main", "unmerged"]);
+}
+#[tokio::test]
 async fn remote_checkout_creates_tracking_branches_and_never_detaches() {
     let (dir, handle) = fixture().await;
     base(&dir, &handle).await;

@@ -47,6 +47,10 @@ export function describeActivity(activity: Activity, status: Status) {
       return `Creating ${String(args.name)}…`;
     case 'branch_delete':
       return `Deleting ${String(args.name)}…`;
+    case 'branch_gone':
+      return 'Checking remote…';
+    case 'branch_prune':
+      return 'Pruning branches…';
     case 'branch_merge':
       return `Merging ${String(args.name)}…`;
     case 'merge_abort':

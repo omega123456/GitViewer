@@ -43,6 +43,7 @@ import { VirtualList } from '../shared/VirtualList';
 import { dynamic, field, focus } from '../shared/styles';
 import { openCompare } from '../sidebar/CompareSection';
 import { mergeBranch } from '../../lib/merge';
+import { pruneBranches } from '../../lib/prune';
 import { NewWorktree } from './NewWorktree';
 import { nameProblem } from '../../lib/branch-name';
 type Row =
@@ -187,6 +188,8 @@ const branchCommands = [
   'smart_checkout',
   'branch_create',
   'branch_delete',
+  'branch_gone',
+  'branch_prune',
   'branch_merge',
 ] as const;
 export async function checkout(repo: string, name: string) {
@@ -258,6 +261,7 @@ export function BranchPopover({
   };
   const activity = useCurrentActivity(repo);
   const switching = branchCommands.some((command) => runs(activity, command));
+  const checking = runs(activity, 'branch_gone');
   const [filter, setFilter] = useState('');
   const [creating, setCreating] = useState(false);
   const [creatingWorktree, setCreatingWorktree] = useState(false);
@@ -274,6 +278,7 @@ export function BranchPopover({
   const head = all.find((branch) => branch.current)?.name;
   const local = all.filter((branch) => !branch.remote).map((b) => b.name);
   const remote = all.filter((branch) => branch.remote).map((b) => b.name);
+  const tracked = all.some((branch) => !branch.remote && branch.upstream);
   const chosenBase = base || head || 'HEAD';
   const problem = name ? nameProblem(name, all) : null;
   const blocked = disabled || !name || Boolean(problem);
@@ -354,6 +359,14 @@ export function BranchPopover({
       key: 'Mod+Alt+x',
       disabled,
       run: () => setOpen(true),
+    },
+    {
+      id: 'prune-branches',
+      icon: <Eraser className="size-3.5" />,
+      label: 'Prune local branches',
+      key: '',
+      disabled,
+      run: () => void pruneBranches(repo, status.branch),
     },
     {
       id: 'new-worktree',
@@ -487,9 +500,29 @@ export function BranchPopover({
               render={(row) => {
                 if (row.kind === 'heading')
                   return (
-                    <h3 className="flex h-group items-center px-2 text-label font-semibold tracking-wider text-faint uppercase dark:text-faint-dark">
-                      {row.heading}
-                    </h3>
+                    <div className="flex h-group items-center gap-2 px-2">
+                      <h3 className="flex-1 text-label font-semibold tracking-wider text-faint uppercase dark:text-faint-dark">
+                        {row.heading}
+                      </h3>
+                      {row.heading === 'Local branches' && tracked && (
+                        <Button
+                          title="Check the remote and delete local branches whose remote branch was deleted"
+                          aria-busy={checking}
+                          disabled={disabled || switching}
+                          className="h-5 text-label text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark"
+                          onClick={() =>
+                            void pruneBranches(repo, status.branch)
+                          }
+                        >
+                          {checking ? (
+                            <Spinner className="size-3" />
+                          ) : (
+                            <Eraser className="size-3" />
+                          )}
+                          {checking ? 'Checking remote…' : 'Prune'}
+                        </Button>
+                      )}
+                    </div>
                   );
                 if (row.kind === 'worktree') {
                   const { worktree } = row;
@@ -574,6 +607,10 @@ export function BranchPopover({
                           </>
                         ) : branch.remote ? (
                           'remote'
+                        ) : branch.gone ? (
+                          <span className="text-merge-ink dark:text-merge-ink-dark">
+                            remote deleted
+                          </span>
                         ) : (
                           'local'
                         )}

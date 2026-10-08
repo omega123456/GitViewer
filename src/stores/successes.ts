@@ -8,6 +8,7 @@ interface Successes {
   scopes: Record<string, Notice[]>;
   announce: (scope: string, success: Success) => void;
   dismiss: (scope: string, id: number) => void;
+  withdraw: (scope: string, key: string) => void;
 }
 const limit = 3;
 export const useSuccesses = create<Successes>((set) => {
@@ -29,5 +30,7 @@ export const useSuccesses = create<Successes>((set) => {
       ),
     dismiss: (scope, id) =>
       edit(scope, (list) => list.filter((notice) => notice.id !== id)),
+    withdraw: (scope, key) =>
+      edit(scope, (list) => list.filter((notice) => notice.key !== key)),
   };
 });

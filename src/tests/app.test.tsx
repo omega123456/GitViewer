@@ -163,7 +163,7 @@ describe('application shell', () => {
   it('closes the branch popover when another tab is clicked', async () => {
     setup();
     mockCommand('branches', () => [
-      { name: 'main', current: true, remote: false, upstream: '' },
+      { name: 'main', current: true, remote: false, upstream: '', gone: false },
     ]);
     useTabs.getState().open('/second', 'Second');
     useTabs.getState().open(repository.id, repository.name);

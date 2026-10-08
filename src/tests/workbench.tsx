@@ -25,9 +25,21 @@ export const commit = {
   segments: [{ from: 0, to: 0, color: 0 }],
 };
 export const branches = [
-  { name: 'main', current: true, remote: false, upstream: 'origin/main' },
-  { name: 'feature', current: false, remote: false, upstream: '' },
-  { name: 'origin/main', current: false, remote: true, upstream: '' },
+  {
+    name: 'main',
+    current: true,
+    remote: false,
+    upstream: 'origin/main',
+    gone: false,
+  },
+  { name: 'feature', current: false, remote: false, upstream: '', gone: false },
+  {
+    name: 'origin/main',
+    current: false,
+    remote: true,
+    upstream: '',
+    gone: false,
+  },
 ];
 export function setup() {
   mockCommand('env', () => ({

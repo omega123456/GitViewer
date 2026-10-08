@@ -147,6 +147,17 @@ async fn typed_commands_events_and_protocol_are_wired() {
     call("branch_delete", json!({"repo":id,"name":"feature"}))
         .await
         .unwrap();
+    assert_eq!(
+        call("branch_gone", json!({"repo":id})).await.unwrap(),
+        json!([])
+    );
+    assert_eq!(
+        call("branch_prune", json!({"repo":id,"names":[]}))
+            .await
+            .unwrap(),
+        json!({"deleted":[],"kept":[]})
+    );
+    assert!(call("branch_prune", json!({"repo":id})).await.is_err());
     std::fs::write(dir.path().join("file.txt"), "changed\n").unwrap();
     call("refresh", json!({"repo":id})).await.unwrap();
     let d = call(

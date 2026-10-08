@@ -384,13 +384,22 @@ export const test = base.extend({
                         name: 'main',
                         remote: false,
                         current: true,
-                        upstream: '',
+                        upstream: 'origin/main',
+                        gone: false,
+                      },
+                      {
+                        name: 'old-login',
+                        remote: false,
+                        current: false,
+                        upstream: 'origin/old-login',
+                        gone: true,
                       },
                       {
                         name: 'feature',
                         remote: false,
                         current: false,
                         upstream: '',
+                        gone: false,
                         ...(linked ? { worktree: '/worktrees/gv-review' } : {}),
                       },
                     ];

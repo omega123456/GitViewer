@@ -836,6 +836,8 @@ describe('git activity', () => {
     expect(label('smart_checkout', { name: 'dev' })).toBe('Switching to dev…');
     expect(label('branch_create', { name: 'dev' })).toBe('Creating dev…');
     expect(label('branch_delete', { name: 'dev' })).toBe('Deleting dev…');
+    expect(label('branch_gone', {})).toBe('Checking remote…');
+    expect(label('branch_prune', {})).toBe('Pruning branches…');
     expect(label('branch_merge', { name: 'dev' })).toBe('Merging dev…');
     expect(label('merge_abort', {})).toBe('Aborting merge…');
     expect(label('files_action', { action: 'unstage' })).toBe('Unstaging…');
@@ -960,6 +962,40 @@ describe('success notices', () => {
     expect(say('smart_checkout', { name: 'dev' })?.key).toBe('branch_switch');
     expect(say('branch_create', { name: 'dev' })?.title).toBe('Created dev');
     expect(say('branch_delete', { name: 'dev' })?.title).toBe('Deleted dev');
+    expect(say('branch_gone', {}, ['old', 'new'])).toEqual({
+      key: 'branch_prune',
+      title: 'Found 2 local branches to prune',
+      description: 'old, new',
+      info: true,
+    });
+    expect(say('branch_gone', {}, [])).toEqual({
+      key: 'branch_prune',
+      title: 'No branches to prune',
+      description: 'Every local branch still has its remote branch.',
+      info: true,
+    });
+    expect(say('branch_prune', {}, { deleted: ['a'], kept: [] })).toEqual({
+      key: 'branch_prune',
+      title: 'Pruned 1 local branch',
+      description: 'a',
+    });
+    const many = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+    expect(
+      say('branch_prune', {}, { deleted: many, kept: [] })?.description,
+    ).toBe('a, b, c, d, e and 2 more');
+    expect(
+      say('branch_prune', {}, { deleted: many, kept: ['x', 'y'] }),
+    ).toEqual({
+      key: 'branch_prune',
+      title: 'Pruned 7 of 9 local branches',
+      description: 'Kept x, y: they have commits that are not in main.',
+    });
+    expect(say('branch_prune', {}, { deleted: [], kept: ['x'] }, {})).toEqual({
+      key: 'branch_prune',
+      title: 'No branches pruned',
+      description: 'Kept x: it has commits that are not in the current branch.',
+      info: true,
+    });
     expect(say('branch_merge', { name: 'dev' }, true)).toMatchObject({
       title: 'Merged dev',
       description: 'into main',

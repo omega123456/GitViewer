@@ -202,7 +202,12 @@ export interface Branch {
   remote: boolean;
   current: boolean;
   upstream: string;
+  gone: boolean;
   worktree?: string;
+}
+export interface Pruned {
+  deleted: string[];
+  kept: string[];
 }
 export interface Worktree {
   id: string;
@@ -364,6 +369,8 @@ export interface Commands {
     null
   >;
   branch_delete: Command<RepoArgs & { name: string }, null>;
+  branch_gone: Command<RepoArgs, string[]>;
+  branch_prune: Command<RepoArgs & { names: string[] }, Pruned>;
   merge_preview: Command<RepoArgs & { name: string }, MergePreview>;
   branch_merge: Command<RepoArgs & { name: string }, boolean>;
   merge_abort: Command<RepoArgs, null>;

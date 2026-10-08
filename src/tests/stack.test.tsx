@@ -384,7 +384,13 @@ describe('all changes pane', () => {
     mockCommand('default_branch', () => 'main');
     mockCommand('branches', () => [
       ...branches,
-      { name: 'island', current: false, remote: false, upstream: '' },
+      {
+        name: 'island',
+        current: false,
+        remote: false,
+        upstream: '',
+        gone: false,
+      },
     ]);
     mockCommand('compare_files', ({ base, mergeBase }) =>
       (base === 'island' && mergeBase) || base === 'isl'

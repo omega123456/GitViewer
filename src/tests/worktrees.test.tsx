@@ -476,7 +476,13 @@ describe('worktree actions', () => {
     mockCommand('branches', () => [
       { ...branches[0], worktree: main },
       { ...branches[1], worktree: '/wt/review' },
-      { name: 'idle', current: false, remote: false, upstream: '' },
+      {
+        name: 'idle',
+        current: false,
+        remote: false,
+        upstream: '',
+        gone: false,
+      },
       branches[2],
     ]);
     await opened();

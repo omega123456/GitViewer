@@ -9,6 +9,7 @@ import userEvent from '@testing-library/user-event';
 import { format, fromUnixTime } from 'date-fns';
 import { describe, it, expect, vi } from 'vitest';
 import { useTabs } from '../stores/tabs';
+import { useSuccesses } from '../stores/successes';
 import { useLayout } from '../stores/layout';
 import { useSelection } from '../stores/selection';
 import { useDiffView } from '../stores/diff-view';
@@ -25,7 +26,19 @@ import {
   pendingActivity,
 } from './harness';
 import { settings, status, repository } from './fixtures';
-import { commit, setup, mount, count, action, run } from './workbench';
+import {
+  branches,
+  commit,
+  setup,
+  mount,
+  count,
+  action,
+  run,
+} from './workbench';
+const notices = () =>
+  (useSuccesses.getState().scopes[repository.id] ?? []).map(
+    (notice) => notice.title,
+  );
 describe('repository workflows', () => {
   it('stages and reverts from visible sidebar controls, respecting cancellation', async () => {
     setup();
@@ -301,6 +314,85 @@ describe('repository workflows', () => {
     expect(
       calls.filter((call) => call.command === 'branch_merge'),
     ).toHaveLength(1);
+  });
+  it('announces every prune stage in a toast, and respects cancellation and failure', async () => {
+    setup();
+    mockCommand('branches', () => [
+      ...branches,
+      {
+        name: 'old',
+        current: false,
+        remote: false,
+        upstream: 'origin/old',
+        gone: true,
+      },
+    ]);
+    let found = () => {};
+    mockCommand(
+      'branch_gone',
+      () =>
+        new Promise<string[]>((resolve) => {
+          found = () => resolve(['old']);
+        }),
+    );
+    let pruned = () => {};
+    mockCommand(
+      'branch_prune',
+      () =>
+        new Promise((resolve) => {
+          pruned = () => resolve({ deleted: ['old'], kept: [] });
+        }),
+    );
+    const user = userEvent.setup();
+    mount();
+    await screen.findByLabelText('Commit message');
+    await action('branches');
+    expect(await screen.findByText('remote deleted')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Prune' }));
+    expect(await screen.findByText('Checking remote')).toBeVisible();
+    act(() => found());
+    expect(await screen.findByText('Pruning 1 local branch')).toBeVisible();
+    expect(notices()).not.toContain('Checking remote');
+    expect(dialog.title).toBe('Prune local branches');
+    expect(dialog.message).toBe(
+      'Delete 1 local branch whose remote branch was deleted?\n\nold\n\nGit keeps any branch with commits that are not in main.',
+    );
+    act(() => pruned());
+    expect(await screen.findByText('Pruned 1 local branch')).toBeVisible();
+    expect(notices()).not.toContain('Pruning 1 local branch');
+    expect(calls).toContainEqual({
+      command: 'branch_prune',
+      args: { repo: repository.id, names: ['old'] },
+    });
+    mockCommand('branch_gone', () => ['old']);
+    dialog.approved = false;
+    await user.click(screen.getByRole('button', { name: 'Prune' }));
+    expect(await screen.findByText('Prune cancelled')).toBeVisible();
+    expect(screen.getByText('Kept 1 local branch.')).toBeVisible();
+    expect(
+      calls.filter((call) => call.command === 'branch_prune'),
+    ).toHaveLength(1);
+    mockCommand('branch_gone', () => []);
+    await action('prune-branches');
+    expect(await screen.findByText('No branches to prune')).toBeVisible();
+    expect(dialog.asked).toBe(2);
+    mockCommand('branch_gone', () => {
+      throw { category: 'network', message: 'Could not resolve host' };
+    });
+    await action('prune-branches');
+    await waitFor(() =>
+      expect(lastError(repository.id)?.message).toBe('Could not resolve host'),
+    );
+    expect(notices()).not.toContain('Checking remote');
+    mockCommand('branches', () =>
+      branches.map((branch) => ({ ...branch, upstream: '' })),
+    );
+    act(() => emit('repo://head-changed', { repo: repository.id }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: 'Prune' }),
+      ).not.toBeInTheDocument(),
+    );
   });
   it('asks in place before smart checkout and preserves the error on cancellation', async () => {
     setup();

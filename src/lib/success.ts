@@ -1,5 +1,5 @@
 import { folderName } from './paths';
-import type { Applied, Stash, Status } from './types';
+import type { Applied, Pruned, Stash, Status } from './types';
 export interface Before {
   status?: Status;
   stashes?: Stash[];
@@ -10,6 +10,7 @@ export interface Success {
   description?: string;
   info?: true;
   warning?: true;
+  pending?: true;
   replaces?: string;
   restore?: { hash: string; message: string };
   unapply?: { target: string; base: string; tree: string };
@@ -58,6 +59,38 @@ function synced(
         description: `${upstream} already has every commit`,
         info: true,
       };
+}
+export function listNames(names: string[]) {
+  const shown = names.slice(0, 5).join(', ');
+  return names.length > 5 ? `${shown} and ${names.length - 5} more` : shown;
+}
+export function localBranches(count: number) {
+  return `${count} local branch${count === 1 ? '' : 'es'}`;
+}
+function pruned(
+  { deleted, kept }: Pruned,
+  status: Status | undefined,
+): Success {
+  const key = 'branch_prune';
+  const reason = `Kept ${listNames(kept)}: ${kept.length === 1 ? 'it has' : 'they have'} commits that are not in ${status?.branch ?? 'the current branch'}.`;
+  if (!deleted.length)
+    return {
+      key,
+      title: 'No branches pruned',
+      description: reason,
+      info: true,
+    };
+  if (kept.length)
+    return {
+      key,
+      title: `Pruned ${deleted.length} of ${localBranches(deleted.length + kept.length)}`,
+      description: reason,
+    };
+  return {
+    key,
+    title: `Pruned ${localBranches(deleted.length)}`,
+    description: listNames(deleted),
+  };
 }
 function applied(target: string, result: Applied): Success {
   const key = 'worktree_apply';
@@ -147,6 +180,22 @@ export function describeSuccess(
       return { key: command, title: `Created ${name}` };
     case 'branch_delete':
       return { key: command, title: `Deleted ${name}` };
+    case 'branch_gone':
+      return (result as string[]).length
+        ? {
+            key: 'branch_prune',
+            title: `Found ${localBranches((result as string[]).length)} to prune`,
+            description: listNames(result as string[]),
+            info: true,
+          }
+        : {
+            key: 'branch_prune',
+            title: 'No branches to prune',
+            description: 'Every local branch still has its remote branch.',
+            info: true,
+          };
+    case 'branch_prune':
+      return pruned(result as Pruned, status);
     case 'branch_merge':
       return result
         ? {

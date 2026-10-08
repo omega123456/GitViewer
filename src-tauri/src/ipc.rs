@@ -240,6 +240,8 @@ pub async fn dispatch<R: tauri::Runtime>(
             | "branch_switch"
             | "branch_create"
             | "branch_delete"
+            | "branch_gone"
+            | "branch_prune"
             | "branch_merge"
             | "merge_abort"
             | "smart_checkout"
@@ -426,6 +428,10 @@ pub async fn dispatch<R: tauri::Runtime>(
                 branch::delete(&repo, string(&args, "name")?).await?;
                 done()?
             }
+            "branch_gone" => raw(&branch::gone(&repo).await?)?,
+            "branch_prune" => {
+                raw(&branch::prune(&repo, serde_json::from_value(args["names"].clone())?).await?)?
+            }
             "merge_preview" => {
                 return raw(&branch::merge_preview(&repo, string(&args, "name")?).await?)
             }
@@ -522,6 +528,8 @@ pub async fn dispatch<R: tauri::Runtime>(
             command.as_str(),
             "branch_create"
                 | "branch_delete"
+                | "branch_gone"
+                | "branch_prune"
                 | "sync"
                 | "stash_save"
                 | "stash_apply"

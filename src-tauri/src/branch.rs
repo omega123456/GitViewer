@@ -12,8 +12,15 @@ pub struct Branch {
     pub remote: bool,
     pub current: bool,
     pub upstream: String,
+    pub gone: bool,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub worktree: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Pruned {
+    pub deleted: Vec<String>,
+    pub kept: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -27,7 +34,7 @@ pub async fn list(repo: &Repo) -> Result<Vec<Branch>> {
         &repo.root,
         &[
             "for-each-ref",
-            "--format=%(refname)%00%(HEAD)%00%(upstream:short)%00%(worktreepath)",
+            "--format=%(refname)%00%(HEAD)%00%(upstream:short)%00%(worktreepath)%00%(upstream:track)",
             "refs/heads",
             "refs/remotes",
         ],
@@ -37,7 +44,7 @@ pub async fn list(repo: &Repo) -> Result<Vec<Branch>> {
         .lines()
         .filter_map(|line| {
             let fields: Vec<&str> = line.split('\0').collect();
-            if fields.len() != 4 || fields[0].ends_with("/HEAD") {
+            if fields.len() != 5 || fields[0].ends_with("/HEAD") {
                 return None;
             }
             Some(Branch {
@@ -48,6 +55,7 @@ pub async fn list(repo: &Repo) -> Result<Vec<Branch>> {
                 remote: fields[0].starts_with("refs/remotes/"),
                 current: fields[1] == "*",
                 upstream: fields[2].into(),
+                gone: fields[4] == "[gone]",
                 worktree: Some(fields[3])
                     .filter(|path| !path.is_empty())
                     .map(|path| {
@@ -137,6 +145,60 @@ pub async fn delete(repo: &Repo, name: &str) -> Result<()> {
     }
     Ok(())
 }
+async fn local_remotes_only(repo: &Repo) -> Result<()> {
+    #[cfg(feature = "test-utils")]
+    {
+        let remotes = git::text(&repo.root, &["remote", "-v"]).await?;
+        if remotes.lines().any(|line| {
+            line.split_whitespace()
+                .nth(1)
+                .is_some_and(|url| url.contains("://") || url.contains('@'))
+        }) {
+            return Err(Error::refused(
+                "Tests may only synchronize local fixture remotes",
+            ));
+        }
+    }
+    #[cfg(not(feature = "test-utils"))]
+    let _ = repo;
+    Ok(())
+}
+async fn candidates(repo: &Repo) -> Result<Vec<String>> {
+    let default = default_branch(repo).await.ok();
+    Ok(list(repo)
+        .await?
+        .into_iter()
+        .filter(|b| {
+            !b.remote
+                && b.gone
+                && !b.current
+                && b.worktree.is_empty()
+                && default.as_deref() != Some(b.name.as_str())
+        })
+        .map(|b| b.name)
+        .collect())
+}
+pub async fn gone(repo: &Repo) -> Result<Vec<String>> {
+    repo.writable().await?;
+    local_remotes_only(repo).await?;
+    git::run(&repo.root, &["fetch", "--all", "--prune"], None)
+        .await?
+        .accept(&[0])?;
+    candidates(repo).await
+}
+pub async fn prune(repo: &Repo, names: Vec<String>) -> Result<Pruned> {
+    repo.writable().await?;
+    let allowed = candidates(repo).await?;
+    let targets: Vec<String> = names.into_iter().filter(|n| allowed.contains(n)).collect();
+    for chunk in targets.chunks(100) {
+        let mut args = vec!["branch", "-d", "--"];
+        args.extend(chunk.iter().map(String::as_str));
+        git::run(&repo.root, &args, None).await?.accept(&[0, 1])?;
+    }
+    let remaining: Vec<String> = list(repo).await?.into_iter().map(|b| b.name).collect();
+    let (kept, deleted) = targets.into_iter().partition(|n| remaining.contains(n));
+    Ok(Pruned { deleted, kept })
+}
 async fn tip(repo: &Repo, name: Option<&str>) -> Option<String> {
     resolve(repo, name?).await.ok()
 }
@@ -153,19 +215,7 @@ async fn distance(repo: &Repo, from: Option<String>, to: Option<String>) -> Resu
 }
 pub async fn sync<F: Fn(&str)>(repo: &Repo, action: &str, progress: F) -> Result<Option<u32>> {
     let status = repo.writable().await?;
-    #[cfg(feature = "test-utils")]
-    {
-        let remotes = git::text(&repo.root, &["remote", "-v"]).await?;
-        if remotes.lines().any(|line| {
-            line.split_whitespace()
-                .nth(1)
-                .is_some_and(|url| url.contains("://") || url.contains('@'))
-        }) {
-            return Err(Error::refused(
-                "Tests may only synchronize local fixture remotes",
-            ));
-        }
-    }
+    local_remotes_only(repo).await?;
     if action != "fetch" && status.branch == "(detached)" {
         return Err(Error::refused("Detached HEAD has no upstream branch"));
     }
