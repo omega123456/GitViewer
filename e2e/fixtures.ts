@@ -213,6 +213,10 @@ export const test = base.extend({
         const listeners = new Map<number, (value: unknown) => void>();
         Object.defineProperty(window, '__TAURI_INTERNALS__', {
           value: {
+            metadata: {
+              currentWindow: { label: 'main' },
+              currentWebview: { windowLabel: 'main', label: 'main' },
+            },
             transformCallback: (handler: (value: unknown) => void) => {
               const id = ++callback;
               listeners.set(id, handler);
@@ -229,6 +233,7 @@ export const test = base.extend({
               if (name === 'plugin:dialog|message') return 'Ok';
               if (name === 'plugin:event|listen') return ++callback;
               if (name === 'plugin:event|unlisten') return null;
+              if (name === 'plugin:window|set_title') return null;
               if (name === 'execute') {
                 switch (payload.command) {
                   case 'session_get':

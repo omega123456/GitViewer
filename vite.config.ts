@@ -5,5 +5,6 @@ export default defineConfig({
   plugins: [react(), tailwind()],
   server: { port: 1420, strictPort: true },
   worker: { format: 'es' },
+  optimizeDeps: { include: ['shiki'] },
   clearScreen: false,
 });

@@ -1,6 +1,8 @@
-import { Activity } from 'react';
+import { Activity, useEffect } from 'react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { UpdateBanner } from '../states/UpdateBanner';
 import type { SettingsResponse } from '../../lib/types';
+import { reportAppError } from '../../lib/ipc';
 import { folderName } from '../../lib/paths';
 import { useCompact } from '../../stores/density';
 import { useActiveView, useTabs } from '../../stores/tabs';
@@ -24,8 +26,16 @@ export function AppShell({
   const multiple = useTabs(
     (s) => (s.tabs.find((tab) => tab.id === s.active)?.members.length ?? 0) > 1,
   );
+  const project = useTabs(
+    (s) => s.tabs.find((tab) => tab.id === s.active)?.name,
+  );
   const dark = useDark();
   const compact = useCompact();
+  useEffect(() => {
+    getCurrentWindow()
+      .setTitle(project ? `${project} — GitViewer` : 'GitViewer')
+      .catch(reportAppError);
+  }, [project]);
   return (
     <main
       data-theme={dark ? 'dark' : 'light'}

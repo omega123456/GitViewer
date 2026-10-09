@@ -6,7 +6,7 @@ import { useErrors } from '../stores/errors';
 type Handler = (args: never) => unknown;
 const handlers = new Map<string, Handler>();
 const listeners = new Map<string, Set<(event: { payload: unknown }) => void>>();
-export const host = { platform: 'macos' };
+export const host = { platform: 'macos', title: '' };
 export const dialog = {
   path: null as string | null,
   approved: true,
@@ -56,6 +56,7 @@ export function resetHarness() {
   dialog.asked = 0;
   dialog.message = '';
   dialog.title = '';
+  host.title = '';
 }
 export function lastError(scope: string) {
   return useErrors.getState().scopes[scope]?.slice(-1)[0]?.error;
@@ -99,4 +100,11 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
   message: async () => undefined,
 }));
 
+vi.mock('@tauri-apps/api/window', () => ({
+  getCurrentWindow: () => ({
+    setTitle: async (title: string) => {
+      host.title = title;
+    },
+  }),
+}));
 vi.mock('@tauri-apps/plugin-os', () => ({ platform: () => host.platform }));

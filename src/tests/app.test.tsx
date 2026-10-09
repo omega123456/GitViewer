@@ -13,7 +13,7 @@ import { QueryProvider } from '../providers/QueryProvider';
 import { useTabs } from '../stores/tabs';
 import { useErrors } from '../stores/errors';
 import { useDiffView } from '../stores/diff-view';
-import { mockCommand, dialog, calls, emit } from './harness';
+import { mockCommand, dialog, calls, emit, host } from './harness';
 import { settings, status, repository, diff } from './fixtures';
 import { DiffPane } from '../components/diff/DiffPane';
 import { ImageDiff } from '../components/image/ImageDiff';
@@ -82,10 +82,12 @@ describe('application shell', () => {
     const user = userEvent.setup();
     mountApp();
     await screen.findByText('No repository open');
+    expect(host.title).toBe('GitViewer');
     await user.click(
       screen.getAllByRole('button', { name: 'Open repository' }).at(-1)!,
     );
     await screen.findByLabelText('Commit message');
+    expect(host.title).toBe('fixture — GitViewer');
     expect(await screen.findByLabelText('Stage src/app.ts')).toBeVisible();
     await user.click(screen.getByLabelText('Stage src/app.ts'));
     expect(calls.some((call) => call.command === 'files_action')).toBe(true);
