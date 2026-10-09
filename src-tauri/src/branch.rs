@@ -139,7 +139,7 @@ pub async fn delete(repo: &Repo, name: &str) -> Result<()> {
             .await?
             .accept(&[0])?;
     } else {
-        git::run(&repo.root, &["branch", "-d", "--", name], None)
+        git::run(&repo.root, &["branch", "-D", "--", name], None)
             .await?
             .accept(&[0])?;
     }

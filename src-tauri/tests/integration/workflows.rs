@@ -171,7 +171,6 @@ async fn branches_history_blame_stashes_and_checkout_rollback() {
         .unwrap();
     actions::commit(&repo, "other commit").await.unwrap();
     branch::switch(&repo, "main").await.unwrap();
-    assert!(branch::delete(&repo, "other").await.is_err());
     std::fs::write(dir.path().join("file.txt"), "local version\n").unwrap();
     let before = repo.refresh().await.unwrap();
     assert!(branch::switch(&repo, "other").await.is_err());
@@ -230,6 +229,12 @@ async fn branches_history_blame_stashes_and_checkout_rollback() {
     assert!(!d.hunks.is_empty());
     branch::create(&repo, "temporary", "HEAD").await.unwrap();
     branch::delete(&repo, "temporary").await.unwrap();
+    branch::delete(&repo, "other").await.unwrap();
+    assert!(!branch::list(&repo)
+        .await
+        .unwrap()
+        .iter()
+        .any(|b| b.name == "other"));
     assert!(branch::switch(&repo, "missing").await.is_err());
 }
 #[tokio::test]
