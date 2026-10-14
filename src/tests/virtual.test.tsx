@@ -127,9 +127,11 @@ describe('virtualized all changes pane', () => {
     await within(pane).findByRole('button', { name: /file000/ });
     const block = blockOf(pane, /file000/);
     const toggle = await within(block).findByLabelText('Show all 13 lines');
-    await waitFor(() =>
-      expect(colored(blockOf(pane, /file002/))).toBeGreaterThan(0),
-    );
+    for (const name of [/file000/, /file001/, /file002/])
+      await waitFor(() =>
+        expect(colored(blockOf(pane, name))).toBeGreaterThan(0),
+      );
+    await act(settled);
     renders.start();
     commits = 0;
     fireEvent.click(toggle);

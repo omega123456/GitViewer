@@ -11,6 +11,18 @@ interface Successes {
   withdraw: (scope: string, key: string) => void;
 }
 const limit = 3;
+function actionable(notice: Notice) {
+  return Boolean(notice.restore || notice.unapply || notice.show);
+}
+function trim(list: Notice[]) {
+  const older = list.slice(0, -1);
+  const evictable = [
+    ...older.filter((notice) => !actionable(notice)),
+    ...older.filter(actionable),
+  ];
+  const evicted = new Set(evictable.slice(0, Math.max(0, list.length - limit)));
+  return list.filter((notice) => !evicted.has(notice));
+}
 export const useSuccesses = create<Successes>((set) => {
   const edit = (scope: string, change: (list: Notice[]) => Notice[]) =>
     set((state) => ({
@@ -20,13 +32,13 @@ export const useSuccesses = create<Successes>((set) => {
     scopes: {},
     announce: (scope, success) =>
       edit(scope, (list) =>
-        [
+        trim([
           ...list.filter(
             (notice) =>
               notice.key !== success.key && notice.key !== success.replaces,
           ),
           { ...success, id: nextNotice() },
-        ].slice(-limit),
+        ]),
       ),
     dismiss: (scope, id) =>
       edit(scope, (list) => list.filter((notice) => notice.id !== id)),

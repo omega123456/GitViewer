@@ -838,6 +838,14 @@ describe('git activity', () => {
     expect(label('branch_delete', { name: 'dev' })).toBe('Deleting dev…');
     expect(label('branch_gone', {})).toBe('Checking remote…');
     expect(label('branch_prune', {})).toBe('Pruning branches…');
+    expect(label('worktree_apply', { smart: false })).toBe('Applying to main…');
+    expect(label('worktree_apply', { smart: true })).toBe(
+      'Stashing and applying…',
+    );
+    expect(label('worktree_unapply', {})).toBe('Undoing apply…');
+    expect(label('worktree_remove', { worktree: '/wt/spike' })).toBe(
+      'Deleting worktree spike…',
+    );
     expect(label('branch_merge', { name: 'dev' })).toBe('Merging dev…');
     expect(label('merge_abort', {})).toBe('Aborting merge…');
     expect(label('files_action', { action: 'unstage' })).toBe('Unstaging…');
@@ -1030,6 +1038,27 @@ describe('success notices', () => {
     expect(titles()).toEqual(['Pushed', 'A', 'B']);
     dismiss('r', useSuccesses.getState().scopes.r[0].id);
     expect(titles()).toEqual(['A', 'B']);
+  });
+  it('evicts cards with an action last, so a new card never pushes out an undo', () => {
+    const { announce } = useSuccesses.getState();
+    const titles = () =>
+      (useSuccesses.getState().scopes.r ?? []).map((notice) => notice.title);
+    const unapply = { target: 't', base: 'b', tree: 'c' };
+    announce('r', { key: 'worktree_apply', title: 'Applied', unapply });
+    announce('r', { key: 'a', title: 'A' });
+    announce('r', { key: 'b', title: 'B' });
+    announce('r', { key: 'worktree_remove', title: 'Deleting', pending: true });
+    expect(titles()).toEqual(['Applied', 'B', 'Deleting']);
+    announce('r', {
+      key: 'stash_drop',
+      title: 'Dropped',
+      restore: { hash: 'h', message: 'm' },
+    });
+    announce('r', { key: 'c', title: 'C' });
+    expect(titles()).toEqual(['Applied', 'Dropped', 'C']);
+    announce('r', { key: 'd', title: 'D', show: 'main' });
+    announce('r', { key: 'e', title: 'E', show: 'main' });
+    expect(titles()).toEqual(['Dropped', 'D', 'E']);
   });
 });
 

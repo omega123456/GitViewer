@@ -14,6 +14,7 @@ import {
 import { describe, type Recovery } from '../../lib/failure';
 import { perform } from '../../lib/query';
 import { showWorktree } from '../../lib/repository';
+import { unapplyWorktree } from '../../lib/worktree';
 import { appScope, useErrors, type Failure } from '../../stores/errors';
 import { useSuccesses, type Notice } from '../../stores/successes';
 import { useActiveView } from '../../stores/tabs';
@@ -121,7 +122,7 @@ function SuccessCard({ scope, initial }: { scope: string; initial: Notice }) {
   const action = restore
     ? () => perform('stash_restore', { repo: scope, ...restore })
     : unapply
-      ? () => perform('worktree_unapply', { repo: scope, ...unapply })
+      ? () => unapplyWorktree(scope, unapply)
       : show
         ? () => showWorktree(show)
         : null;

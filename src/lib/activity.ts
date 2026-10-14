@@ -1,3 +1,4 @@
+import { folderName } from './paths';
 import type { Activity, Progress } from '../stores/activity';
 import type { Status } from './types';
 const phases: Record<string, string> = {
@@ -55,6 +56,12 @@ export function describeActivity(activity: Activity, status: Status) {
       return `Merging ${String(args.name)}…`;
     case 'merge_abort':
       return 'Aborting merge…';
+    case 'worktree_apply':
+      return args.smart ? 'Stashing and applying…' : 'Applying to main…';
+    case 'worktree_unapply':
+      return 'Undoing apply…';
+    case 'worktree_remove':
+      return `Deleting worktree ${folderName(String(args.worktree))}…`;
     case 'files_action':
     case 'hunk_action':
       return fileVerbs[String(args.action)] ?? null;

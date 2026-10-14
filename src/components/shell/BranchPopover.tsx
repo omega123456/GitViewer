@@ -69,10 +69,19 @@ function WorktreeIcon({ worktree }: { worktree: Worktree }) {
   const Icon = worktree.main ? FolderGit2 : FolderSymlink;
   return <Icon className="size-3 shrink-0 text-muted dark:text-muted-dark" />;
 }
-function Marker({ worktree, status }: { worktree: Worktree; status?: Status }) {
+function Marker({
+  worktree,
+  status,
+  busy,
+}: {
+  worktree: Worktree;
+  status?: Status;
+  busy?: string;
+}) {
   const running = Boolean(useCurrentActivity(worktree.id));
   const failed = useErrors((s) => Boolean(s.scopes[worktree.id]?.length));
   const count = status?.entries.length ?? 0;
+  if (busy) return busy;
   if (running)
     return (
       <span role="img" aria-label="Git operation running">
@@ -123,6 +132,7 @@ function WorktreeMenu({
   project,
   main,
   changes,
+  disabled,
   onPick,
 }: {
   worktree: Worktree;
@@ -130,6 +140,7 @@ function WorktreeMenu({
   project: Tab;
   main?: Worktree;
   changes: number;
+  disabled: boolean;
   onPick: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -146,7 +157,7 @@ function WorktreeMenu({
   return (
     <DropdownMenu.Root modal={false} open={open} onOpenChange={setOpen}>
       <DropdownMenu.Trigger asChild>
-        <Button aria-label={`Actions for ${worktree.name}`}>
+        <Button aria-label={`Actions for ${worktree.name}`} disabled={disabled}>
           <MoreHorizontal className="size-3 text-muted dark:text-muted-dark" />
         </Button>
       </DropdownMenu.Trigger>
@@ -203,6 +214,9 @@ const branchCommands = [
   'branch_gone',
   'branch_prune',
   'branch_merge',
+  'worktree_apply',
+  'worktree_unapply',
+  'worktree_remove',
 ] as const;
 export async function checkout(repo: string, name: string) {
   try {
@@ -555,6 +569,13 @@ export function BranchPopover({
                 if (row.kind === 'worktree') {
                   const { worktree } = row;
                   const status = statuses[worktree.id];
+                  const busy = runs(activity, 'worktree_remove', {
+                    worktree: worktree.id,
+                  })
+                    ? 'Deleting…'
+                    : runs(activity, 'worktree_apply', { source: worktree.id })
+                      ? 'Applying…'
+                      : undefined;
                   return (
                     <div className="flex h-section items-center">
                       <Button
@@ -562,7 +583,8 @@ export function BranchPopover({
                         disabled={
                           worktree.id === repo ||
                           worktree.missing ||
-                          worktree.bare
+                          worktree.bare ||
+                          Boolean(busy)
                         }
                         className="min-w-0 flex-1 justify-start"
                         onClick={() => go(worktree)}
@@ -588,7 +610,11 @@ export function BranchPopover({
                                 )}
                         </span>
                         <span className="ml-auto flex shrink-0 items-center gap-1.5 text-label text-muted dark:text-muted-dark">
-                          <Marker worktree={worktree} status={status} />
+                          <Marker
+                            worktree={worktree}
+                            status={status}
+                            busy={busy}
+                          />
                         </span>
                       </Button>
                       {project && present.includes(worktree) ? (
@@ -598,6 +624,7 @@ export function BranchPopover({
                           project={project}
                           main={main}
                           changes={changesIn(worktree.id)}
+                          disabled={Boolean(busy)}
                           onPick={() => setOpen(false)}
                         />
                       ) : (
