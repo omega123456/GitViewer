@@ -1,5 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { markedTokens } from '../../lib/highlight';
+import type { DiffLine } from '../../lib/types';
+import type { Row } from './rows';
 export interface Hit {
   index: number;
   start: number;
@@ -8,6 +10,54 @@ export interface Hit {
 export interface Found {
   marks: Map<number, [number, number][]>;
   current?: Hit;
+}
+export interface LineHit {
+  key: string;
+  start: number;
+  end: number;
+}
+export interface LineFound {
+  marks: Map<string, [number, number][]>;
+  current?: LineHit;
+}
+export interface Located {
+  path: string;
+  key: string;
+  content: string;
+}
+export function lineKey(line: DiffLine) {
+  return line.kind === 'remove' ? `old:${line.old}` : `new:${line.new}`;
+}
+export function foundByPath(found: Found | undefined, lines: Located[]) {
+  const byPath = new Map<string, LineFound>();
+  if (!found) return byPath;
+  const entry = (path: string) => {
+    if (!byPath.has(path)) byPath.set(path, { marks: new Map() });
+    return byPath.get(path)!;
+  };
+  for (const [index, ranges] of found.marks)
+    entry(lines[index].path).marks.set(lines[index].key, ranges);
+  if (found.current) {
+    const { index, start, end } = found.current;
+    entry(lines[index].path).current = { key: lines[index].key, start, end };
+  }
+  return byPath;
+}
+export function foundInRows(rows: Row[], found?: LineFound): Found | undefined {
+  if (!found) return undefined;
+  const marks = new Map<number, [number, number][]>();
+  let current: Hit | undefined;
+  rows.forEach((row, index) =>
+    [row.left, row.right].forEach((line, side) => {
+      if (!line) return;
+      const key = lineKey(line);
+      const ranges = found.marks.get(key);
+      if (ranges) marks.set(index * 2 + side, ranges);
+      if (found.current?.key === key)
+        current = { ...found.current, index: index * 2 + side };
+    }),
+  );
+  return { marks, current };
 }
 export function findMatches(texts: string[], query: string): Hit[] {
   if (!query) return [];

@@ -8,8 +8,6 @@ import {
   useState,
 } from 'react';
 import {
-  ArrowDown,
-  ArrowUp,
   ChevronDown,
   ChevronUp,
   Columns2,
@@ -22,7 +20,6 @@ import {
   Image,
   Pencil,
   Save,
-  Search,
   Trash2,
   SquareMinus,
   SquarePlus,
@@ -45,7 +42,7 @@ import { State } from '../states/State';
 import { StatusBadge } from '../sidebar/StatusBadge';
 import { ImageDiff } from '../image/ImageDiff';
 import { BlameView } from './BlameView';
-import { FindBar } from './FindBar';
+import { FindBar, findActions } from './FindBar';
 import { useFind } from './find';
 import { DiffSourcePill } from './DiffSourcePill';
 import { DiffToolbar } from './DiffToolbar';
@@ -224,30 +221,7 @@ function SelectedDiff({
       selection.source === 'staged' ? 'unstage' : 'stage',
     );
   useActions(`${repo}:diff`, [
-    {
-      id: 'find',
-      icon: <Search className="size-3.5" />,
-      label: 'Find in file',
-      key: 'Mod+f',
-      run: find.reveal,
-      disabled: editing || rendered,
-    },
-    {
-      id: 'find-next',
-      icon: <ArrowDown className="size-3.5" />,
-      label: 'Next match',
-      key: 'F3',
-      run: () => find.step(1),
-      disabled: !find.open || !find.count || editing || rendered,
-    },
-    {
-      id: 'find-previous',
-      icon: <ArrowUp className="size-3.5" />,
-      label: 'Previous match',
-      key: 'Shift+F3',
-      run: () => find.step(-1),
-      disabled: !find.open || !find.count || editing || rendered,
-    },
+    ...findActions(find, editing || rendered),
     {
       id: 'next-hunk',
       icon: <ChevronDown className="size-3.5" />,

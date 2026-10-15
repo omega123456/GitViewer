@@ -19,6 +19,7 @@ import {
   Loader2,
   Pencil,
 } from 'lucide-react';
+import { useActions } from '../../lib/actions';
 import { perform, useBackend } from '../../lib/query';
 import type {
   Diff,
@@ -45,7 +46,16 @@ import { State } from '../states/State';
 import { StatusBadge } from '../sidebar/StatusBadge';
 import { ImageDiff } from '../image/ImageDiff';
 import { DiffSourcePill } from './DiffSourcePill';
-import { DiffSurface } from './DiffSurface';
+import { DiffSurface, type DiffSurfaceHandle } from './DiffSurface';
+import { FindBar, findActions } from './FindBar';
+import {
+  foundByPath,
+  foundInRows,
+  lineKey,
+  useFind,
+  type LineFound,
+  type Located,
+} from './find';
 import { FullFileButton } from './DiffToolbar';
 import { canEdit } from './editable';
 import { useExpansion, type Openings } from './expansion';
@@ -203,6 +213,50 @@ export const AllChangesPane = memo(function AllChangesPane({
       ),
     overscan: 2,
   });
+  const searchable = useMemo(
+    () =>
+      ordered.flatMap(({ selection }): Located[] => {
+        const data = batch.data?.files[selection.path];
+        return data
+          ? diffRows(data, false).flatMap(({ right }) =>
+              right
+                ? [
+                    {
+                      path: selection.path,
+                      key: lineKey(right),
+                      content: right.content,
+                    },
+                  ]
+                : [],
+            )
+          : [];
+      }),
+    [ordered, batch.data],
+  );
+  const texts = useCallback(
+    () => searchable.map((line) => line.content),
+    [searchable],
+  );
+  const [jump, setJump] = useState<Located>();
+  const clearJump = useCallback(() => setJump(undefined), []);
+  const find = useFind(texts, (index) => {
+    const line = searchable[index];
+    const position = ordered.findIndex(
+      (entry) => entry.selection.path === line.path,
+    );
+    setClosed((all) => (all[line.path] ? { ...all, [line.path]: false } : all));
+    setJump({ ...line });
+    const range = virtual.range;
+    if (!range || position < range.startIndex || position > range.endIndex)
+      virtual.scrollToOffset(
+        virtual.getOffsetForIndex(position, 'start')?.[0] ?? 0,
+      );
+  });
+  const located = useMemo(
+    () => foundByPath(find.found, searchable),
+    [find.found, searchable],
+  );
+  useActions(`${repo}:diff`, findActions(find, false));
   const laidOut = (virtual.scrollRect?.height ?? 0) > 0;
   useEffect(() => {
     if (laidOut && ordered.length) eager.current = false;
@@ -246,6 +300,12 @@ export const AllChangesPane = memo(function AllChangesPane({
           </span>
         )}
       </header>
+      {find.open && (
+        <FindBar
+          find={find}
+          onClose={() => scroller.current?.focus({ preventScroll: true })}
+        />
+      )}
       <div
         ref={scroller}
         tabIndex={-1}
@@ -309,6 +369,9 @@ export const AllChangesPane = memo(function AllChangesPane({
                       opening={openings[path]}
                       setOpenings={setOpenings}
                       eager={eager}
+                      found={located.get(path)}
+                      jump={jump?.path === path ? jump : undefined}
+                      onJumped={clearJump}
                     />
                   </div>
                 );
@@ -364,6 +427,9 @@ const FileDiff = memo(function FileDiff({
   opening,
   setOpenings,
   eager,
+  found,
+  jump,
+  onJumped,
 }: {
   repo: string;
   selection: Selection;
@@ -378,6 +444,9 @@ const FileDiff = memo(function FileDiff({
   opening?: Openings;
   setOpenings: Dispatch<SetStateAction<Record<string, Openings>>>;
   eager: RefObject<boolean>;
+  found?: LineFound;
+  jump?: Located;
+  onJumped: () => void;
 }) {
   const path = selection.path;
   const open = !closed;
@@ -436,6 +505,20 @@ const FileDiff = memo(function FileDiff({
   );
   const message = note(data, error);
   const surface = open && !message && mounted;
+  const handle = useRef<DiffSurfaceHandle>(null);
+  const marked = useMemo(() => foundInRows(rows, found), [rows, found]);
+  useEffect(() => {
+    if (!jump || !surface) return;
+    handle.current?.scrollToRow(
+      rows.findIndex((row) =>
+        [row.left, row.right].some(
+          (line) => line && lineKey(line) === jump.key,
+        ),
+      ),
+      'center',
+    );
+    onJumped();
+  }, [jump, surface, rows, onJumped]);
   useLayoutEffect(() => {
     setInner(body.current?.offsetTop ?? 0);
   }, [surface]);
@@ -534,6 +617,8 @@ const FileDiff = memo(function FileDiff({
               </div>
             ) : (
               <DiffSurface
+                ref={handle}
+                found={marked}
                 rows={rows}
                 hunks={data!.hunks}
                 patches={data!.patches}

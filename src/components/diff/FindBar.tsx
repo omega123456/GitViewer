@@ -1,10 +1,39 @@
 import { useEffect } from 'react';
-import { ArrowDown, ArrowUp, X } from 'lucide-react';
-import { shortcutLabel } from '../../lib/keyboard';
+import { ArrowDown, ArrowUp, Search, X } from 'lucide-react';
+import { shortcutLabel, type Action } from '../../lib/keyboard';
 import { Button } from '../shared/Button';
 import { TextInput } from '../shared/TextInput';
 import { field } from '../shared/styles';
 import type { Find } from './find';
+export function findActions(find: Find, unavailable: boolean): Action[] {
+  const stepless = unavailable || !find.open || !find.count;
+  return [
+    {
+      id: 'find',
+      icon: <Search className="size-3.5" />,
+      label: 'Find in file',
+      key: 'Mod+f',
+      run: find.reveal,
+      disabled: unavailable,
+    },
+    {
+      id: 'find-next',
+      icon: <ArrowDown className="size-3.5" />,
+      label: 'Next match',
+      key: 'F3',
+      run: () => find.step(1),
+      disabled: stepless,
+    },
+    {
+      id: 'find-previous',
+      icon: <ArrowUp className="size-3.5" />,
+      label: 'Previous match',
+      key: 'Shift+F3',
+      run: () => find.step(-1),
+      disabled: stepless,
+    },
+  ];
+}
 export function FindBar({
   find,
   onClose,

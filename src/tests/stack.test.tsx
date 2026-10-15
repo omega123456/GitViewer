@@ -379,6 +379,47 @@ describe('all changes pane', () => {
     ).toBeInTheDocument();
     expect(useSelection.getState().all[repository.id]).toBeUndefined();
   });
+  it('finds across every stacked file, reopens a collapsed file to reach a match, and closes with Escape', async () => {
+    setup();
+    mockCommand('commit_files', () => ({
+      statuses: { 'src/app.ts': 'M', 'new.txt': 'A' },
+      lines: {},
+    }));
+    const user = userEvent.setup();
+    const pane = await renderStack();
+    await waitFor(() => expect(shown(pane, 'new value')).toBe(2));
+    await action('find');
+    const input = within(pane).getByRole('textbox', { name: 'Find in file' });
+    expect(input).toHaveFocus();
+    await user.click(within(pane).getByRole('button', { name: /new\.txt/ }));
+    expect(shown(pane, 'new value')).toBe(1);
+    const scroller = pane.lastElementChild as HTMLDivElement;
+    const scrollTo = vi.mocked(scroller.scrollTo);
+    scrollTo.mockClear();
+    await user.type(input, 'VALUE');
+    const counter = within(within(pane).getByRole('search')).getByRole(
+      'status',
+    );
+    const current = () =>
+      [...pane.querySelectorAll('.bg-find-current')].map(
+        (span) => span.textContent,
+      );
+    expect(counter).toHaveTextContent('1 of 4');
+    expect(current()).toEqual(['value']);
+    expect(scrollTo).toHaveBeenCalled();
+    await action('find-next');
+    await action('find-next');
+    expect(counter).toHaveTextContent('3 of 4');
+    expect(shown(pane, 'new value')).toBe(2);
+    expect(current()).toEqual(['value']);
+    expect(pane.querySelectorAll('.bg-find')).toHaveLength(3);
+    await action('find-previous');
+    expect(counter).toHaveTextContent('2 of 4');
+    await user.keyboard('{Escape}');
+    expect(within(pane).queryByRole('search')).toBeNull();
+    expect(current()).toEqual([]);
+    expect(scroller).toHaveFocus();
+  });
   it('compares two branches from the sidebar, swaps them, and reads diffs against the resolved base', async () => {
     setup();
     mockCommand('default_branch', () => 'main');
