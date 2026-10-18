@@ -1,17 +1,23 @@
 import { Download, Sparkles, SlidersHorizontal } from 'lucide-react';
+import { useBackend } from '../../lib/query';
 import { useSettingsNav, type SettingsPane } from '../../stores/settings-nav';
-import { focus } from '../shared/styles';
-const panes: { id: SettingsPane; label: string; icon: typeof Download }[] = [
+import { focus, pill } from '../shared/styles';
+export const panes: {
+  id: SettingsPane;
+  label: string;
+  icon: typeof Download;
+}[] = [
   { id: 'general', label: 'General', icon: SlidersHorizontal },
   { id: 'ai', label: 'AI', icon: Sparkles },
   { id: 'updates', label: 'Updates', icon: Download },
 ];
 export function SettingsNav() {
   const current = useSettingsNav((state) => state.pane);
+  const version = useBackend('update_get', {}).data?.currentVersion;
   return (
     <nav
       aria-label="Settings sections"
-      className="flex w-settings-nav shrink-0 flex-col gap-0.5 border-r border-line bg-sub p-2 dark:border-line-dark dark:bg-sub-dark"
+      className="flex w-settings-nav shrink-0 flex-col gap-0.5 px-2 pt-1 pb-4"
     >
       {panes.map(({ id, label, icon: Icon }) => {
         const active = current === id;
@@ -21,16 +27,19 @@ export function SettingsNav() {
             type="button"
             aria-current={active ? 'page' : undefined}
             onClick={() => useSettingsNav.getState().select(id)}
-            className={`relative flex items-center gap-2 overflow-hidden rounded px-2.5 py-1.5 text-left text-xs ${active ? 'bg-selected font-medium text-ink dark:bg-selected-dark dark:text-ink-dark' : 'text-muted hover:bg-hover dark:hover:bg-hover-dark'} ${focus}`}
+            className={`relative flex h-8.5 shrink-0 items-center gap-3 rounded px-3 text-left text-sm text-ink hover:bg-tab-hover dark:text-ink-dark dark:hover:bg-tab-hover-dark ${active ? 'bg-tab-hover dark:bg-tab-hover-dark' : ''} ${focus}`}
           >
-            {active && (
-              <span className="absolute inset-y-0 left-0 w-accent bg-accent dark:bg-accent-dark" />
-            )}
-            <Icon className="size-3.5 shrink-0" />
+            {active && <span className={pill} />}
+            <Icon className="size-4 shrink-0" />
             {label}
           </button>
         );
       })}
+      {version && (
+        <p className="mt-6 px-3 text-label text-faint dark:text-faint-dark">
+          GitViewer {version}
+        </p>
+      )}
     </nav>
   );
 }

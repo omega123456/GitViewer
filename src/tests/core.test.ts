@@ -116,21 +116,16 @@ describe('IPC and events', () => {
     ).toEqual({
       title: 'Could not reach the remote',
       summary: "Unable to access 'x': Could not resolve host",
-      kind: 'network',
       recovery: 'retry',
     });
     expect(
       describeFailure({ category: 'authentication', message: 'denied' }),
-    ).toMatchObject({
-      title: 'Sign-in to the remote failed',
-      kind: 'authentication',
-    });
+    ).toMatchObject({ title: 'Sign-in to the remote failed' });
     expect(
       describeFailure({ category: 'unexpected', message: '' }),
     ).toMatchObject({
       title: 'Something went wrong',
       summary: '',
-      kind: 'alert',
       recovery: null,
     });
     expect(

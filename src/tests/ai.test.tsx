@@ -137,8 +137,11 @@ describe('ai settings pane', () => {
         args: { ...configured, ai: { ...configured.ai, model: 'gpt-4o' } },
       }),
     );
-    await user.clear(screen.getByLabelText('Prompt'));
-    await user.type(screen.getByLabelText('Prompt'), 'Summarize.');
+    await user.clear(screen.getByRole('textbox', { name: 'Prompt' }));
+    await user.type(
+      screen.getByRole('textbox', { name: 'Prompt' }),
+      'Summarize.',
+    );
     expect(
       calls.some(
         (call) =>

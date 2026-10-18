@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, KeyRound } from 'lucide-react';
 import { invoke, normalizeError } from '../../lib/ipc';
 import { perform } from '../../lib/query';
 import type { SettingsResponse } from '../../lib/types';
@@ -7,7 +7,7 @@ import { Button } from '../shared/Button';
 import { TextInput } from '../shared/TextInput';
 import { field } from '../shared/styles';
 import { FieldError } from '../states/Errors';
-import { SettingRow } from './GeneralSection';
+import { SettingCard } from './SettingCard';
 export function ApiKeyField({ settings }: { settings: SettingsResponse }) {
   const [draft, setDraft] = useState('');
   const [replacing, setReplacing] = useState(false);
@@ -29,70 +29,96 @@ export function ApiKeyField({ settings }: { settings: SettingsResponse }) {
     setConfirming(false);
     await perform('settings_set', settings);
   };
+  const below = confirming ? (
+    <div className="flex items-center gap-2">
+      <p className="text-label text-muted dark:text-muted-dark">
+        Remove the stored API key?
+      </p>
+      <Button
+        variant="standard"
+        className="ml-auto h-8"
+        onClick={() => setConfirming(false)}
+      >
+        Keep key
+      </Button>
+      <Button variant="primary" className="h-8" onClick={() => void write('')}>
+        Remove
+      </Button>
+    </div>
+  ) : (
+    editing && (
+      <div className="flex items-center gap-2">
+        <TextInput
+          aria-label="API key"
+          aria-invalid={Boolean(error)}
+          type={visible ? 'text' : 'password'}
+          value={draft}
+          className={`${field} h-8 text-sm`}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        <Button
+          variant="command"
+          aria-label="Show API key"
+          aria-pressed={visible}
+          onClick={() => setVisible(!visible)}
+        >
+          {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+        </Button>
+        <Button
+          variant="primary"
+          className="h-8"
+          disabled={!draft}
+          onClick={() => void write(draft)}
+        >
+          Save key
+        </Button>
+        {settings.keyStored && (
+          <Button
+            variant="standard"
+            className="h-8"
+            onClick={() => setReplacing(false)}
+          >
+            Cancel
+          </Button>
+        )}
+      </div>
+    )
+  );
   return (
-    <SettingRow
+    <SettingCard
+      icon={<KeyRound className="size-4" />}
       title="API key"
       description="Optional for local endpoints. Stored in the OS keychain"
-      stack
+      below={
+        (below || error) && (
+          <>
+            {below}
+            {error && <FieldError>{error}</FieldError>}
+          </>
+        )
+      }
     >
-      {confirming && (
-        <div className="flex items-center gap-2">
-          <p className="text-label text-muted">Remove the stored API key?</p>
-          <Button className="ml-auto" onClick={() => setConfirming(false)}>
-            Keep key
-          </Button>
-          <Button variant="primary" onClick={() => void write('')}>
-            Remove
-          </Button>
-        </div>
-      )}
-      {!confirming && editing && (
-        <div className="flex items-center gap-2">
-          <TextInput
-            aria-label="API key"
-            aria-invalid={Boolean(error)}
-            type={visible ? 'text' : 'password'}
-            value={draft}
-            className={field}
-            onChange={(event) => setDraft(event.target.value)}
-          />
-          <Button
-            aria-label="Show API key"
-            aria-pressed={visible}
-            onClick={() => setVisible(!visible)}
-          >
-            {visible ? (
-              <EyeOff className="size-3.5" />
-            ) : (
-              <Eye className="size-3.5" />
-            )}
-          </Button>
-          <Button
-            variant="primary"
-            disabled={!draft}
-            onClick={() => void write(draft)}
-          >
-            Save key
-          </Button>
-          {settings.keyStored && (
-            <Button onClick={() => setReplacing(false)}>Cancel</Button>
-          )}
-        </div>
-      )}
       {!confirming && !editing && (
-        <div className="flex items-center gap-2">
+        <>
           <span
             aria-hidden="true"
-            className={`${field} tracking-widest text-muted`}
+            className="text-sm tracking-widest text-muted dark:text-muted-dark"
           >
             ••••••••••••
           </span>
           <span className="sr-only">A key is stored</span>
-          <Button onClick={() => setReplacing(true)}>Replace</Button>
-          <Button onClick={() => setConfirming(true)}>Clear</Button>
-        </div>
+          <Button
+            variant="standard"
+            className="h-8"
+            onClick={() => setReplacing(true)}
+          >
+            Replace
+          </Button>
+          <Button variant="command" onClick={() => setConfirming(true)}>
+            Clear
+          </Button>
+        </>
       )}
-      {error && <FieldError>{error}</FieldError>}
-    </SettingRow>
+    </SettingCard>
   );
 }

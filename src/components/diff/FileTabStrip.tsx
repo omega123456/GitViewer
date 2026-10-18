@@ -10,12 +10,7 @@ import {
   type FileTab,
 } from '../../stores/selection';
 import { Button } from '../shared/Button';
-const steps: Record<string, (index: number, count: number) => number> = {
-  ArrowRight: (index, count) => (index + 1) % count,
-  ArrowLeft: (index, count) => (index - 1 + count) % count,
-  Home: () => 0,
-  End: (_, count) => count - 1,
-};
+import { tabSteps } from '../shared/ViewSwitch';
 export function FileTabStrip({
   repo,
   mode,
@@ -38,7 +33,7 @@ export function FileTabStrip({
   if (!tabs.length) return null;
   const names = tabs.map((tab) => fileName(tab.selection.path));
   const keydown = (event: KeyboardEvent) => {
-    const step = steps[event.key];
+    const step = tabSteps[event.key];
     if (!step) return;
     event.preventDefault();
     const index = tabs.findIndex((tab) => tabKey(tab.selection) === active);
@@ -54,7 +49,7 @@ export function FileTabStrip({
       aria-label="Open files"
       tabIndex={-1}
       onKeyDown={keydown}
-      className="flex h-7.5 shrink-0 items-stretch overflow-x-auto border-b border-line bg-sub dark:border-line-dark dark:bg-sub-dark"
+      className="flex h-tab-strip shrink-0 items-end gap-0.5 overflow-x-auto bg-sub pr-2 shadow-rule dark:bg-sub-dark dark:shadow-rule-dark"
     >
       {tabs.map((tab, index) => (
         <FileTabCell
@@ -106,11 +101,8 @@ function FileTabCell({
   };
   return (
     <div
-      className={`group relative flex min-w-30 max-w-52 shrink-0 items-center border-r border-line pr-0.5 text-xs dark:border-line-dark ${active ? 'bg-surface text-ink dark:bg-surface-dark dark:text-ink-dark' : 'text-muted hover:bg-track hover:text-ink dark:text-muted-dark dark:hover:bg-track-dark dark:hover:text-ink-dark'}`}
+      className={`group relative flex min-w-30 max-w-52 shrink-0 items-center rounded-t pr-1 text-sm first:rounded-tl-none first:border-l-transparent ${active ? 'h-8 border border-b-0 border-line bg-surface font-semibold text-ink dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark' : 'mb-px h-7.75 text-muted hover:bg-hover hover:text-ink dark:text-muted-dark dark:hover:bg-hover-dark dark:hover:text-ink-dark'}`}
     >
-      {active && (
-        <span className="absolute inset-x-0 top-0 h-0.5 bg-accent dark:bg-accent-dark" />
-      )}
       <Button
         variant="chrome"
         role="tab"
@@ -118,12 +110,12 @@ function FileTabCell({
         tabIndex={focusable ? 0 : -1}
         title={path}
         {...middle}
-        className="min-w-0 flex-1 justify-start gap-1.5 self-stretch pl-2.5"
+        className="min-w-0 flex-1 justify-start gap-1.5 self-stretch rounded-tl pl-2.75"
         onClick={() => useSelection.getState().select(repo, tab.selection)}
       >
         <span className="truncate">{name}</span>
         {suffix && (
-          <span className="shrink-0 font-mono text-label text-faint dark:text-faint-dark">
+          <span className="shrink-0 font-mono text-badge text-faint dark:text-faint-dark">
             {suffix}
           </span>
         )}
@@ -133,14 +125,14 @@ function FileTabCell({
           <span
             role="img"
             aria-label="Unsaved edits"
-            className={`size-2 rounded-full bg-modified dark:bg-modified-dark ${active ? 'hidden' : 'group-hover:opacity-0 group-focus-within:opacity-0'}`}
+            className={`size-1.5 rounded-full bg-modified dark:bg-modified-dark ${active ? 'hidden' : 'group-hover:opacity-0 group-focus-within:opacity-0'}`}
           />
         )}
         <Button
           variant="chrome"
           aria-label={`Close ${name}`}
           {...middle}
-          className={`absolute inset-0 ${active ? '' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`}
+          className={`absolute inset-0 rounded hover:bg-hover dark:hover:bg-hover-dark ${active ? '' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`}
           onClick={close}
         >
           <X className="size-3.5" />

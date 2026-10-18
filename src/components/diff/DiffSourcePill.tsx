@@ -9,7 +9,7 @@ export const sourceLabels = {
 };
 export function DiffSourcePill({ selection }: { selection: Selection }) {
   return (
-    <span className="shrink-0 rounded-full border border-line bg-sub px-2 py-0.5 font-mono text-label text-muted dark:border-line-dark dark:bg-sub-dark">
+    <span className="mx-1.5 shrink-0 rounded border border-line px-2 py-0.5 font-mono text-badge text-muted dark:border-line-dark dark:text-muted-dark">
       {sourceLabels[selection.source]}
       {selection.revision ? ` · ${selection.revision.slice(0, 7)}` : ''}
     </span>

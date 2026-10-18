@@ -4,6 +4,7 @@ import { UpdateBanner } from '../states/UpdateBanner';
 import type { SettingsResponse } from '../../lib/types';
 import { reportAppError } from '../../lib/ipc';
 import { folderName } from '../../lib/paths';
+import { mica } from '../../lib/platform';
 import { useCompact } from '../../stores/density';
 import { useActiveView, useTabs } from '../../stores/tabs';
 import { useDark } from '../../stores/theme';
@@ -40,35 +41,37 @@ export function AppShell({
     <main
       data-theme={dark ? 'dark' : 'light'}
       data-density={compact ? 'compact' : 'comfortable'}
-      className="relative flex h-screen flex-col overflow-hidden bg-surface font-sans text-ink dark:bg-surface-dark dark:text-ink-dark"
+      className={`relative flex h-screen flex-col overflow-hidden font-sans text-ink dark:text-ink-dark ${mica() ? 'bg-transparent' : 'bg-surface dark:bg-surface-dark'}`}
     >
       <RepoTabStrip />
-      <UpdateBanner />
-      {tabs.length === 0 ? (
-        <FirstRun />
-      ) : (
-        tabs.map((tab) => (
-          <Activity
-            key={tab.id}
-            mode={active === tab.id ? 'visible' : 'hidden'}
-          >
-            {tab.members.map((member) => (
-              <Activity
-                key={member}
-                mode={tab.view === member ? 'visible' : 'hidden'}
-              >
-                <div className="flex min-h-0 flex-1 flex-col">
-                  <RepositoryView
-                    repo={member}
-                    settings={settings}
-                    version={version}
-                  />
-                </div>
-              </Activity>
-            ))}
-          </Activity>
-        ))
-      )}
+      <div className="flex min-h-0 flex-1 flex-col bg-surface dark:bg-surface-dark">
+        <UpdateBanner />
+        {tabs.length === 0 ? (
+          <FirstRun />
+        ) : (
+          tabs.map((tab) => (
+            <Activity
+              key={tab.id}
+              mode={active === tab.id ? 'visible' : 'hidden'}
+            >
+              {tab.members.map((member) => (
+                <Activity
+                  key={member}
+                  mode={tab.view === member ? 'visible' : 'hidden'}
+                >
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    <RepositoryView
+                      repo={member}
+                      settings={settings}
+                      version={version}
+                    />
+                  </div>
+                </Activity>
+              ))}
+            </Activity>
+          ))
+        )}
+      </div>
       <SettingsSurface settings={settings} />
       <span className="sr-only" aria-live="polite">
         {multiple ? `Switched to worktree ${folderName(view)}` : ''}

@@ -110,7 +110,7 @@ describe('line counts', () => {
     mount();
     await screen.findByTitle('1,243 lines added, 12,345 removed');
     const before = count('line_stats');
-    await user.click(screen.getByRole('radio', { name: /history/ }));
+    await user.click(screen.getByRole('tab', { name: /history/ }));
     act(() => emit('repo://status-changed', { repo: repository.id }));
     await settled();
     expect(count('line_stats')).toBe(before);
@@ -124,7 +124,7 @@ describe('line counts', () => {
     }));
     const user = userEvent.setup();
     mount();
-    await user.click(await screen.findByRole('radio', { name: /history/ }));
+    await user.click(await screen.findByRole('tab', { name: /history/ }));
     await user.click(await screen.findByText('Review commit'));
     const header = await screen.findByTitle('5 lines added, 2 removed');
     expect(header.closest('h3')).toHaveTextContent('Files in commit');

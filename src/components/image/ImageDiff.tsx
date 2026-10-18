@@ -15,7 +15,7 @@ import {
   useTabImageView,
   type ImageMode,
 } from '../../stores/image-view';
-import { Segment } from '../shared/Segment';
+import { ViewSwitch } from '../shared/ViewSwitch';
 import { dynamic } from '../shared/styles';
 import { ErrorRow } from '../states/Errors';
 import { ImageMeta } from './ImageMeta';
@@ -103,14 +103,14 @@ export function ImageDiff({
     <div className="flex min-h-0 flex-1 flex-col">
       <ImageMeta diff={diff} />
       <div className="flex shrink-0 items-center gap-2 border-b border-line bg-sub px-3 py-2 dark:border-line-dark dark:bg-sub-dark">
-        <Segment
+        <ViewSwitch
           label="Image comparison mode"
           value={mode}
           options={order}
           icons={{
-            'side by side': <Columns2 className="size-3" />,
-            swipe: <MoveHorizontal className="size-3" />,
-            'onion skin': <Layers className="size-3" />,
+            'side by side': <Columns2 className="size-4" />,
+            swipe: <MoveHorizontal className="size-4" />,
+            'onion skin': <Layers className="size-4" />,
           }}
           onChange={(next) => update(view, { mode: next })}
         />

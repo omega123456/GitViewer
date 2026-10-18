@@ -110,7 +110,7 @@ for (const mode of ['unified', 'split']) {
         .getByRole('tree', { name: 'Changes', exact: true })
         .getByText('app.ts', { exact: true })
         .click();
-      await page.getByRole('radio', { name: mode, exact: true }).click();
+      await page.getByRole('tab', { name: mode, exact: true }).click();
       if (stacked)
         await page
           .getByRole('button', { name: 'All changes', exact: true })
@@ -211,7 +211,7 @@ for (const mode of ['side by side', 'swipe', 'onion skin']) {
       .getByRole('tree', { name: 'Changes', exact: true })
       .getByText('picture.png')
       .click();
-    await page.getByRole('radio', { name: mode, exact: true }).click();
+    await page.getByRole('tab', { name: mode, exact: true }).click();
     await expect(page.getByText(/320×180 → 320×180/)).toBeVisible();
     if (mode === 'swipe') {
       const divider = page.getByRole('slider', { name: 'Swipe divider' });
@@ -244,7 +244,7 @@ test('tree icons keep their size in a narrow sidebar', async ({ page }) => {
         Math.round(icon.getBoundingClientRect().width),
       ),
     ),
-  ).toEqual([12, 12, 12, 12]);
+  ).toEqual([12, 15, 15, 15]);
 });
 
 test('diff header actions keep one left edge', async ({ page }) => {
@@ -266,7 +266,7 @@ test('diff header actions keep one left edge', async ({ page }) => {
   await page.getByRole('button', { name: 'Blame', exact: true }).click();
   expect(await edge()).toBe(worktree);
   await page.getByRole('button', { name: 'Diff', exact: true }).click();
-  await page.getByRole('radio', { name: 'history', exact: true }).click();
+  await page.getByRole('tab', { name: 'history', exact: true }).click();
   await page.getByText('Merge feature', { exact: true }).click();
   await page
     .getByRole('tree', { name: 'Commit files', exact: true })
@@ -282,7 +282,7 @@ test('history uses the same diff pane', async ({ page }) => {
     .getByRole('button', { name: 'Open repository', exact: true })
     .last()
     .click();
-  await page.getByRole('radio', { name: 'history', exact: true }).click();
+  await page.getByRole('tab', { name: 'history', exact: true }).click();
   await page.getByText('Merge feature', { exact: true }).click();
   await page
     .getByRole('tree', { name: 'Commit files', exact: true })
@@ -459,7 +459,7 @@ for (const theme of ['light', 'dark'] as const) {
       .getByRole('button', { name: 'Open repository', exact: true })
       .last()
       .click();
-    await page.getByRole('radio', { name: 'compare', exact: true }).click();
+    await page.getByRole('tab', { name: 'compare', exact: true }).click();
     await expect(page.getByLabel('Base', { exact: true })).toHaveValue('main');
     await expect(page.getByLabel('Compare', { exact: true })).toHaveValue(
       'feature',

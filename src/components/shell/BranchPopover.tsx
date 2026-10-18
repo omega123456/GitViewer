@@ -52,7 +52,16 @@ import { Modal } from '../shared/Modal';
 import { Select } from '../shared/Select';
 import { Spinner } from '../shared/Spinner';
 import { VirtualList } from '../shared/VirtualList';
-import { dynamic, field, focus } from '../shared/styles';
+import {
+  dynamic,
+  field,
+  flyout,
+  menu,
+  menuItem,
+  menuSeparator,
+  searchBox,
+  searchInput,
+} from '../shared/styles';
 import { openCompare } from '../sidebar/CompareSection';
 import { mergeBranch } from '../../lib/merge';
 import { pruneBranches } from '../../lib/prune';
@@ -165,14 +174,14 @@ function WorktreeMenu({
         <DropdownMenu.Content
           align="end"
           sideOffset={4}
-          className="z-40 flex w-52 flex-col rounded-md border border-line bg-surface p-1 text-ink shadow-lg dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark"
+          className={`w-60 ${menu}`}
         >
           {main && (
             <>
               <DropdownMenu.Item
                 disabled={busy || empty}
                 title={`Apply all changes to ${main.name} on ${main.branch}`}
-                className={item}
+                className={menuItem}
                 onSelect={() => {
                   onPick();
                   void applyWorktree(view, worktree, target);
@@ -181,12 +190,12 @@ function WorktreeMenu({
                 <ArrowRightFromLine className="size-3" />
                 Apply to main checkout
               </DropdownMenu.Item>
-              <DropdownMenu.Separator className="my-1 h-px bg-line dark:bg-line-dark" />
+              <DropdownMenu.Separator className={menuSeparator} />
             </>
           )}
           <DropdownMenu.Item
             disabled={busy}
-            className={`${item} text-deleted dark:text-deleted-dark`}
+            className={`${menuItem} text-deleted dark:text-deleted-dark`}
             onSelect={() => {
               onPick();
               void deleteWorktree(project, worktree, changes);
@@ -196,7 +205,7 @@ function WorktreeMenu({
             Delete worktree…
           </DropdownMenu.Item>
           {empty && (
-            <p className="px-2 pb-1 pl-7 text-label text-muted dark:text-muted-dark">
+            <p className="px-3.5 pb-1 pl-10.5 text-label text-muted dark:text-muted-dark">
               No changes since it split from main
             </p>
           )}
@@ -205,7 +214,6 @@ function WorktreeMenu({
     </DropdownMenu.Root>
   );
 }
-const item = `flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs outline-none data-disabled:opacity-40 data-highlighted:bg-hover dark:data-highlighted:bg-hover-dark ${focus}`;
 const branchCommands = [
   'branch_switch',
   'smart_checkout',
@@ -474,10 +482,7 @@ export function BranchPopover({
           onPointerDownCapture={markPressedInside}
         >
           <Popover.Trigger asChild>
-            <Button
-              aria-busy={switching}
-              className="border border-line bg-surface dark:border-line-dark dark:bg-surface-dark"
-            >
+            <Button aria-busy={switching} variant="standard" className="h-8">
               {linked && current && (
                 <>
                   {current.main ? (
@@ -493,7 +498,7 @@ export function BranchPopover({
               {status.branch === '(detached)'
                 ? `${status.oid.slice(0, 7)} · detached`
                 : status.branch || 'Branch'}
-              <ChevronDown className="size-3" />
+              <ChevronDown className="size-3 text-muted dark:text-muted-dark" />
             </Button>
           </Popover.Trigger>
           {linked && (othersFailed || othersDirty) && (
@@ -516,18 +521,18 @@ export function BranchPopover({
             style={dynamic({
               '--branches-width': `clamp(320px, min(calc(${longest}ch + 150px), var(--radix-popover-content-available-width, 640px)), 640px)`,
             })}
-            className="z-30 flex h-96 w-branches flex-col rounded-md border border-line bg-surface p-2 text-ink shadow-lg dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark"
+            className={`z-30 flex h-96 w-branches flex-col p-2 ${flyout}`}
           >
-            <div className="flex items-center gap-2 border-b border-line pb-2 dark:border-line-dark">
-              <Search className="size-3.5 shrink-0 text-faint dark:text-faint-dark" />
+            <label className={`mb-2 h-7 ${searchBox}`}>
+              <Search className="size-3.5 shrink-0 text-muted dark:text-muted-dark" />
               <TextInput
                 aria-label={filterLabel}
-                className={field}
+                className={searchInput}
                 placeholder={filterLabel}
                 value={filter}
                 onChange={(event) => setFilter(event.target.value)}
               />
-            </div>
+            </label>
             {query.error && (
               <ErrorRow
                 label="Could not load branches"
@@ -538,12 +543,12 @@ export function BranchPopover({
             <VirtualList
               label="Branches"
               items={rows}
-              height={28}
+              height={30}
               render={(row) => {
                 if (row.kind === 'heading')
                   return (
                     <div className="flex h-group items-center gap-2 px-2">
-                      <h3 className="flex-1 text-label font-semibold tracking-wider text-faint uppercase dark:text-faint-dark">
+                      <h3 className="flex-1 text-label font-semibold text-muted dark:text-muted-dark">
                         {row.heading}
                       </h3>
                       {row.heading === 'Local branches' && tracked && (
@@ -594,7 +599,7 @@ export function BranchPopover({
                         />
                         <WorktreeIcon worktree={worktree} />
                         <span className="truncate">{worktree.name}</span>
-                        <span className="truncate font-mono text-label text-muted dark:text-muted-dark">
+                        <span className="truncate font-mono text-badge text-muted dark:text-muted-dark">
                           {worktree.bare
                             ? 'bare'
                             : status
@@ -694,11 +699,11 @@ export function BranchPopover({
                         <DropdownMenu.Content
                           align="end"
                           sideOffset={4}
-                          className="z-40 flex w-52 flex-col rounded-md border border-line bg-surface p-1 text-ink shadow-lg dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark"
+                          className={`w-60 ${menu}`}
                         >
                           <DropdownMenu.Item
                             disabled={disabled || branch.current}
-                            className={item}
+                            className={menuItem}
                             onSelect={() => {
                               setOpen(false);
                               void mergeBranch(
@@ -713,7 +718,7 @@ export function BranchPopover({
                           </DropdownMenu.Item>
                           <DropdownMenu.Item
                             disabled={branch.current}
-                            className={item}
+                            className={menuItem}
                             onSelect={() => {
                               setOpen(false);
                               openCompare(repo, {
@@ -725,12 +730,12 @@ export function BranchPopover({
                             <GitCompare className="size-3" />
                             Compare with {status.branch}
                           </DropdownMenu.Item>
-                          <DropdownMenu.Separator className="my-1 h-px bg-line dark:bg-line-dark" />
+                          <DropdownMenu.Separator className={menuSeparator} />
                           <DropdownMenu.Item
                             disabled={
                               disabled || branch.current || Boolean(holder)
                             }
-                            className={`${item} text-deleted dark:text-deleted-dark`}
+                            className={`${menuItem} text-deleted dark:text-deleted-dark`}
                             onSelect={() => {
                               void confirm(
                                 branch.remote
@@ -750,7 +755,7 @@ export function BranchPopover({
                             Delete branch
                           </DropdownMenu.Item>
                           {holder && (
-                            <p className="px-2 pb-1 pl-7 text-label text-muted dark:text-muted-dark">
+                            <p className="px-3.5 pb-1 pl-10.5 text-label text-muted dark:text-muted-dark">
                               Checked out in {holder.name}
                             </p>
                           )}
@@ -763,7 +768,7 @@ export function BranchPopover({
             />
             <div className="mt-2 flex gap-1.5 border-t border-line pt-2 dark:border-line-dark">
               <Button
-                className="border border-line dark:border-line-dark"
+                variant="standard"
                 disabled={disabled}
                 onClick={() => {
                   setOpen(false);
@@ -774,7 +779,7 @@ export function BranchPopover({
                 New branch
               </Button>
               <Button
-                className="border border-line dark:border-line-dark"
+                variant="standard"
                 disabled={disabled}
                 onClick={() => {
                   setOpen(false);
@@ -804,8 +809,27 @@ export function BranchPopover({
         focusId="new-branch-name"
         open={creating}
         onOpenChange={setCreating}
+        footer={
+          <>
+            <CreateButton
+              form="new-branch-form"
+              mode={mode}
+              disabled={blocked}
+              optionsLabel="Create options"
+              onMode={setMode}
+            />
+            <Button
+              variant="standard"
+              className="h-8"
+              onClick={() => setCreating(false)}
+            >
+              Cancel
+            </Button>
+          </>
+        }
       >
         <form
+          id="new-branch-form"
           className="flex flex-col gap-4"
           onSubmit={async (event) => {
             event.preventDefault();
@@ -823,13 +847,13 @@ export function BranchPopover({
             if (mode === 'switch') await checkout(repo, name);
           }}
         >
-          <div className="flex flex-col gap-1 text-xs">
+          <div className="flex flex-col gap-1 text-sm">
             <label htmlFor="new-branch-name">Name</label>
             <TextInput
               id="new-branch-name"
               aria-invalid={Boolean(problem)}
               aria-describedby="new-branch-hint"
-              className={`${field} h-7 font-mono text-xs`}
+              className={`${field} h-8 font-mono text-diff`}
               placeholder="feature/short-description"
               value={name}
               onChange={(event) =>
@@ -846,7 +870,7 @@ export function BranchPopover({
               )}
             </div>
           </div>
-          <div className="flex flex-col gap-1 text-xs">
+          <div className="flex flex-col gap-1 text-sm">
             <span>Based on</span>
             <Select
               label="Based on"
@@ -854,6 +878,7 @@ export function BranchPopover({
               icon={
                 <GitBranch className="size-3.5 shrink-0 text-muted dark:text-muted-dark" />
               }
+              mono
               value={chosenBase}
               groups={[
                 { label: 'Local', options: head ? local : ['HEAD', ...local] },
@@ -861,20 +886,6 @@ export function BranchPopover({
               ].filter((group) => group.options.length)}
               badges={head ? { [head]: 'current' } : { HEAD: 'detached' }}
               onChange={setBase}
-            />
-          </div>
-          <div className="flex justify-end gap-1.5 border-t border-line pt-4 dark:border-line-dark">
-            <Button
-              className="h-7 px-3 font-medium text-muted dark:text-muted-dark"
-              onClick={() => setCreating(false)}
-            >
-              Cancel
-            </Button>
-            <CreateButton
-              mode={mode}
-              disabled={blocked}
-              optionsLabel="Create options"
-              onMode={setMode}
             />
           </div>
         </form>

@@ -6,7 +6,7 @@ import { useErrors } from '../stores/errors';
 type Handler = (args: never) => unknown;
 const handlers = new Map<string, Handler>();
 const listeners = new Map<string, Set<(event: { payload: unknown }) => void>>();
-export const host = { platform: 'macos', title: '' };
+export const host = { platform: 'macos', version: '15.0.0', title: '' };
 export const dialog = {
   path: null as string | null,
   approved: true,
@@ -51,6 +51,7 @@ export function resetHarness() {
   listeners.clear();
   calls.length = 0;
   host.platform = 'macos';
+  host.version = '15.0.0';
   dialog.path = null;
   dialog.approved = true;
   dialog.asked = 0;
@@ -107,4 +108,7 @@ vi.mock('@tauri-apps/api/window', () => ({
     },
   }),
 }));
-vi.mock('@tauri-apps/plugin-os', () => ({ platform: () => host.platform }));
+vi.mock('@tauri-apps/plugin-os', () => ({
+  platform: () => host.platform,
+  version: () => host.version,
+}));

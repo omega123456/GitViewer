@@ -329,7 +329,7 @@ describe('all changes pane', () => {
     await user.click(
       within(
         await within(pane).findByLabelText('Image comparison mode'),
-      ).getByRole('radio', { name: 'swipe' }),
+      ).getByRole('tab', { name: 'swipe' }),
     );
     expect(useImageViews.getState().tabs[`${repository.id}:new.txt`].mode).toBe(
       'swipe',
@@ -455,7 +455,7 @@ describe('all changes pane', () => {
     useLayout.getState().update(repository.id, { compareTarget: 'feature' });
     mount();
     await screen.findByLabelText('Commit message');
-    await user.click(screen.getByRole('radio', { name: 'compare' }));
+    await user.click(screen.getByRole('tab', { name: 'compare' }));
     const stack = await screen.findByRole('region', {
       name: 'All changes between branches',
     });
@@ -556,8 +556,8 @@ describe('all changes pane', () => {
     await within(
       await screen.findByRole('tree', { name: 'Changed files' }),
     ).findByRole('treeitem', { name: /app\.ts/ });
-    await user.click(screen.getByRole('radio', { name: 'working tree' }));
-    await user.click(screen.getByRole('radio', { name: 'compare' }));
+    await user.click(screen.getByRole('tab', { name: 'working tree' }));
+    await user.click(screen.getByRole('tab', { name: 'compare' }));
     expect(screen.getByLabelText('Base')).toHaveValue('island');
     await action('branches');
     await user.click(await screen.findByTitle('Compare with feature'));

@@ -556,6 +556,11 @@ describe('repository workflows', () => {
     await user.click(
       within(fileTree).getByRole('treeitem', { name: 'app.ts' }),
     );
+    expect(
+      within(fileTree)
+        .getByRole('treeitem', { name: 'app.ts' })
+        .querySelector('.w-accent'),
+    ).not.toBeNull();
     expect(useSelection.getState().history[repository.id]?.revision).toBe(
       commit.hash,
     );
@@ -808,9 +813,11 @@ describe('repository workflows', () => {
     fireEvent.pointerDown(handle);
     fireEvent.pointerMove(handle, { clientY: 300 });
     expect(handle).toHaveAttribute('aria-valuenow', '50');
-    await user.click(
-      await screen.findByRole('button', { name: /Saved experiment/ }),
-    );
+    const stashRow = await screen.findByRole('button', {
+      name: /Saved experiment/,
+    });
+    await user.click(stashRow);
+    expect(stashRow.parentElement!.querySelector('.w-accent')).not.toBeNull();
     const fileTree = await screen.findByRole('tree', { name: 'Stash files' });
     await within(fileTree).findByRole('treeitem', { name: 'app.ts' });
     const filesHandle = screen.getByLabelText('Resize stash files');

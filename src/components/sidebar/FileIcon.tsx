@@ -74,12 +74,12 @@ export function FileIcon({
   name,
   directory,
   expanded = false,
-  size = 'size-3',
+  size = 'size-3.75',
 }: {
   name: string;
   directory: boolean;
   expanded?: boolean;
-  size?: 'size-3' | 'size-3.5';
+  size?: 'size-3.75' | 'size-3.5';
 }) {
   const category = fileCategory(name, directory);
   const Glyph =

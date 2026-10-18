@@ -376,7 +376,7 @@ export const RepositoryView = memo(function RepositoryView({
       {status.conflicted && (
         <div
           role="alert"
-          className={`flex items-center gap-2 px-3 py-2 text-xs ${status.merging ? 'bg-merge text-merge-ink dark:bg-merge-dark dark:text-merge-ink-dark' : 'bg-remove text-remove-ink dark:bg-remove-dark dark:text-remove-ink-dark'}`}
+          className={`flex items-center gap-2 px-3 py-2 text-sm ${status.merging ? 'bg-merge text-merge-ink dark:bg-merge-dark dark:text-merge-ink-dark' : 'bg-remove text-remove-ink dark:bg-remove-dark dark:text-remove-ink-dark'}`}
         >
           {status.merging ? (
             <>

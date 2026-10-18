@@ -257,7 +257,7 @@ function ConflictBanner({
   return (
     <div
       role="alert"
-      className="flex shrink-0 items-center gap-2.5 border-b border-line bg-merge px-3 py-1.5 text-xs text-merge-ink dark:border-line-dark dark:bg-merge-dark dark:text-merge-ink-dark"
+      className="flex shrink-0 items-center gap-2.5 border-b border-line bg-merge px-3 py-1.5 text-sm text-merge-ink dark:border-line-dark dark:bg-merge-dark dark:text-merge-ink-dark"
     >
       {current ? (
         <span>

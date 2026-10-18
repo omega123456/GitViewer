@@ -27,7 +27,7 @@ import { useDeferredFilter } from '../../stores/filter';
 import { useCompact } from '../../stores/density';
 import type { Lines, Source, Status, TreeEntry } from '../../lib/types';
 import { LineCount } from '../shared/LineCount';
-import { dynamic, focus, revealSlot, rowTint } from '../shared/styles';
+import { dynamic, focus, pill, revealSlot, rowTint } from '../shared/styles';
 import { FileMenu } from '../shared/FileMenu';
 import { GroupHeader } from '../shared/Section';
 import { State } from '../states/State';
@@ -172,10 +172,10 @@ export function ChangesTree({
             return (
               <div
                 key={item.getId()}
-                className={`group absolute top-0 left-0 flex w-full translate-y-row items-center ${rowTint} ${selection?.path === node.path && selection.source === source ? 'bg-selected dark:bg-selected-dark' : ''}`}
+                className={`group absolute top-0 right-1 left-1 flex translate-y-row items-center rounded ${rowTint} ${selection?.path === node.path && selection.source === source ? 'bg-selected dark:bg-selected-dark' : ''}`}
                 style={dynamic({
                   '--row-offset': `${row.start}px`,
-                  '--tree-indent': `${item.getItemMeta().level * 14 + 8}px`,
+                  '--tree-indent': `${item.getItemMeta().level * 16 + 6}px`,
                 })}
               >
                 <FileMenu
@@ -196,18 +196,14 @@ export function ChangesTree({
                     className={`relative flex min-w-0 flex-1 items-center gap-1.5 pr-2 pl-indent text-left text-sm ${compact ? 'h-tree-compact' : 'h-tree-comfortable'} ${focus}`}
                   >
                     {selection?.path === node.path &&
-                      selection.source === target && (
-                        <span className="absolute inset-y-0 left-0 w-accent bg-accent" />
-                      )}
+                      selection.source === target && <span className={pill} />}
                     {node.directory ? (
                       item.isExpanded() ? (
                         <ChevronDown className="size-3 shrink-0 text-muted dark:text-muted-dark" />
                       ) : (
                         <ChevronRight className="size-3 shrink-0 text-muted dark:text-muted-dark" />
                       )
-                    ) : (
-                      <span className="w-3 shrink-0" />
-                    )}
+                    ) : null}
                     <FileIcon
                       name={node.name}
                       directory={node.directory}
@@ -442,24 +438,20 @@ export function FilesTree({ repo, status }: { repo: string; status: Status }) {
                       ),
                     });
                 }}
-                className={`absolute top-0 left-0 flex w-full translate-y-row items-center gap-1.5 pr-2 pl-indent text-left text-sm hover:bg-hover dark:hover:bg-hover-dark ${compact ? 'h-tree-compact' : 'h-tree-comfortable'} ${node.ignored ? 'opacity-55' : ''} ${selection?.path === node.path ? 'bg-selected dark:bg-selected-dark' : ''} ${focus}`}
+                className={`absolute top-0 right-1 left-1 flex translate-y-row items-center gap-1.5 rounded pr-2 pl-indent text-left text-sm hover:bg-hover dark:hover:bg-hover-dark ${compact ? 'h-tree-compact' : 'h-tree-comfortable'} ${node.ignored ? 'opacity-55' : ''} ${selection?.path === node.path ? 'bg-selected dark:bg-selected-dark' : ''} ${focus}`}
                 style={dynamic({
                   '--row-offset': `${row.start}px`,
-                  '--tree-indent': `${item.getItemMeta().level * 14 + 8}px`,
+                  '--tree-indent': `${item.getItemMeta().level * 16 + 6}px`,
                 })}
               >
-                {selection?.path === node.path && (
-                  <span className="absolute inset-y-0 left-0 w-accent bg-accent" />
-                )}
+                {selection?.path === node.path && <span className={pill} />}
                 {node.directory ? (
                   item.isExpanded() ? (
                     <ChevronDown className="size-3 shrink-0 text-muted dark:text-muted-dark" />
                   ) : (
                     <ChevronRight className="size-3 shrink-0 text-muted dark:text-muted-dark" />
                   )
-                ) : (
-                  <span className="w-3 shrink-0" />
-                )}
+                ) : null}
                 <FileIcon
                   name={node.name}
                   directory={node.directory}

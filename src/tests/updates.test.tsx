@@ -5,6 +5,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { expect, it } from 'vitest';
 import { QueryProvider } from '../providers/QueryProvider';
 import {
@@ -61,13 +62,13 @@ it('shows build availability and every operation status honestly', () => {
 it('checks manually and saves both update preferences through IPC', async () => {
   mockCommand('update_check', () => available);
   mockCommand('settings_set', (args) => args);
+  const user = userEvent.setup();
   show();
   await screen.findByText('Better updates');
-  fireEvent.click(screen.getByRole('button', { name: 'Check now' }));
-  fireEvent.change(screen.getByLabelText('Check for updates'), {
-    target: { value: 'off' },
-  });
-  fireEvent.click(screen.getByLabelText('Install on quit'));
+  await user.click(screen.getByRole('button', { name: 'Check now' }));
+  await user.click(screen.getByLabelText('Check for updates'));
+  await user.click(await screen.findByRole('option', { name: 'Off' }));
+  await user.click(screen.getByRole('switch', { name: 'Install on quit' }));
   await waitFor(() =>
     expect(calls).toContainEqual({
       command: 'settings_set',

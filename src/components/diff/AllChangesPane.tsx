@@ -266,24 +266,24 @@ export const AllChangesPane = memo(function AllChangesPane({
       className="flex h-full min-w-0 flex-col"
       aria-label={stashed ? 'All changes in stash' : labels[stack]}
     >
-      <header className="flex h-tab shrink-0 items-center gap-2 border-b border-line px-3 text-sm dark:border-line-dark">
+      <header className="flex h-9.5 shrink-0 items-center gap-1 border-b border-line px-2.5 text-sm dark:border-line-dark">
         <span className="font-semibold">
           {stashed ? 'Stash' : titles[stack]}
         </span>
         {commit?.revision && (
-          <span className="font-mono text-label text-muted">
+          <span className="font-mono text-badge text-muted">
             {commit.revision.slice(0, 7)}
           </span>
         )}
         {stack === 'compare' && (
-          <span className="truncate font-mono text-label">
+          <span className="truncate font-mono text-badge">
             {comparison.base}{' '}
             <span className="text-faint dark:text-faint-dark">→</span>{' '}
             {comparison.target}
           </span>
         )}
         {stack === 'compare' && !listing ? (
-          <span className="ml-auto shrink-0 font-mono text-label text-muted">
+          <span className="ml-auto shrink-0 font-mono text-badge text-muted">
             {entries.length} files ·{' '}
             <span className="text-added dark:text-added-dark">
               +{totals.additions}
@@ -295,7 +295,7 @@ export const AllChangesPane = memo(function AllChangesPane({
         ) : listing ? (
           <Spinner className="size-3.5 text-muted" />
         ) : (
-          <span className="font-mono text-label text-muted">
+          <span className="font-mono text-badge text-muted">
             {entries.length}
           </span>
         )}
@@ -529,7 +529,7 @@ const FileDiff = memo(function FileDiff({
   );
   return (
     <div ref={box} className="border-b border-line dark:border-line-dark">
-      <div className="sticky top-0 z-10 flex h-tab items-center gap-1 bg-sub pr-3 dark:bg-sub-dark">
+      <div className="sticky top-0 z-10 flex h-8.5 items-center gap-1 bg-sub pr-3 dark:bg-sub-dark">
         <button
           type="button"
           aria-expanded={open}
@@ -547,12 +547,12 @@ const FileDiff = memo(function FileDiff({
           </span>
           <DiffSourcePill selection={selection} />
           {Boolean(added) && (
-            <span className="shrink-0 font-mono text-label text-added dark:text-added-dark">
+            <span className="shrink-0 font-mono text-badge text-added dark:text-added-dark">
               +{added}
             </span>
           )}
           {Boolean(removed) && (
-            <span className="shrink-0 font-mono text-label text-deleted dark:text-deleted-dark">
+            <span className="shrink-0 font-mono text-badge text-deleted dark:text-deleted-dark">
               −{removed}
             </span>
           )}

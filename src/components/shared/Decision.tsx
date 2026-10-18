@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { Popover } from 'radix-ui';
 import { answer, useDecision, type DecisionSlot } from '../../stores/decision';
 import { Button } from './Button';
+import { flyout } from './styles';
 export function Decision({
   repo,
   slot,
@@ -36,7 +37,7 @@ export function Decision({
               event.preventDefault();
               primary.current?.focus();
             }}
-            className="z-40 flex w-toast max-w-full flex-col gap-2.5 rounded-md border border-line bg-surface p-3.5 text-xs text-ink shadow-lg dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark"
+            className={`z-40 flex w-toast max-w-full flex-col gap-2.5 p-3.5 text-sm ${flyout}`}
           >
             <h2 className="text-sm font-semibold">{decision.title}</h2>
             <p className="text-muted dark:text-muted-dark">{decision.body}</p>
@@ -45,7 +46,7 @@ export function Decision({
                 {decision.paths.map((path) => (
                   <li
                     key={path}
-                    className="rounded-full border border-line bg-sub px-2 font-mono text-label dark:border-line-dark dark:bg-sub-dark"
+                    className="rounded-full border border-line bg-sub px-2 font-mono text-badge dark:border-line-dark dark:bg-sub-dark"
                   >
                     {path}
                   </li>
@@ -59,10 +60,7 @@ export function Decision({
               <span className="mr-auto text-label text-faint dark:text-faint-dark">
                 Esc to cancel
               </span>
-              <Button
-                className="border border-line dark:border-line-dark"
-                onClick={() => answer(repo, false)}
-              >
+              <Button variant="standard" onClick={() => answer(repo, false)}>
                 Cancel
               </Button>
               <Button

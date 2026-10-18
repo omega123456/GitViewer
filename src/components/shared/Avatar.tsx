@@ -22,7 +22,7 @@ export function Avatar({ author, small }: { author: string; small?: boolean }) {
   return (
     <span
       aria-hidden="true"
-      className={`flex shrink-0 items-center justify-center rounded-full font-sans font-semibold text-white ${palette[seed % palette.length]} ${small ? 'size-4 text-label' : 'size-5 text-label'}`}
+      className={`flex shrink-0 items-center justify-center rounded-full font-sans font-semibold text-white ${palette[seed % palette.length]} ${small ? 'size-4' : 'size-5'} text-badge`}
     >
       {initials(author)}
     </span>

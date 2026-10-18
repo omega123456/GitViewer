@@ -472,6 +472,9 @@ fn zoom_is_limited_to_the_presets_and_applies_to_the_main_window() {
         .build()
         .unwrap();
     settings::apply_zoom(app.handle(), 125).unwrap();
+    for theme in ["system", "light", "dark"] {
+        settings::apply_backdrop(app.handle(), theme).unwrap();
+    }
 }
 #[test]
 fn settings_carry_ai_defaults_validation_and_a_legacy_file() {

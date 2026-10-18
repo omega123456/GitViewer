@@ -182,6 +182,7 @@ pub async fn dispatch<R: tauri::Runtime>(
                 service.preferences(settings.clone());
             }
             settings::apply_zoom(&app, settings.zoom)?;
+            settings::apply_backdrop(&app, &settings.theme)?;
             app.emit("settings://changed", ()).map_err(Error::from)?;
             return raw(&settings);
         }

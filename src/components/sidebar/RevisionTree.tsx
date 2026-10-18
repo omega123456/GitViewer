@@ -12,7 +12,7 @@ import { StatusBadge } from './StatusBadge';
 import { LineCount } from '../shared/LineCount';
 import type { Lines } from '../../lib/types';
 import { useCompact } from '../../stores/density';
-import { dynamic, focus } from '../shared/styles';
+import { dynamic, focus, pill } from '../shared/styles';
 import {
   changeNodes,
   directoryIds,
@@ -111,21 +111,20 @@ export function RevisionTree({
                 item.getProps().onClick?.(event);
                 if (!node.directory) onSelect(node.path);
               }}
-              className={`absolute top-0 left-0 flex w-full translate-y-row items-center gap-1.5 pr-2 pl-indent text-left text-sm hover:bg-hover dark:hover:bg-hover-dark ${compact ? 'h-tree-compact' : 'h-tree-comfortable'} ${selectedPath === node.path ? 'bg-selected dark:bg-selected-dark' : ''} ${focus}`}
+              className={`absolute top-0 right-1 left-1 flex translate-y-row items-center gap-1.5 rounded pr-2 pl-indent text-left text-sm hover:bg-hover dark:hover:bg-hover-dark ${compact ? 'h-tree-compact' : 'h-tree-comfortable'} ${selectedPath === node.path ? 'bg-selected dark:bg-selected-dark' : ''} ${focus}`}
               style={dynamic({
                 '--row-offset': `${row.start}px`,
-                '--tree-indent': `${item.getItemMeta().level * 14 + 8}px`,
+                '--tree-indent': `${item.getItemMeta().level * 16 + 6}px`,
               })}
             >
+              {selectedPath === node.path && <span className={pill} />}
               {node.directory ? (
                 item.isExpanded() ? (
                   <ChevronDown className="size-3 shrink-0 text-muted dark:text-muted-dark" />
                 ) : (
                   <ChevronRight className="size-3 shrink-0 text-muted dark:text-muted-dark" />
                 )
-              ) : (
-                <span className="w-3 shrink-0" />
-              )}
+              ) : null}
               <FileIcon
                 name={node.name}
                 directory={node.directory}

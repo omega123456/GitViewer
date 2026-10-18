@@ -14,7 +14,6 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
-  File,
   FileCog,
   History,
   Image,
@@ -44,6 +43,7 @@ import { ImageDiff } from '../image/ImageDiff';
 import { BlameView } from './BlameView';
 import { FindBar, findActions } from './FindBar';
 import { useFind } from './find';
+import { FileIcon } from '../sidebar/FileIcon';
 import { DiffSourcePill } from './DiffSourcePill';
 import { DiffToolbar } from './DiffToolbar';
 import { DiffSurface, type DiffSurfaceHandle } from './DiffSurface';
@@ -341,10 +341,12 @@ function SelectedDiff({
   ]);
   return (
     <section className="flex h-full min-w-0 flex-col" aria-label="Diff viewer">
-      <header className="flex h-tab shrink-0 items-center gap-2 border-b border-line px-3 dark:border-line-dark">
-        <File className="size-4 shrink-0 text-faint dark:text-faint-dark" />
+      <header className="flex h-9.5 shrink-0 items-center gap-1 border-b border-line px-2.5 text-sm dark:border-line-dark">
+        <span className="mr-1 flex">
+          <FileIcon name={name} directory={false} />
+        </span>
         <span className="truncate text-sm" title={selection.path}>
-          <span className="text-muted">{directory}</span>
+          <span className="text-muted dark:text-muted-dark">{directory}</span>
           <span className="font-semibold">{name}</span>
         </span>
         {dirty && (
@@ -361,12 +363,12 @@ function SelectedDiff({
         />
         <DiffSourcePill selection={selection} />
         {Boolean(added) && (
-          <span className="shrink-0 font-mono text-label text-added dark:text-added-dark">
+          <span className="shrink-0 font-mono text-badge text-added dark:text-added-dark">
             +{added}
           </span>
         )}
         {Boolean(removed) && (
-          <span className="shrink-0 font-mono text-label text-deleted dark:text-deleted-dark">
+          <span className="shrink-0 font-mono text-badge text-deleted dark:text-deleted-dark">
             −{removed}
           </span>
         )}
@@ -396,14 +398,14 @@ function SelectedDiff({
               onClick={toggleRendered}
             >
               <Eye className="size-4" />
-              <span className="min-w-14">
+              <span className="min-w-16">
                 {rendered ? 'Source' : 'Rendered'}
               </span>
             </Button>
           )}
           <Button onClick={toggleBlame}>
             <User className="size-4" />
-            <span className="min-w-9">
+            <span className="min-w-10.5">
               {selection.blame ? 'Diff' : 'Blame'}
             </span>
           </Button>

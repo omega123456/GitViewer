@@ -1,10 +1,8 @@
 import type { GitError } from './types';
-export type FailureKind = 'network' | 'authentication' | 'alert';
 export type Recovery = 'retry' | 'pull' | null;
 export interface Described {
   title: string;
   summary: string;
-  kind: FailureKind;
   recovery: Recovery;
 }
 const headlines: Record<string, string> = {
@@ -34,16 +32,11 @@ export function describe(error: GitError): Described {
       title: 'Push rejected',
       summary:
         'The remote has commits that you do not have. Pull, then push again.',
-      kind: 'alert',
       recovery: 'pull',
     };
   return {
     title: headlines[error.category] ?? 'Something went wrong',
     summary: summarize(error.message),
-    kind:
-      error.category === 'network' || error.category === 'authentication'
-        ? error.category
-        : 'alert',
     recovery: error.category === 'network' ? 'retry' : null,
   };
 }

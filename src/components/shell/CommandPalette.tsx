@@ -20,7 +20,7 @@ import { sourceFor } from '../sidebar/nodes';
 import { StatusBadge } from '../sidebar/StatusBadge';
 import { Button } from '../shared/Button';
 import { Modal } from '../shared/Modal';
-import { focusInset } from '../shared/styles';
+import { focusInset, pill } from '../shared/styles';
 const groupNames: Record<string, string> = {
   app: 'Application',
   repository: 'Repository',
@@ -265,7 +265,7 @@ export function CommandPalette({ repo }: { repo: string }) {
       <div ref={list} className="max-h-120 overflow-auto p-1.5">
         {visible.map((group) => (
           <div key={group.name}>
-            <h3 className="flex h-group items-center px-3 text-label font-semibold tracking-wider text-faint uppercase dark:text-faint-dark">
+            <h3 className="flex h-group items-center px-3 text-label font-semibold text-muted dark:text-muted-dark">
               {group.name}
             </h3>
             {group.rows.map((row) => (
@@ -285,8 +285,9 @@ export function CommandPalette({ repo }: { repo: string }) {
                   setIndex(enabled.indexOf(row));
                 }}
                 onClick={() => run(row)}
-                className={`flex h-10 w-full items-center gap-3 rounded px-3 text-sm disabled:opacity-40 ${row === current ? 'bg-selected dark:bg-selected-dark' : ''} ${focusInset}`}
+                className={`relative flex h-10 w-full items-center gap-3 rounded px-3 text-sm disabled:opacity-40 ${row === current ? 'bg-selected dark:bg-selected-dark' : ''} ${focusInset}`}
               >
+                {row === current && <span className={pill} />}
                 <span className="flex size-3.5 shrink-0 items-center justify-center text-muted dark:text-muted-dark">
                   {row.icon}
                 </span>

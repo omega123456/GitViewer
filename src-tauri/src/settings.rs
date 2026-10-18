@@ -70,6 +70,28 @@ pub fn apply_zoom<R: tauri::Runtime>(app: &tauri::AppHandle<R>, zoom: u32) -> Re
     }
     Ok(())
 }
+pub fn apply_backdrop<R: tauri::Runtime>(app: &tauri::AppHandle<R>, theme: &str) -> Result<()> {
+    #[cfg(windows)]
+    {
+        use tauri::window::{Effect, EffectsBuilder};
+        use tauri::Manager;
+        let tabbed = matches!(
+            tauri_plugin_os::version(),
+            tauri_plugin_os::Version::Semantic(_, _, build) if build >= 22000
+        );
+        if let (true, Some(window)) = (tabbed, app.get_webview_window("main")) {
+            let effect = match theme {
+                "dark" => Effect::TabbedDark,
+                "light" => Effect::TabbedLight,
+                _ => Effect::Tabbed,
+            };
+            window.set_effects(EffectsBuilder::new().effect(effect).build())?;
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (app, theme);
+    Ok(())
+}
 pub fn endpoint_supported(base_url: &str) -> bool {
     reqwest::Url::parse(base_url).is_ok_and(|url| matches!(url.scheme(), "http" | "https"))
 }

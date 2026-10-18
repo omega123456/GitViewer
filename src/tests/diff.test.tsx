@@ -342,8 +342,8 @@ describe('diff interaction', () => {
     );
     for (const mode of ['swipe', 'onion skin', 'side by side']) {
       await action('image-mode');
-      expect(screen.getByRole('radio', { name: mode })).toHaveAttribute(
-        'aria-checked',
+      expect(screen.getByRole('tab', { name: mode })).toHaveAttribute(
+        'aria-selected',
         'true',
       );
     }
@@ -401,7 +401,7 @@ describe('diff interaction', () => {
       </QueryProvider>
     );
     const { rerender } = render(pane('before.png'));
-    await user.click(await screen.findByRole('radio', { name: 'swipe' }));
+    await user.click(await screen.findByRole('tab', { name: 'swipe' }));
     const divider = screen.getByRole('slider', { name: 'Swipe divider' });
     fireEvent.pointerDown(divider);
     fireEvent.pointerMove(divider, { clientX: 600 });
@@ -412,8 +412,8 @@ describe('diff interaction', () => {
     expect(
       await screen.findByRole('slider', { name: 'Swipe divider' }),
     ).toHaveAttribute('aria-valuenow', '75');
-    expect(screen.getByRole('radio', { name: 'swipe' })).toHaveAttribute(
-      'aria-checked',
+    expect(screen.getByRole('tab', { name: 'swipe' })).toHaveAttribute(
+      'aria-selected',
       'true',
     );
     expect(
@@ -462,7 +462,7 @@ describe('diff interaction', () => {
     );
     expect(
       within(screen.getByLabelText('Image comparison mode')).getAllByRole(
-        'radio',
+        'tab',
       ),
     ).toHaveLength(3);
   });
@@ -658,7 +658,7 @@ describe('keyboard and pointer access', () => {
         diff={diff}
       />,
     );
-    await user.click(screen.getByRole('radio', { name: 'swipe' }));
+    await user.click(screen.getByRole('tab', { name: 'swipe' }));
     const divider = screen.getByLabelText('Swipe divider');
     fireEvent.pointerDown(divider);
     fireEvent.pointerMove(divider, { clientX: 600 });
@@ -691,14 +691,14 @@ describe('rendered Markdown', () => {
       .getState()
       .select(repository.id, { path: 'README.md', source: 'unstaged' });
     mount();
-    expect(await screen.findByRole('radio', { name: 'split' })).toBeVisible();
+    expect(await screen.findByRole('tab', { name: 'split' })).toBeVisible();
     await action('rendered');
     expect(
       await screen.findByRole('heading', { name: 'Release notes' }),
     ).toBeVisible();
     expect(screen.getByText('Kept sentence.')).toBeVisible();
     expect(screen.queryByText('Dropped sentence.')).toBeNull();
-    expect(screen.queryByRole('radio', { name: 'split' })).toBeNull();
+    expect(screen.queryByRole('tab', { name: 'split' })).toBeNull();
     const article = screen.getByRole('article');
     expect(article.querySelector('script')).toBeNull();
     expect(article.querySelector('code')).toHaveTextContent('pnpm install');
@@ -707,7 +707,7 @@ describe('rendered Markdown', () => {
     );
     expect(workers.jobs.map((job) => job.path)).toContain('fence.bash');
     await action('rendered');
-    expect(await screen.findByRole('radio', { name: 'split' })).toBeVisible();
+    expect(await screen.findByRole('tab', { name: 'split' })).toBeVisible();
   });
   it('renders the last version of a deleted file behind a notice', async () => {
     setup();

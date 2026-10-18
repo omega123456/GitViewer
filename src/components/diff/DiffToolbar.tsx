@@ -11,10 +11,10 @@ import {
 import type { Settings } from '../../lib/types';
 import { useDiffView } from '../../stores/diff-view';
 import { Button } from '../shared/Button';
-import { Segment } from '../shared/Segment';
+import { ViewSwitch } from '../shared/ViewSwitch';
 import { focus } from '../shared/styles';
 function toggle(pressed: boolean) {
-  return `grid size-control place-items-center rounded ${pressed ? 'bg-selected text-accent dark:bg-selected-dark dark:text-accent-dark' : 'text-muted'} ${focus}`;
+  return `grid size-control place-items-center rounded ${pressed ? 'bg-selected text-accent dark:bg-selected-dark dark:text-accent-dark' : 'text-muted hover:bg-hover dark:text-muted-dark dark:hover:bg-hover-dark'} ${focus}`;
 }
 export function FullFileButton({
   full,
@@ -27,19 +27,22 @@ export function FullFileButton({
     <Button
       title={full ? 'Collapse to changes' : 'Show full file'}
       aria-pressed={full}
-      className={
+      variant="icon"
+      className={`size-control ${
         full
           ? 'bg-selected text-accent dark:bg-selected-dark dark:text-accent-dark'
-          : 'text-muted'
-      }
+          : 'text-muted dark:text-muted-dark'
+      }`}
       onClick={toggle}
     >
-      <UnfoldVertical className="size-4" />
+      <UnfoldVertical className="size-3.5" />
     </Button>
   );
 }
 function Divider() {
-  return <span className="h-4 w-px shrink-0 bg-line dark:bg-line-dark" />;
+  return (
+    <span className="mx-1.5 h-5 w-px shrink-0 bg-line dark:bg-line-dark" />
+  );
 }
 export function DiffToolbar({
   mode,
@@ -64,8 +67,8 @@ export function DiffToolbar({
   if (whitespace) pressed.push('whitespace');
   if (wrap) pressed.push('wrap');
   return (
-    <div className="flex h-8 shrink-0 items-center gap-3 border-b border-line bg-sub px-2 dark:border-line-dark dark:bg-sub-dark">
-      <Segment
+    <div className="flex h-9.5 shrink-0 items-center gap-1 border-b border-line bg-surface px-2.5 dark:border-line-dark dark:bg-surface-dark">
+      <ViewSwitch
         label="Diff mode"
         value={mode}
         options={['split', 'unified']}
@@ -83,30 +86,40 @@ export function DiffToolbar({
           if (next.includes('whitespace') !== whitespace) toggleWhitespace();
           if (next.includes('wrap') !== wrap) toggleWrap();
         }}
-        className="ml-auto inline-flex gap-0.5 rounded bg-track p-0.5 dark:bg-track-dark"
+        className="ml-auto inline-flex gap-1"
       >
         <ToggleGroup.Item
           value="whitespace"
           title="Hide whitespace"
           className={toggle(whitespace)}
         >
-          <Pilcrow className="size-4" />
+          <Pilcrow className="size-3.5" />
         </ToggleGroup.Item>
         <ToggleGroup.Item
           value="wrap"
           title="Word wrap"
           className={toggle(wrap)}
         >
-          <WrapText className="size-4" />
+          <WrapText className="size-3.5" />
         </ToggleGroup.Item>
       </ToggleGroup.Root>
       <Divider />
-      <div className="flex items-center gap-1 text-muted">
-        <Button title="Previous change" onClick={() => move(-1)}>
-          <ArrowUp className="size-4" />
+      <div className="flex items-center gap-1 text-muted dark:text-muted-dark">
+        <Button
+          variant="icon"
+          className="size-control"
+          title="Previous change"
+          onClick={() => move(-1)}
+        >
+          <ArrowUp className="size-3.5" />
         </Button>
-        <Button title="Next change" onClick={() => move(1)}>
-          <ArrowDown className="size-4" />
+        <Button
+          variant="icon"
+          className="size-control"
+          title="Next change"
+          onClick={() => move(1)}
+        >
+          <ArrowDown className="size-3.5" />
         </Button>
       </div>
       {full !== undefined && (

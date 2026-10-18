@@ -1,14 +1,13 @@
 import { useCallback, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { Dialog } from 'radix-ui';
-import { X } from 'lucide-react';
-import { Button } from './Button';
 import { focus } from './styles';
+const surface =
+  'border-line bg-surface dark:border-line-dark dark:bg-surface-dark';
 const sizes = {
-  dialog: 'top-1/4 w-dialog max-w-full shadow-xl',
-  palette:
-    'top-24 w-fit min-w-palette-floor max-w-palette-cap shadow-2xl animate-rise',
+  dialog: `top-1/4 w-dialog max-w-full ${surface}`,
+  palette: `top-24 w-fit min-w-palette-floor max-w-palette-cap animate-rise ${surface}`,
   settings:
-    'top-1/2 -translate-y-1/2 w-settings-width h-settings-height max-w-full max-h-full shadow-xl',
+    'top-1/2 -translate-y-1/2 w-settings-width h-settings-height max-w-full max-h-full border-window-stroke bg-chrome dark:border-window-stroke-dark dark:bg-chrome-dark',
 };
 function useSizeTransition(enabled: boolean) {
   const element = useRef<HTMLDivElement | null>(null);
@@ -50,6 +49,7 @@ export function Modal({
   focusId,
   size = 'dialog',
   onOpenChange,
+  footer,
   children,
 }: {
   title: string;
@@ -58,6 +58,7 @@ export function Modal({
   focusId?: string;
   size?: keyof typeof sizes;
   onOpenChange: (value: boolean) => void;
+  footer?: ReactNode;
   children: ReactNode;
 }) {
   const content = useSizeTransition(open && size === 'palette');
@@ -73,26 +74,29 @@ export function Modal({
             event.preventDefault();
             target.focus();
           }}
-          className={`fixed inset-x-0 z-50 mx-auto overflow-hidden rounded-md border border-line bg-surface text-ink dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark ${sizes[size]} ${hideChrome ? '' : 'p-5'} ${focus}`}
+          className={`fixed inset-x-0 z-50 mx-auto overflow-hidden rounded-md border text-ink shadow-dialog dark:text-ink-dark ${sizes[size]} ${focus}`}
         >
-          {hideChrome ? (
-            <Dialog.Title className="sr-only">{title}</Dialog.Title>
-          ) : (
-            <div className="mb-4 flex items-center justify-between">
-              <Dialog.Title className="text-sm font-semibold">
-                {title}
-              </Dialog.Title>
-              <Dialog.Close asChild>
-                <Button aria-label="Close dialog">
-                  <X className="size-4" />
-                </Button>
-              </Dialog.Close>
-            </div>
-          )}
           <Dialog.Description className="sr-only">
             {title} options
           </Dialog.Description>
-          {children}
+          {hideChrome ? (
+            <>
+              <Dialog.Title className="sr-only">{title}</Dialog.Title>
+              {children}
+            </>
+          ) : (
+            <div className="flex flex-col gap-3 px-6 py-5.5">
+              <Dialog.Title className="text-subtitle font-semibold">
+                {title}
+              </Dialog.Title>
+              {children}
+            </div>
+          )}
+          {footer && (
+            <div className="grid grid-cols-2 gap-2 border-t border-line bg-sub px-6 py-5 dark:border-line-dark dark:bg-sub-dark">
+              {footer}
+            </div>
+          )}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

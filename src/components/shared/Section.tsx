@@ -28,14 +28,14 @@ export function Section({
       aria-label={title}
       className={`flex min-h-0 flex-col ${expanded ? 'flex-1' : 'shrink-0'}`}
     >
-      <div className="flex h-section shrink-0 items-center gap-1 border-b border-line bg-sub px-2 dark:border-line-dark dark:bg-sub-dark">
+      <div className="flex h-section shrink-0 items-center gap-1.5 border-b border-line bg-sub pr-2 pl-2.5 dark:border-line-dark dark:bg-sub-dark">
         <button
           type="button"
           aria-expanded={expanded}
           onClick={() =>
             onOpenChange ? onOpenChange(!expanded) : setInternal(!expanded)
           }
-          className={`flex min-w-0 flex-1 items-center gap-1.5 text-label font-semibold tracking-wider text-muted uppercase ${focus}`}
+          className={`flex min-w-0 flex-1 items-center gap-1.5 text-label font-semibold text-muted dark:text-muted-dark ${focus}`}
         >
           {expanded ? (
             <ChevronDown className="size-3" />
@@ -122,14 +122,14 @@ export function GroupHeader({
   return (
     <h3
       ref={header}
-      className="group/header flex h-group shrink-0 items-center gap-1 overflow-hidden px-2 text-label font-semibold tracking-wider whitespace-nowrap text-faint uppercase dark:text-faint-dark"
+      className="group/header mt-1 flex h-group shrink-0 items-center gap-1.5 overflow-hidden pr-2 pl-2.5 text-label font-semibold whitespace-nowrap text-muted dark:text-muted-dark"
     >
       <span>{title}</span>
       <LineCount
         lines={lines}
         className={`ml-0.5 ${tight ? 'group-focus-within/header:hidden group-hover/header:hidden' : ''}`}
       />
-      <span ref={counter} className="ml-auto font-mono">
+      <span ref={counter} className="ml-auto font-mono text-badge font-normal">
         {count}
       </span>
       {folds && (
@@ -146,7 +146,7 @@ export function GroupHeader({
 }
 function CountPill({ count }: { count: number }) {
   return (
-    <span className="ml-auto rounded-full bg-hover px-1.5 font-mono font-normal tracking-normal dark:bg-hover-dark">
+    <span className="ml-auto rounded-full bg-hover px-1.5 font-mono font-normal dark:bg-hover-dark">
       {count}
     </span>
   );

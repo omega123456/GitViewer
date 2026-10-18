@@ -60,7 +60,7 @@ export function FindBar({
           ref={input}
           aria-label="Find in file"
           placeholder="Find in file"
-          className={`${field} py-0.5 text-xs`}
+          className={`${field} h-7 text-sm`}
           value={find.query}
           onChange={(event) => find.search(event.target.value)}
           onKeyDown={(event) => {

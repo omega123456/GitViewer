@@ -17,7 +17,13 @@ import { Decision } from '../shared/Decision';
 import { ErrorRow } from '../states/Errors';
 import { GroupHeader, Section } from '../shared/Section';
 import { Spinner } from '../shared/Spinner';
-import { dynamic, pinnedSlot, revealSlot, rowTint } from '../shared/styles';
+import {
+  dynamic,
+  pill,
+  pinnedSlot,
+  revealSlot,
+  rowTint,
+} from '../shared/styles';
 import { VirtualList } from '../shared/VirtualList';
 import { percentBelow, ResizeHandle } from '../shell/ResizeHandle';
 export const StashSection = memo(function StashSection({
@@ -179,8 +185,9 @@ export const StashSection = memo(function StashSection({
                 });
                 return (
                   <div
-                    className={`group relative flex w-full items-center ${rowTint} ${selected === stash.hash ? 'bg-selected dark:bg-selected-dark' : ''}`}
+                    className={`group relative mx-1 flex items-center rounded ${rowTint} ${selected === stash.hash ? 'bg-selected dark:bg-selected-dark' : ''}`}
                   >
+                    {selected === stash.hash && <span className={pill} />}
                     <Button
                       className="h-tree-comfortable w-full justify-start truncate text-left"
                       onClick={() => {
@@ -188,11 +195,11 @@ export const StashSection = memo(function StashSection({
                         show('', stash.hash);
                       }}
                     >
-                      <Archive className="size-3 shrink-0 text-faint dark:text-faint-dark" />
+                      <Archive className="size-3.75 shrink-0 text-muted dark:text-muted-dark" />
                       <span className="min-w-0 flex-1 truncate">
                         {stash.message}
                       </span>
-                      <span className="shrink-0 font-mono text-label text-muted">
+                      <span className="shrink-0 font-mono text-badge text-muted dark:text-muted-dark">
                         {formatDistanceToNowStrict(
                           fromUnixTime(stash.timestamp),
                         )}

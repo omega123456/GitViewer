@@ -18,7 +18,7 @@ import { GroupHeader } from '../shared/Section';
 import { VirtualList, type VirtualListHandle } from '../shared/VirtualList';
 import { ErrorRow, ErrorState } from '../states/Errors';
 import { State } from '../states/State';
-import { dynamic } from '../shared/styles';
+import { dynamic, focus, pill } from '../shared/styles';
 import { LaneGraph, graphWidth, laneCount } from './LaneGraph';
 const refColours = [
   'text-lane-1 dark:text-lane-1-dark',
@@ -95,15 +95,15 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
       className="flex min-h-0 flex-1 flex-col"
       style={dynamic({ '--graph-width': `${graphWidth(lanes)}px` })}
     >
-      <h2 className="flex h-section shrink-0 items-center gap-1.5 border-b border-line bg-sub px-2 text-label font-semibold tracking-wider text-muted uppercase dark:border-line-dark dark:bg-sub-dark">
+      <h2 className="flex h-section shrink-0 items-center gap-1.5 border-b border-line bg-sub pr-2 pl-2.5 text-label font-semibold text-muted dark:border-line-dark dark:bg-sub-dark dark:text-muted-dark">
         <History className="size-3 shrink-0" />
         <span className="truncate">{status.data?.branch}</span>
-        <span className="ml-auto shrink-0 rounded-full bg-hover px-1.5 font-mono font-normal tracking-normal dark:bg-hover-dark">
+        <span className="ml-auto shrink-0 rounded-full bg-hover px-1.5 font-mono text-badge font-normal dark:bg-hover-dark">
           {commits.length}
         </span>
       </h2>
       {path && (
-        <div className="flex shrink-0 items-center p-2 text-xs">
+        <div className="flex shrink-0 items-center p-2 text-sm">
           <span className="truncate">History: {path}</span>
           <Button
             className="ml-auto"
@@ -130,45 +130,47 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
           items={commits}
           height={30}
           render={(commit) => (
-            <button
-              className={`relative flex h-commit w-full items-center gap-2 pr-2 text-left hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent dark:hover:bg-hover-dark ${selection?.revision === commit.hash ? 'bg-selected dark:bg-selected-dark' : ''}`}
-              onClick={() =>
-                useSelection.getState().select(repo, {
-                  path,
-                  source: 'commit',
-                  revision: commit.hash,
-                })
-              }
-            >
-              {selection?.revision === commit.hash && (
-                <span className="absolute inset-y-0 left-0 w-accent bg-accent" />
-              )}
-              <LaneGraph
-                commit={commit}
-                lanes={lanes}
-                head={commit.hash === status.data?.oid}
-              />
-              <Avatar author={commit.author} />
-              <span
-                className="min-w-0 flex-1 truncate text-xs"
-                title={`${commit.subject}\n${commit.author}`}
+            <div className="px-1">
+              <button
+                className={`relative flex h-commit w-full items-center gap-2 rounded pr-2 text-left hover:bg-hover dark:hover:bg-hover-dark ${selection?.revision === commit.hash ? 'bg-selected dark:bg-selected-dark' : ''} ${focus}`}
+                onClick={() =>
+                  useSelection.getState().select(repo, {
+                    path,
+                    source: 'commit',
+                    revision: commit.hash,
+                  })
+                }
               >
-                {commit.subject}
-              </span>
-              {commit.refs && (
+                {selection?.revision === commit.hash && (
+                  <span className={pill} />
+                )}
+                <LaneGraph
+                  commit={commit}
+                  lanes={lanes}
+                  head={commit.hash === status.data?.oid}
+                />
+                <Avatar author={commit.author} />
                 <span
-                  className={`max-w-24 shrink-0 truncate rounded-full border border-current px-1.5 text-label ${refColours[commit.color]}`}
+                  className="min-w-0 flex-1 truncate text-sm"
+                  title={`${commit.subject}\n${commit.author}`}
                 >
-                  {commit.refs}
+                  {commit.subject}
                 </span>
-              )}
-              <span className="shrink-0 font-mono text-label text-muted">
-                {commit.hash.slice(0, 7)}
-              </span>
-              <span className="shrink-0 text-label text-muted tabular-nums">
-                {formatDistanceToNowStrict(fromUnixTime(commit.timestamp))}
-              </span>
-            </button>
+                {commit.refs && (
+                  <span
+                    className={`max-w-24 shrink-0 truncate rounded-full border border-current px-1.5 text-label ${refColours[commit.color]}`}
+                  >
+                    {commit.refs}
+                  </span>
+                )}
+                <span className="shrink-0 font-mono text-badge text-muted dark:text-muted-dark">
+                  {commit.hash.slice(0, 7)}
+                </span>
+                <span className="shrink-0 text-label text-muted tabular-nums dark:text-muted-dark">
+                  {formatDistanceToNowStrict(fromUnixTime(commit.timestamp))}
+                </span>
+              </button>
+            </div>
           )}
         />
       )}

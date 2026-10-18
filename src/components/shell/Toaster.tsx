@@ -1,16 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Toaster as Stack, toast } from 'sonner';
-import {
-  AlertTriangle,
-  Check,
-  FolderGit2,
-  Info,
-  Lock,
-  RotateCw,
-  Undo2,
-  WifiOff,
-  X,
-} from 'lucide-react';
+import type { ReactNode } from 'react';
+import { Check, FolderGit2, RotateCw, Undo2, X } from 'lucide-react';
 import { describe, type Recovery } from '../../lib/failure';
 import { perform } from '../../lib/query';
 import { showWorktree } from '../../lib/repository';
@@ -21,19 +12,39 @@ import { useActiveView } from '../../stores/tabs';
 import { Button } from '../shared/Button';
 import { Details } from '../shared/Details';
 import { Spinner } from '../shared/Spinner';
-const icons = { network: WifiOff, authentication: Lock, alert: AlertTriangle };
+const tones = {
+  success: {
+    card: 'border-success/22 bg-success-ground dark:border-success-dark/22 dark:bg-success-ground-dark',
+    icon: 'bg-success text-success-ground dark:bg-success-dark dark:text-success-ground-dark',
+  },
+  critical: {
+    card: 'border-critical/22 bg-critical-ground dark:border-critical-dark/22 dark:bg-critical-ground-dark',
+    icon: 'bg-critical text-critical-ground dark:bg-critical-dark dark:text-critical-ground-dark',
+  },
+  caution: {
+    card: 'border-caution/22 bg-caution-ground dark:border-caution-dark/22 dark:bg-caution-ground-dark',
+    icon: 'bg-caution text-caution-ground dark:bg-caution-dark dark:text-caution-ground-dark',
+  },
+  info: {
+    card: 'border-line bg-surface dark:border-line-dark dark:bg-surface-dark',
+    icon: 'bg-accent text-on-accent dark:bg-accent-dark dark:text-on-accent-dark',
+  },
+};
+type Tone = keyof typeof tones;
 const card =
-  'flex w-toast gap-2.5 rounded-md font-sans border border-line bg-surface p-3 text-ink shadow-lg dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark';
-const bordered =
-  'border border-line bg-surface dark:border-line-dark dark:bg-surface-dark';
-const closer =
-  'size-6 self-start text-faint hover:text-ink dark:text-faint-dark dark:hover:text-ink-dark';
-const title = 'text-sm font-semibold';
-const description = 'text-xs break-words text-muted dark:text-muted-dark';
-const tile = 'grid size-6.5 shrink-0 place-items-center rounded';
-const neutral = `${tile} border border-line bg-chrome dark:border-line-dark dark:bg-chrome-dark`;
-const positive = `${tile} bg-add text-add-ink dark:bg-add-dark dark:text-add-ink-dark`;
-const cautious = `${tile} bg-merge text-merge-ink dark:bg-merge-dark dark:text-merge-ink-dark`;
+  'flex w-toast gap-3 rounded-md border py-3 pr-3 pl-3.5 font-sans text-sm text-ink shadow-flyout dark:text-ink-dark dark:shadow-flyout-dark';
+const closer = 'size-6 self-start';
+const title = 'font-semibold';
+const description = 'break-words';
+function Glyph({ tone, children }: { tone: Tone; children: ReactNode }) {
+  return (
+    <span
+      className={`mt-0.5 grid size-4 shrink-0 place-items-center rounded-full text-badge leading-none font-bold ${tones[tone].icon}`}
+    >
+      {children}
+    </span>
+  );
+}
 const none: Failure[] = [];
 const quiet: Notice[] = [];
 function recovery(scope: string, failure: Failure, kind: Recovery) {
@@ -66,17 +77,12 @@ function FailureCard({
     initial;
   const dismiss = () => useErrors.getState().dismiss(scope, initial.id);
   const described = describe(failure.error);
-  const Icon = icons[described.kind];
   const action = recovery(scope, failure, described.recovery);
   return (
-    <div className={card}>
-      <span
-        className={`${tile} bg-error text-error-ink dark:bg-error-dark dark:text-error-ink-dark`}
-      >
-        <Icon className="size-3.5" />
-      </span>
+    <div className={`${card} ${tones.critical.card}`}>
+      <Glyph tone="critical">!</Glyph>
       <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <div className="flex flex-col gap-0.5 pr-1">
+        <div className="flex flex-col gap-0.5">
           <p className={title}>{failure.title ?? described.title}</p>
           <p className={description}>
             {[failure.lead, described.summary].filter(Boolean).join(' ')}
@@ -88,7 +94,7 @@ function FailureCard({
           actions={
             action && (
               <Button
-                className={bordered}
+                variant="standard"
                 onClick={() => {
                   dismiss();
                   action.run();
@@ -107,7 +113,7 @@ function FailureCard({
         className={closer}
         onClick={dismiss}
       >
-        <X className="size-3.5" />
+        <X className="size-3" />
       </Button>
     </div>
   );
@@ -118,7 +124,7 @@ function SuccessCard({ scope, initial }: { scope: string; initial: Notice }) {
     initial;
   const dismiss = () => useSuccesses.getState().dismiss(scope, initial.id);
   const { restore, unapply, show, info, warning, pending } = notice;
-  const Icon = warning ? AlertTriangle : info ? Info : Check;
+  const tone: Tone = warning ? 'caution' : info ? 'info' : 'success';
   const action = restore
     ? () => perform('stash_restore', { repo: scope, ...restore })
     : unapply
@@ -127,16 +133,20 @@ function SuccessCard({ scope, initial }: { scope: string; initial: Notice }) {
         ? () => showWorktree(show)
         : null;
   return (
-    <div className={card}>
-      <span className={warning ? cautious : info ? neutral : positive}>
+    <div className={`${card} ${tones[tone].card}`}>
+      <Glyph tone={tone}>
         {pending ? (
-          <Spinner className="size-3.5" />
+          <Spinner className="size-2.5" />
+        ) : warning ? (
+          '!'
+        ) : info ? (
+          'i'
         ) : (
-          <Icon className="size-3.5" />
+          <Check className="size-2.5" strokeWidth={3} />
         )}
-      </span>
+      </Glyph>
       <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <div className="flex flex-col gap-0.5 pr-1">
+        <div className="flex flex-col gap-0.5">
           <p className={title}>{notice.title}</p>
           {notice.description && (
             <p className={description}>{notice.description}</p>
@@ -145,7 +155,7 @@ function SuccessCard({ scope, initial }: { scope: string; initial: Notice }) {
         {action && (
           <div className="flex">
             <Button
-              className={bordered}
+              variant="standard"
               onClick={() => {
                 dismiss();
                 void action();
@@ -172,7 +182,7 @@ function SuccessCard({ scope, initial }: { scope: string; initial: Notice }) {
         className={closer}
         onClick={dismiss}
       >
-        <X className="size-3.5" />
+        <X className="size-3" />
       </Button>
     </div>
   );

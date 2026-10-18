@@ -20,7 +20,7 @@ export function StatusBadge({
     );
   return (
     <span
-      className={`ml-auto w-3.5 shrink-0 text-center font-mono text-label font-semibold ${statusClass(status)}`}
+      className={`ml-auto w-3.5 shrink-0 text-center font-mono text-badge font-semibold ${statusClass(status)}`}
     >
       {statusLetter(status)}
     </span>

@@ -3,8 +3,7 @@ import { ContextMenu } from 'radix-ui';
 import { Copy, ExternalLink, FileText } from 'lucide-react';
 import { reportAppError } from '../../lib/ipc';
 import { perform } from '../../lib/query';
-import { focus } from './styles';
-const item = `flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs outline-none data-highlighted:bg-hover dark:data-highlighted:bg-hover-dark ${focus}`;
+import { menu, menuItem, menuSeparator } from './styles';
 export function absolutePath(repo: string, path: string) {
   const root = repo.replace(/^\\\\\?\\/, '');
   return root.includes('\\')
@@ -31,27 +30,27 @@ export function FileMenu({
         {children}
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Content className="z-40 flex w-52 flex-col rounded-md border border-line bg-surface p-1 text-ink shadow-lg dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark">
+        <ContextMenu.Content className={`w-60 ${menu}`}>
           <ContextMenu.Item
-            className={item}
+            className={menuItem}
             onSelect={() => copy(path.slice(path.lastIndexOf('/') + 1))}
           >
-            <FileText className="size-3" />
+            <FileText className="size-3.75 text-muted dark:text-muted-dark" />
             Copy filename
           </ContextMenu.Item>
           <ContextMenu.Item
-            className={item}
+            className={menuItem}
             onSelect={() => copy(absolutePath(repo, path))}
           >
-            <Copy className="size-3" />
+            <Copy className="size-3.75 text-muted dark:text-muted-dark" />
             Copy path
           </ContextMenu.Item>
-          <ContextMenu.Separator className="my-1 h-px bg-line dark:bg-line-dark" />
+          <ContextMenu.Separator className={menuSeparator} />
           <ContextMenu.Item
-            className={item}
+            className={menuItem}
             onSelect={() => void perform('system_open', { repo, path })}
           >
-            <ExternalLink className="size-3" />
+            <ExternalLink className="size-3.75 text-muted dark:text-muted-dark" />
             Open in default editor
           </ContextMenu.Item>
         </ContextMenu.Content>

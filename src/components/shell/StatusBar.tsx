@@ -18,7 +18,7 @@ export function StatusBar({
   const label = activity && describeActivity(activity, status);
   const project = useProject(repo);
   return (
-    <footer className="flex h-6 shrink-0 items-center gap-4 border-t border-line bg-chrome px-3 text-label text-muted dark:border-line-dark dark:bg-chrome-dark">
+    <footer className="flex h-status shrink-0 items-center gap-3.5 border-t border-line bg-sub px-2.5 text-label whitespace-nowrap text-muted dark:border-line-dark dark:bg-sub-dark dark:text-muted-dark">
       {project && project.members.length > 1 && (
         <span className="flex items-center gap-1.5">
           <FolderSymlink className="size-3" />
@@ -32,7 +32,7 @@ export function StatusBar({
           : status.branch}
       </span>
       {status.upstream && (
-        <span className="font-mono">
+        <span className="tabular-nums">
           ↓{status.behind} ↑{status.ahead}
         </span>
       )}
@@ -59,7 +59,7 @@ export function StatusBar({
       ) : (
         <span className="ml-auto">Ready</span>
       )}
-      <span className="font-mono">git {version}</span>
+      <span>git {version}</span>
     </footer>
   );
 }

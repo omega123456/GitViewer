@@ -18,13 +18,13 @@ export function CheckBox({
       disabled={disabled}
       aria-label={label}
       onCheckedChange={onChange}
-      className={`flex size-3.5 shrink-0 items-center justify-center rounded-xs border border-muted text-accent ${focus}`}
+      className={`flex size-5 shrink-0 items-center justify-center rounded border text-on-accent disabled:opacity-40 dark:text-on-accent-dark ${checked ? 'border-accent bg-accent dark:border-accent-dark dark:bg-accent-dark' : 'border-field-edge bg-control dark:border-field-edge-dark dark:bg-control-dark'} ${focus}`}
     >
       <RadixCheckbox.Indicator>
         {checked === 'indeterminate' ? (
-          <Minus className="size-3" />
+          <Minus className="size-3.25" strokeWidth={2.2} />
         ) : (
-          <Check className="size-3" />
+          <Check className="size-3.25" strokeWidth={2.2} />
         )}
       </RadixCheckbox.Indicator>
     </RadixCheckbox.Root>

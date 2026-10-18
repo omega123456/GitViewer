@@ -9,7 +9,8 @@ export function FirstRun() {
         title="No repository open"
         action={
           <Button
-            className="mt-1 border border-line dark:border-line-dark"
+            variant="standard"
+            className="mt-1"
             onClick={() => void openRepository()}
           >
             Open repository

@@ -30,7 +30,7 @@ export function LineCount({
   className?: string;
 }) {
   if (lines === undefined) return null;
-  const base = `shrink-0 font-mono text-label font-normal tracking-normal normal-case tabular-nums @max-line-counts:hidden ${className}`;
+  const base = `shrink-0 font-mono text-badge font-normal tracking-normal normal-case tabular-nums @max-line-counts:hidden ${className}`;
   if (lines === null)
     return (
       <span

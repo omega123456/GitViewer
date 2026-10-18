@@ -79,7 +79,7 @@ export function CompareError({
       action={
         mergeBase && (
           <Button
-            className="border border-line bg-surface dark:border-line-dark dark:bg-surface-dark"
+            variant="standard"
             onClick={() =>
               useLayout.getState().update(repo, { mergeBase: false })
             }
@@ -134,7 +134,7 @@ export function CompareSection({
     id?: string,
   ) => (
     <label className="flex flex-col gap-0.5">
-      <span className="text-label font-semibold tracking-wider text-faint uppercase dark:text-faint-dark">
+      <span className="text-label font-semibold text-muted dark:text-muted-dark">
         {label}
       </span>
       <span className="relative">
@@ -142,7 +142,7 @@ export function CompareSection({
           id={id}
           list={references}
           aria-invalid={Boolean(files.error) && !known(value)}
-          className={`${field} pr-6 font-mono text-meta`}
+          className={`${field} h-7 pr-6 font-mono text-diff`}
           value={value}
           onChange={(event) => update({ [key]: event.target.value })}
         />
@@ -152,11 +152,12 @@ export function CompareSection({
   );
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 flex-col gap-2 border-b border-line px-2.5 py-3 text-xs dark:border-line-dark">
+      <div className="flex shrink-0 flex-col gap-2 border-b border-line px-2.5 py-3 text-sm dark:border-line-dark">
         {picker('Base', base, 'compareBase', baseFieldId(repo))}
         <div className="flex justify-center">
           <Button
-            className="h-control border border-line text-label text-muted dark:border-line-dark"
+            variant="standard"
+            className="h-control text-label"
             aria-label="Swap base and compare branches"
             title="Swap base and compare branches"
             onClick={() => swapCompare(repo, base, target)}
@@ -179,7 +180,7 @@ export function CompareSection({
           />
           Since branches diverged
         </div>
-        <p className="pl-5 text-label leading-snug text-faint dark:text-faint-dark">
+        <p className="pl-7 text-label leading-snug text-faint dark:text-faint-dark">
           Off: compare the two tips directly, including work that landed on{' '}
           <b className="font-semibold">{base}</b> later.
         </p>

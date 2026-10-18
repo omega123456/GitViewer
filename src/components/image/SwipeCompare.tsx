@@ -60,7 +60,7 @@ export function SwipeCompare({
       >
         <span className="absolute top-1/2 size-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-surface bg-accent shadow-md dark:border-surface-dark" />
       </div>
-      <span className="absolute right-2 bottom-2 rounded border border-line bg-surface px-1.5 font-mono text-label text-muted dark:border-line-dark dark:bg-surface-dark">
+      <span className="absolute right-2 bottom-2 rounded border border-line bg-surface px-1.5 font-mono text-badge text-muted dark:border-line-dark dark:bg-surface-dark">
         {Math.round(position)}%
       </span>
     </div>

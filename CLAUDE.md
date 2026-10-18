@@ -65,7 +65,7 @@ GitViewer2 is a Tauri 2 desktop Git client. Rust owns data and Git. React owns t
 - Pure Tailwind utility classes. No custom CSS rules, no `@apply`, no bracket values. Every custom value is a named `@theme` token.
 - `index.css` holds only the Tailwind import, the dark variant, and the `@theme` block.
 - The sole exception is an inline CSS custom property for a genuinely dynamic value.
-- **The radius scale is redefined**, matching the sibling project: `--radius` is `0.5rem` and `--radius-md` is `0.75rem`, alongside the named product radii. This matters because the plan permits only named tokens, so a component cannot reach for an arbitrary radius.
+- **The radius scale is redefined** to Fluent 2 geometry: `--radius` is `0.25rem` and `--radius-md` is `0.5rem`, alongside the named product radii (see `.agent/adr/2026-10-18--the-interface-follows-fluent-2-compact-geometry-and-type--fa40c315.md`). This matters because the plan permits only named tokens, so a component cannot reach for an arbitrary radius.
 
 **Testing**
 

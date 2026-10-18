@@ -23,7 +23,7 @@ export function HunkHeader({
     <div
       tabIndex={-1}
       data-hunk={index}
-      className={`group flex h-6 items-center gap-2 border-y border-line bg-chrome px-2 text-label text-muted dark:border-line-dark dark:bg-chrome-dark ${focusInset}`}
+      className={`group flex h-6 items-center gap-2 border-y border-line bg-gutter pr-2 pl-3 text-badge text-muted dark:border-line-dark dark:bg-gutter-dark dark:text-muted-dark ${focusInset}`}
     >
       <span className="sticky left-2">{header}</span>
       {actions && (

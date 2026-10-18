@@ -9,7 +9,7 @@ import type { Tab } from '../../stores/tabs';
 import { Button } from '../shared/Button';
 import { CreateButton, type CreateMode } from '../shared/CreateButton';
 import { Modal } from '../shared/Modal';
-import { Segment } from '../shared/Segment';
+import { Choice } from '../shared/Choice';
 import { Select } from '../shared/Select';
 import { TextInput } from '../shared/TextInput';
 import { field } from '../shared/styles';
@@ -84,7 +84,7 @@ export function NewWorktree({
     { label: 'Remote', options: remote },
   ].filter((group) => group.options.length);
   const baseSelect = (label: string) => (
-    <div className="flex flex-col gap-1 text-xs">
+    <div className="flex flex-col gap-1 text-sm">
       <span>{label}</span>
       <Select
         label={label}
@@ -92,6 +92,7 @@ export function NewWorktree({
         icon={
           <GitBranch className="size-3.5 shrink-0 text-muted dark:text-muted-dark" />
         }
+        mono
         value={chosenBase}
         groups={startOptions}
         badges={head ? { [head]: 'current' } : { HEAD: 'detached' }}
@@ -110,8 +111,23 @@ export function NewWorktree({
       title="New worktree"
       open={open}
       onOpenChange={(next) => (next ? onOpenChange(true) : close())}
+      footer={
+        <>
+          <CreateButton
+            form="new-worktree-form"
+            mode={mode}
+            disabled={blocked}
+            optionsLabel="Create worktree options"
+            onMode={setMode}
+          />
+          <Button variant="standard" className="h-8" onClick={close}>
+            Cancel
+          </Button>
+        </>
+      }
     >
       <form
+        id="new-worktree-form"
         className="flex flex-col gap-4"
         onSubmit={async (event) => {
           event.preventDefault();
@@ -129,9 +145,9 @@ export function NewWorktree({
             await switchWorktree(project, created);
         }}
       >
-        <Segment
+        <Choice
           label="Worktree branch"
-          stretch
+          appearance="radio"
           value={kind}
           options={Object.keys(kinds) as Kind[]}
           onChange={(next) => {
@@ -142,13 +158,13 @@ export function NewWorktree({
         {worktreeMode === 'detached' && baseSelect('Start from')}
         {worktreeMode === 'new' && (
           <>
-            <div className="flex flex-col gap-1 text-xs">
+            <div className="flex flex-col gap-1 text-sm">
               <label htmlFor="new-worktree-branch">Branch name</label>
               <TextInput
                 id="new-worktree-branch"
                 aria-invalid={Boolean(problem)}
                 aria-describedby="new-worktree-branch-hint"
-                className={`${field} h-7 font-mono text-xs`}
+                className={`${field} h-8 font-mono text-diff`}
                 placeholder="feature/short-description"
                 value={name}
                 onChange={(event) =>
@@ -167,7 +183,7 @@ export function NewWorktree({
           </>
         )}
         {worktreeMode === 'existing' && (
-          <div className="flex flex-col gap-1 text-xs">
+          <div className="flex flex-col gap-1 text-sm">
             <span>Branch</span>
             <Select
               label="Branch"
@@ -175,6 +191,7 @@ export function NewWorktree({
               icon={
                 <GitBranch className="size-3.5 shrink-0 text-muted dark:text-muted-dark" />
               }
+              mono
               value={existing}
               groups={[
                 { label: 'Local', options: free.map((b) => b.name) },
@@ -194,19 +211,20 @@ export function NewWorktree({
             )}
           </div>
         )}
-        <div className="flex flex-col gap-1 text-xs">
+        <div className="flex flex-col gap-1 text-sm">
           <label htmlFor="new-worktree-folder">Folder</label>
-          <div className="flex gap-1.5">
+          <div className="flex gap-2">
             <TextInput
               id="new-worktree-folder"
               aria-invalid={taken}
               aria-describedby="new-worktree-folder-hint"
-              className={`${field} h-7 min-w-0 flex-1 font-mono text-xs`}
+              className={`${field} h-8 min-w-0 flex-1 font-mono text-diff`}
               value={folder}
               onChange={(event) => setCustom(event.target.value)}
             />
             <Button
-              className="h-7 border border-line px-2.5 dark:border-line-dark"
+              variant="standard"
+              className="h-8"
               onClick={async () => {
                 const chosen = await choose({
                   directory: true,
@@ -232,20 +250,6 @@ export function NewWorktree({
               </p>
             )}
           </div>
-        </div>
-        <div className="flex justify-end gap-1.5 border-t border-line pt-4 dark:border-line-dark">
-          <Button
-            className="h-7 px-3 font-medium text-muted dark:text-muted-dark"
-            onClick={close}
-          >
-            Cancel
-          </Button>
-          <CreateButton
-            mode={mode}
-            disabled={blocked}
-            optionsLabel="Create worktree options"
-            onMode={setMode}
-          />
         </div>
       </form>
     </Modal>

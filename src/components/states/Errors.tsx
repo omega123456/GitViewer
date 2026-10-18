@@ -29,10 +29,7 @@ export function ErrorState({
               (retry || action) && (
                 <>
                   {retry && (
-                    <Button
-                      className="border border-line bg-surface dark:border-line-dark dark:bg-surface-dark"
-                      onClick={retry}
-                    >
+                    <Button variant="standard" onClick={retry}>
                       <RotateCw className="size-3" />
                       Retry
                     </Button>

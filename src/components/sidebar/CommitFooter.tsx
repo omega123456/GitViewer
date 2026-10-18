@@ -24,7 +24,7 @@ import {
 } from '../../stores/tabs';
 import { Button } from '../shared/Button';
 import { Spinner } from '../shared/Spinner';
-import { dynamic, field, focus } from '../shared/styles';
+import { dynamic, field, menu, menuItem } from '../shared/styles';
 import { ResizeHandle } from '../shell/ResizeHandle';
 import { FieldError } from '../states/Errors';
 export function aiConfigured(settings: SettingsResponse) {
@@ -140,7 +140,7 @@ export function CommitFooter({
             aria-label="Commit message"
             placeholder="Commit message"
             value={message}
-            className={`${field} h-message resize-none`}
+            className={`${field} h-message resize-none py-1.5 text-sm`}
             style={dynamic({ '--message-height': `${commitMessageHeight}px` })}
             onChange={(event) =>
               useTabs.getState().setMessage(repo, event.target.value)
@@ -155,7 +155,7 @@ export function CommitFooter({
           <div
             role="group"
             aria-label="Stage all and commit"
-            className="flex flex-col gap-2 rounded border border-line bg-surface p-2 dark:border-line-dark dark:bg-surface-dark"
+            className="flex flex-col gap-2 rounded-md border border-line bg-surface p-2 dark:border-line-dark dark:bg-surface-dark"
           >
             <p className="text-label text-muted dark:text-muted-dark">
               Nothing is staged. Stage all {changes.length}{' '}
@@ -173,7 +173,7 @@ export function CommitFooter({
           </div>
         )}
         {status.branch === '(detached)' && (
-          <p className="text-label text-modified">
+          <p className="text-label text-modified dark:text-modified-dark">
             This commit will be created on detached HEAD.
           </p>
         )}
@@ -181,13 +181,13 @@ export function CommitFooter({
           <Button
             disabled={disabled}
             variant="primary"
-            className="min-w-0 flex-1 rounded-r-none"
+            className="h-7.5 min-w-0 flex-1 rounded-r-none"
             onClick={() => commit(active)}
           >
             {flow.phase === 'idle' ? (
-              <GitCommitHorizontal className="size-3.5" />
+              <GitCommitHorizontal className="size-4" />
             ) : (
-              <Spinner className="size-3.5" />
+              <Spinner className="size-4" />
             )}
             <span className="truncate">{label}</span>
           </Button>
@@ -195,11 +195,11 @@ export function CommitFooter({
             <DropdownMenu.Trigger asChild>
               <Button
                 disabled={disabled || !pushable}
-                variant="primary"
+                variant="splitMenu"
                 aria-label="Commit options"
-                className="rounded-l-none border-l border-white/30 px-1.5 dark:border-surface-dark/30"
+                className="h-7.5 w-8 rounded-l-none border-l border-on-accent/30 dark:border-on-accent-dark/30"
               >
-                <ChevronDown className="size-3.5" />
+                <ChevronDown className="size-3" />
               </Button>
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
@@ -207,7 +207,7 @@ export function CommitFooter({
                 align="end"
                 side="top"
                 sideOffset={4}
-                className="z-30 flex w-48 flex-col rounded-md border border-line bg-surface p-1 text-ink shadow-lg dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark"
+                className={`w-60 ${menu}`}
               >
                 <DropdownMenu.RadioGroup
                   value={active}
@@ -219,7 +219,7 @@ export function CommitFooter({
                     <DropdownMenu.RadioItem
                       key={option}
                       value={option}
-                      className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs outline-none data-highlighted:bg-hover dark:data-highlighted:bg-hover-dark ${focus}`}
+                      className={menuItem}
                     >
                       <span className="flex size-3 items-center justify-center">
                         <DropdownMenu.ItemIndicator>

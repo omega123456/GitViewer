@@ -295,7 +295,7 @@ describe('diff and images', () => {
     await screen.findByTitle('Stage hunk');
     await user.click(screen.getByTitle('Stage hunk'));
     expect(calls.some((call) => call.command === 'hunk_action')).toBe(true);
-    await user.click(screen.getByRole('radio', { name: 'unified' }));
+    await user.click(screen.getByRole('tab', { name: 'unified' }));
     expect(useDiffView.getState().mode).toBe('unified');
     await user.click(screen.getByTitle('Hide whitespace'));
     await user.click(screen.getByTitle('Word wrap'));
@@ -333,12 +333,12 @@ describe('diff and images', () => {
         diff={{ ...diff, image: true }}
       />,
     );
-    await user.click(screen.getByRole('radio', { name: 'swipe' }));
+    await user.click(screen.getByRole('tab', { name: 'swipe' }));
     const slider = screen.getByRole('slider', { name: 'Swipe divider' });
     slider.focus();
     await user.keyboard('{ArrowRight}');
     expect(slider).toHaveAttribute('aria-valuenow', '51');
-    await user.click(screen.getByRole('radio', { name: 'onion skin' }));
+    await user.click(screen.getByRole('tab', { name: 'onion skin' }));
     fireEvent.change(screen.getByLabelText('Onion skin blend'), {
       target: { value: '75' },
     });
