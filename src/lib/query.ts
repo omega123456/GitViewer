@@ -54,6 +54,7 @@ const listings = ['files', 'tree'];
 const references = [
   'history',
   'commit_files',
+  'commit_detail',
   'compare_files',
   'default_branch',
   'stashes',

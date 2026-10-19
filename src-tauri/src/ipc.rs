@@ -477,6 +477,7 @@ pub async fn dispatch<R: tauri::Runtime>(
                 }
                 return raw(&files);
             }
+            "commit_detail" => return raw(&history::detail(&repo, revision).await?),
             "blame" => return raw(&history::blame(&repo, path).await?),
             "stashes" => return raw(&stash::list(&repo).await?),
             "stash_save" => raw(&stash::save(&repo, optional(&args, "message")).await?)?,

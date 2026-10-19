@@ -23,6 +23,8 @@ const fills = [
 const visibleLanes = 6;
 const fade = 10;
 const x = (lane: number) => 14 + lane * 18;
+const rowHeight = 44;
+const middle = rowHeight / 2;
 export function laneCount(commits: Commit[]) {
   return commits.reduce(
     (count, commit) =>
@@ -55,7 +57,7 @@ export function LaneGraph({
   const merge = commit.parents.length > 1;
   return (
     <svg
-      height={30}
+      height={rowHeight}
       className="w-graph shrink-0"
       aria-label={`Lane ${commit.lane + 1}`}
       role="img"
@@ -67,14 +69,14 @@ export function LaneGraph({
             <stop offset={1} stopColor="white" stopOpacity={0} />
           </linearGradient>
           <mask id={`${id}mask`}>
-            <rect width={width} height={30} fill={`url(#${id}fade)`} />
+            <rect width={width} height={rowHeight} fill={`url(#${id}fade)`} />
           </mask>
         </defs>
       )}
       <g mask={overflow ? `url(#${id}mask)` : undefined}>
         {commit.entered && (
           <path
-            d={`M ${centre} 0 L ${centre} 15`}
+            d={`M ${centre} 0 L ${centre} ${middle}`}
             className={strokes[commit.color]}
             strokeWidth={1.6}
             fill="none"
@@ -83,7 +85,7 @@ export function LaneGraph({
         {commit.segments.map((segment, index) => (
           <path
             key={index}
-            d={`${segment.from === commit.lane ? `M ${centre} 15` : `M ${x(segment.from)} 0 L ${x(segment.from)} 15`} L ${x(segment.to)} 30`}
+            d={`${segment.from === commit.lane ? `M ${centre} ${middle}` : `M ${x(segment.from)} 0 L ${x(segment.from)} ${middle}`} L ${x(segment.to)} ${rowHeight}`}
             className={strokes[segment.color]}
             strokeWidth={1.6}
             fill="none"
@@ -92,7 +94,7 @@ export function LaneGraph({
       </g>
       {commit.lane >= visibleLanes ? (
         <path
-          d={`M ${width - 7} 11 L ${width - 1} 15 L ${width - 7} 19 Z`}
+          d={`M ${width - 7} ${middle - 4} L ${width - 1} ${middle} L ${width - 7} ${middle + 4} Z`}
           className={fills[commit.color]}
         />
       ) : (
@@ -100,7 +102,7 @@ export function LaneGraph({
           {head && (
             <circle
               cx={centre}
-              cy={15}
+              cy={middle}
               r={8}
               strokeWidth={1.6}
               opacity={0.55}
@@ -111,7 +113,7 @@ export function LaneGraph({
           {merge && !head ? (
             <circle
               cx={centre}
-              cy={15}
+              cy={middle}
               r={3.2}
               strokeWidth={1.6}
               className={`fill-sub dark:fill-sub-dark ${strokes[commit.color]}`}
@@ -119,7 +121,7 @@ export function LaneGraph({
           ) : (
             <circle
               cx={centre}
-              cy={15}
+              cy={middle}
               r={head ? 5 : 4}
               className={fills[commit.color]}
             />

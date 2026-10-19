@@ -64,6 +64,13 @@ export function setup() {
     statuses: { 'src/app.ts': 'M' },
     lines: {},
   }));
+  mockCommand('commit_detail', () => ({
+    hash: commit.hash,
+    author: commit.author,
+    timestamp: commit.timestamp,
+    subject: commit.subject,
+    body: '',
+  }));
   mockCommand('branches', () => branches);
   mockCommand('diff', () => diff);
   mockCommand('diff_stack', () => stack);
@@ -195,6 +202,7 @@ export const blameLines = [
     hash: 'a'.repeat(40),
     author: 'Author',
     timestamp: 1700000000,
+    subject: 'Review commit',
     line: 1,
     content: 'first',
     block: true,

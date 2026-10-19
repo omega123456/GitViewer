@@ -245,10 +245,18 @@ export interface Stash {
   message: string;
   timestamp: number;
 }
+export interface CommitDetail {
+  hash: string;
+  author: string;
+  timestamp: number;
+  subject: string;
+  body: string;
+}
 export interface Blame {
   hash: string;
   author: string;
   timestamp: number;
+  subject: string;
   line: number;
   content: string;
   block: boolean;
@@ -382,6 +390,7 @@ export interface Commands {
     RepoArgs & { revision: string; source?: Source },
     CommitFiles
   >;
+  commit_detail: Command<RepoArgs & { revision: string }, CommitDetail>;
   blame: Command<FileArgs, Blame[]>;
   stashes: Command<RepoArgs, Stash[]>;
   stash_save: Command<RepoArgs & { message: string }, string>;

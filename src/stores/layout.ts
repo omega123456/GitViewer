@@ -6,6 +6,7 @@ export interface TabLayout {
   mode: SidebarMode;
   width: number;
   historyWidth: number;
+  blameWidth: number;
   filesHeight: number;
   filesOpen: boolean;
   stashHeight: number;
@@ -20,6 +21,7 @@ export const layoutDefaults: TabLayout = {
   mode: 'working',
   width: 300,
   historyWidth: 440,
+  blameWidth: 480,
   filesHeight: 40,
   filesOpen: false,
   stashHeight: 30,
@@ -30,7 +32,7 @@ export const layoutDefaults: TabLayout = {
   compareTarget: '',
   mergeBase: true,
 };
-const projectWide = ['width', 'historyWidth'] as const;
+const projectWide = ['width', 'historyWidth', 'blameWidth'] as const;
 function siblingsOf(id: string) {
   return (
     useTabs.getState().tabs.find((tab) => tab.members.includes(id))

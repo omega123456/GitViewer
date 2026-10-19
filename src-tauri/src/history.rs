@@ -186,11 +186,37 @@ pub async fn files(repo: &Repo, revision: &str) -> Result<CommitFiles> {
     Ok(files)
 }
 #[derive(Debug, Serialize)]
+pub struct CommitDetail {
+    pub hash: String,
+    pub author: String,
+    pub timestamp: i64,
+    pub subject: String,
+    pub body: String,
+}
+pub async fn detail(repo: &Repo, revision: &str) -> Result<CommitDetail> {
+    let sha = resolve(repo, revision).await?;
+    let output = git::text(
+        &repo.root,
+        &["show", "-s", "--format=%H%x00%an%x00%at%x00%s%x00%b", &sha],
+    )
+    .await?;
+    let mut fields = output.splitn(5, '\0');
+    let mut next = || fields.next().unwrap_or_default().to_owned();
+    Ok(CommitDetail {
+        hash: next(),
+        author: next(),
+        timestamp: next().parse().unwrap_or_default(),
+        subject: next(),
+        body: next().trim_end().into(),
+    })
+}
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Blame {
     pub hash: String,
     pub author: String,
     pub timestamp: i64,
+    pub subject: String,
     pub line: usize,
     pub content: String,
     pub block: bool,
@@ -215,6 +241,7 @@ pub async fn blame(repo: &Repo, path: &str) -> Result<Vec<Blame>> {
     let mut hash = String::new();
     let mut author = String::new();
     let mut timestamp = 0;
+    let mut subject = String::new();
     let mut line = 0;
     for value in text.lines() {
         if let Some(content) = value.strip_prefix('\t') {
@@ -223,6 +250,7 @@ pub async fn blame(repo: &Repo, path: &str) -> Result<Vec<Blame>> {
                 hash: hash.clone(),
                 author: author.clone(),
                 timestamp,
+                subject: subject.clone(),
                 line,
                 content: content.into(),
                 block,
@@ -231,6 +259,8 @@ pub async fn blame(repo: &Repo, path: &str) -> Result<Vec<Blame>> {
             author = value.into();
         } else if let Some(value) = value.strip_prefix("author-time ") {
             timestamp = value.parse().unwrap_or_default();
+        } else if let Some(value) = value.strip_prefix("summary ") {
+            subject = value.into();
         } else {
             let parts: Vec<&str> = value.split_whitespace().collect();
             if parts.len() >= 3

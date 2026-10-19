@@ -327,6 +327,14 @@ export const test = base.extend({
                     ];
                   case 'stashes':
                     return scenario === 'stash' ? stashes : [];
+                  case 'commit_detail':
+                    return {
+                      hash: 'a'.repeat(40),
+                      author: 'Fixture Author',
+                      timestamp: 1700000000,
+                      subject: 'Merge feature',
+                      body: 'Bring the review work into main.\n\n- Keep the lane colours\n- Show the full message',
+                    };
                   case 'history':
                     return {
                       commits:

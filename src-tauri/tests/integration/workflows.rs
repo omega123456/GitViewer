@@ -159,6 +159,32 @@ async fn hunk_stage_unstage_discard_and_staleness() {
     );
 }
 #[tokio::test]
+async fn commit_detail_carries_the_full_message() {
+    let (dir, handle) = fixture().await;
+    base(&dir, &handle).await;
+    let repo = handle.clone();
+    let initial = history::detail(&repo, "HEAD").await.unwrap();
+    assert_eq!(initial.subject, "Initial");
+    assert_eq!(initial.body, "");
+    std::fs::write(dir.path().join("file.txt"), "changed\n").unwrap();
+    actions::files(&repo, &["file.txt".into()], "stage")
+        .await
+        .unwrap();
+    actions::commit(
+        &repo,
+        "Explain the change\n\nFirst reason.\n\n- Second reason\n",
+    )
+    .await
+    .unwrap();
+    let detail = history::detail(&repo, "HEAD").await.unwrap();
+    assert_eq!(detail.hash.len(), 40);
+    assert_eq!(detail.author, "Fixture Author");
+    assert!(detail.timestamp > 0);
+    assert_eq!(detail.subject, "Explain the change");
+    assert_eq!(detail.body, "First reason.\n\n- Second reason");
+    assert!(history::detail(&repo, "missing").await.is_err());
+}
+#[tokio::test]
 async fn branches_history_blame_stashes_and_checkout_rollback() {
     let (dir, handle) = fixture().await;
     base(&dir, &handle).await;
@@ -203,7 +229,9 @@ async fn branches_history_blame_stashes_and_checkout_rollback() {
     actions::files(&repo, &["file.txt".into()], "discard")
         .await
         .unwrap();
-    assert_eq!(history::blame(&repo, "file.txt").await.unwrap().len(), 3);
+    let blamed = history::blame(&repo, "file.txt").await.unwrap();
+    assert_eq!(blamed.len(), 3);
+    assert!(blamed.iter().all(|line| line.subject == "Initial"));
     assert!(history::blame(&repo, "untracked").await.unwrap().is_empty());
     let commits = history::page(&repo, "", "file.txt").await.unwrap();
     assert_eq!(

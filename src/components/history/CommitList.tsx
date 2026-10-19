@@ -19,6 +19,7 @@ import { VirtualList, type VirtualListHandle } from '../shared/VirtualList';
 import { ErrorRow, ErrorState } from '../states/Errors';
 import { State } from '../states/State';
 import { dynamic, focus, pill } from '../shared/styles';
+import { CommitDetails } from './CommitDetails';
 import { LaneGraph, graphWidth, laneCount } from './LaneGraph';
 const refColours = [
   'text-lane-1 dark:text-lane-1-dark',
@@ -128,7 +129,7 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
               void query.fetchNextPage();
           }}
           items={commits}
-          height={30}
+          height={44}
           render={(commit) => (
             <div className="px-1">
               <button
@@ -150,24 +151,39 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
                   head={commit.hash === status.data?.oid}
                 />
                 <Avatar author={commit.author} />
-                <span
-                  className="min-w-0 flex-1 truncate text-sm"
-                  title={`${commit.subject}\n${commit.author}`}
-                >
-                  {commit.subject}
-                </span>
-                {commit.refs && (
-                  <span
-                    className={`max-w-24 shrink-0 truncate rounded-full border border-current px-1.5 text-label ${refColours[commit.color]}`}
-                  >
-                    {commit.refs}
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span
+                      className="min-w-0 flex-1 truncate text-sm"
+                      title={commit.subject}
+                    >
+                      {commit.subject}
+                    </span>
+                    {commit.refs && (
+                      <span
+                        className={`max-w-24 shrink-0 truncate rounded-full border border-current px-1.5 text-label ${refColours[commit.color]}`}
+                      >
+                        {commit.refs}
+                      </span>
+                    )}
                   </span>
-                )}
-                <span className="shrink-0 font-mono text-badge text-muted dark:text-muted-dark">
-                  {commit.hash.slice(0, 7)}
-                </span>
-                <span className="shrink-0 text-label text-muted tabular-nums dark:text-muted-dark">
-                  {formatDistanceToNowStrict(fromUnixTime(commit.timestamp))}
+                  <span className="flex min-w-0 items-center gap-2 text-label text-muted dark:text-muted-dark">
+                    <span className="min-w-0 truncate text-ink dark:text-ink-dark">
+                      {commit.author}
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span className="shrink-0 tabular-nums">
+                      {formatDistanceToNowStrict(
+                        fromUnixTime(commit.timestamp),
+                        {
+                          addSuffix: true,
+                        },
+                      )}
+                    </span>
+                    <span className="ml-auto shrink-0 font-mono text-badge">
+                      {commit.hash.slice(0, 7)}
+                    </span>
+                  </span>
                 </span>
               </button>
             </div>
@@ -184,6 +200,9 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
       )}
       {commits.length === 0 && !query.isPending && !query.error && (
         <State title="No commits yet" />
+      )}
+      {selection?.revision && (
+        <CommitDetails repo={repo} revision={selection.revision} />
       )}
       {selection?.revision && (
         <div className="flex h-1/3 min-h-24 flex-col border-t border-line dark:border-line-dark">

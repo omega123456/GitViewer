@@ -6,7 +6,7 @@ import {
   within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { format, fromUnixTime } from 'date-fns';
+import { format, formatDistanceToNowStrict, fromUnixTime } from 'date-fns';
 import { describe, it, expect, vi } from 'vitest';
 import { useTabs } from '../stores/tabs';
 import { useSuccesses } from '../stores/successes';
@@ -523,6 +523,7 @@ describe('repository workflows', () => {
         hash: commit.hash,
         author: 'Author',
         timestamp: commit.timestamp,
+        subject: 'Review commit',
         line: 1,
         content: 'first',
         block: true,
@@ -531,6 +532,7 @@ describe('repository workflows', () => {
         hash: commit.hash,
         author: 'Author',
         timestamp: commit.timestamp,
+        subject: 'Review commit',
         line: 2,
         content: 'second',
         block: false,
@@ -540,7 +542,11 @@ describe('repository workflows', () => {
     mount();
     await screen.findByTitle('Stage hunk');
     await action('file-history');
-    await user.click(await screen.findByText('Review commit'));
+    await user.click(
+      await within(await screen.findByLabelText('Commit history')).findByText(
+        'Review commit',
+      ),
+    );
     expect(useSelection.getState().history[repository.id]?.path).toBe(
       'src/app.ts',
     );
@@ -580,7 +586,11 @@ describe('repository workflows', () => {
     await screen.findByRole('region', { name: 'Diff viewer' });
     expect(useSelection.getState().all[repository.id]).toBeUndefined();
     await user.click(screen.getByRole('button', { name: 'All files' }));
-    await user.click(await screen.findByText('Review commit'));
+    await user.click(
+      await within(await screen.findByLabelText('Commit history')).findByText(
+        'Review commit',
+      ),
+    );
     await screen.findByRole('region', { name: 'All changes in commit' });
     expect(useSelection.getState().all[repository.id]).toBe('commit');
     fireEvent.keyDown(screen.getByLabelText('Resize sidebar'), {
@@ -602,23 +612,129 @@ describe('repository workflows', () => {
     expect(useLayout.getState().tabs[repository.id].filesHeight).toBe(38);
     await action('blame');
     expect(await screen.findByText('first')).toBeVisible();
-    expect(
-      within(screen.getByLabelText('Blame lines')).getAllByText(
-        initials('Author'),
-      ),
-    ).toHaveLength(1);
     const blame = screen.getByLabelText('Blame lines');
-    expect(within(blame).getByTitle('Author')).toBeInTheDocument();
+    expect(within(blame).getAllByText('Author')).toHaveLength(1);
+    expect(within(blame).queryByText(initials('Author'))).toBeNull();
+    expect(within(blame).getByTitle('Review commit')).toHaveTextContent(
+      'Review commit',
+    );
     expect(
       within(blame).getByTitle(format(fromUnixTime(commit.timestamp), 'PPpp')),
-    ).toBeInTheDocument();
+    ).toHaveTextContent(
+      formatDistanceToNowStrict(fromUnixTime(commit.timestamp), {
+        addSuffix: true,
+      }),
+    );
+    const annotations = screen.getByRole('slider', {
+      name: 'Resize blame annotations',
+    });
+    fireEvent.keyDown(annotations, { key: 'ArrowRight' });
+    expect(useLayout.getState().tabs[repository.id].blameWidth).toBe(490);
+    expect(
+      annotations.parentElement?.style.getPropertyValue('--blame-width'),
+    ).toBe('490px');
+    vi.spyOn(
+      annotations.parentElement!,
+      'getBoundingClientRect',
+    ).mockReturnValue(new DOMRect(100, 0, 1000, 600));
+    fireEvent.pointerDown(annotations);
+    fireEvent.pointerMove(annotations, { clientX: 650 });
+    expect(useLayout.getState().tabs[repository.id].blameWidth).toBe(550);
+    fireEvent.pointerMove(annotations, { clientX: 1000 });
+    expect(useLayout.getState().tabs[repository.id].blameWidth).toBe(640);
+    fireEvent.pointerMove(annotations, { clientX: 200 });
+    expect(useLayout.getState().tabs[repository.id].blameWidth).toBe(360);
+    vi.mocked(annotations.parentElement!.getBoundingClientRect).mockReturnValue(
+      new DOMRect(100, 0, 750, 600),
+    );
+    fireEvent.pointerMove(annotations, { clientX: 800 });
+    expect(useLayout.getState().tabs[repository.id].blameWidth).toBe(430);
     await user.click(screen.getByRole('button', { name: 'aaaaaaa' }));
     expect(useSelection.getState().history[repository.id]?.source).toBe(
       'commit',
     );
     expect(
-      (await screen.findByText('Review commit')).closest('button'),
+      (
+        await within(await screen.findByLabelText('Commit history')).findByText(
+          'Review commit',
+        )
+      ).closest('button'),
     ).toHaveClass('bg-selected');
+  });
+  it('shows who made each commit and the full message of the selected one', async () => {
+    setup();
+    mockCommand('commit_detail', () => ({
+      hash: commit.hash,
+      author: 'Priya Raman',
+      timestamp: commit.timestamp,
+      subject: 'Review commit',
+      body: 'First reason.\n\n- Second reason',
+    }));
+    mockCommand('history', () => ({
+      commits: [{ ...commit, author: 'Priya Raman' }],
+      cursor: null,
+    }));
+    const user = userEvent.setup();
+    mount();
+    await screen.findByLabelText('Commit message');
+    await action('history');
+    const list = await screen.findByLabelText('Commit history');
+    const row = (await within(list).findByText('Review commit')).closest(
+      'button',
+    )!;
+    expect(within(row).getByText('Priya Raman')).toBeVisible();
+    expect(within(row).getByText(initials('Priya Raman'))).toBeVisible();
+    expect(
+      within(row).getByText(
+        formatDistanceToNowStrict(fromUnixTime(commit.timestamp), {
+          addSuffix: true,
+        }),
+      ),
+    ).toBeVisible();
+    await user.click(row);
+    const details = await screen.findByRole('region', {
+      name: 'Commit details',
+    });
+    await within(details).findByRole('heading', { name: 'Review commit' });
+    expect(within(details).getByText('Priya Raman')).toBeVisible();
+    expect(within(details).getByText(commit.hash)).toBeVisible();
+    expect(
+      within(details).getByText(
+        format(fromUnixTime(commit.timestamp), 'd MMM yyyy, HH:mm'),
+      ),
+    ).toBeVisible();
+    expect(within(details).getByText(/First reason\./)).toHaveTextContent(
+      'First reason. - Second reason',
+    );
+  });
+  it('offers a retry when the commit details fail to load', async () => {
+    setup();
+    let failing = true;
+    mockCommand('commit_detail', () => {
+      if (failing) throw { category: 'git', message: 'bad object' };
+      return {
+        hash: commit.hash,
+        author: commit.author,
+        timestamp: commit.timestamp,
+        subject: commit.subject,
+        body: '',
+      };
+    });
+    const user = userEvent.setup();
+    mount();
+    await screen.findByLabelText('Commit message');
+    await action('history');
+    await user.click(
+      await within(await screen.findByLabelText('Commit history')).findByText(
+        'Review commit',
+      ),
+    );
+    const error = await screen.findByText('Could not load the commit details');
+    failing = false;
+    await user.click(
+      within(error.closest('p')!).getByRole('button', { name: /Retry/ }),
+    );
+    await screen.findByRole('region', { name: 'Commit details' });
   });
   it('pages the history until a blamed commit is loaded, then selects and reveals it', async () => {
     setup();
@@ -639,6 +755,7 @@ describe('repository workflows', () => {
         hash: older.hash,
         author: 'Author',
         timestamp: older.timestamp,
+        subject: 'Older commit',
         line: 1,
         content: 'first',
         block: true,
@@ -669,7 +786,7 @@ describe('repository workflows', () => {
     );
     await waitFor(() =>
       expect(scroll).toHaveBeenCalledWith(
-        expect.objectContaining({ top: 60 * 30 + 30 - 600 }),
+        expect.objectContaining({ top: 60 * 44 + 44 - 600 }),
       ),
     );
     tall.mockRestore();
@@ -716,15 +833,15 @@ describe('repository workflows', () => {
     expect(merge.querySelector('circle')).toHaveAttribute('r', '3.2');
     expect(merge.querySelector('circle')).toHaveClass('fill-sub');
     expect(merge.querySelector('path[d^="M 14 0"]')).toBeNull();
-    expect(merge.querySelector('path[d="M 14 15 L 140 30"]')).toHaveClass(
+    expect(merge.querySelector('path[d="M 14 22 L 140 44"]')).toHaveClass(
       'stroke-lane-4',
     );
     expect(merge.querySelector('mask')).not.toBeNull();
     expect(within(list).getByText('main')).toHaveClass('text-lane-3');
     const far = within(list).getByRole('img', { name: 'Lane 8' });
     expect(far.querySelector('circle')).toBeNull();
-    expect(far.querySelector('path[d^="M 111 11"]')).toHaveClass('fill-lane-4');
-    expect(far.querySelector('path[d="M 140 0 L 140 15"]')).toHaveClass(
+    expect(far.querySelector('path[d^="M 111 18"]')).toHaveClass('fill-lane-4');
+    expect(far.querySelector('path[d="M 140 0 L 140 22"]')).toHaveClass(
       'stroke-lane-4',
     );
   });

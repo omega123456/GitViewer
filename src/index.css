@@ -218,12 +218,13 @@
   --spacing-tree-comfortable: 28px;
   --spacing-changes-floor: 192px;
   --spacing-staged-cap: 50%;
-  --spacing-commit: 30px;
+  --spacing-commit: 44px;
   --spacing-dialog: 460px;
   --spacing-palette-floor: min(800px, 80vw);
   --spacing-palette-cap: 80vw;
   --spacing-toast: 340px;
   --spacing-sidebar: var(--sidebar-width, 300px);
+  --spacing-blame: var(--blame-width, 480px);
   --spacing-branches: var(--branches-width, 320px);
   --spacing-select-width: var(--radix-select-trigger-width, 160px);
   --spacing-select-height: var(--radix-select-content-available-height, 320px);

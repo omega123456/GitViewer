@@ -113,6 +113,12 @@ async fn typed_commands_events_and_protocol_are_wired() {
         .await
         .unwrap();
     assert_eq!(
+        call("commit_detail", json!({"repo":id,"revision":"HEAD"}))
+            .await
+            .unwrap()["body"],
+        json!("")
+    );
+    assert_eq!(
         call("commit_files", json!({"repo":id,"revision":"HEAD"}))
             .await
             .unwrap(),
