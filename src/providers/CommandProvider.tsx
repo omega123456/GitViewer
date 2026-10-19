@@ -1,6 +1,13 @@
 import { preventBrowserShortcut } from '../lib/browser';
 import { useEffect, type ReactNode } from 'react';
-import { Command, FileSearch, FolderOpen, Settings, X } from 'lucide-react';
+import {
+  Command,
+  FileSearch,
+  FolderGit2,
+  FolderOpen,
+  Settings,
+  X,
+} from 'lucide-react';
 import { registeredActions, useActions } from '../lib/actions';
 import { runShortcut } from '../lib/keyboard';
 import { useBackend } from '../lib/query';
@@ -35,6 +42,14 @@ export function CommandProvider({ children }: { children: ReactNode }) {
       key: 'F2',
       disabled: !active,
       run: () => usePalette.getState().setOpen(true, 'files'),
+    },
+    {
+      id: 'repositories',
+      icon: <FolderGit2 className="size-3.5" />,
+      label: 'Go to repository',
+      key: 'Shift+F2',
+      disabled: !active,
+      run: () => usePalette.getState().setOpen(true, 'repositories'),
     },
     {
       id: 'settings',

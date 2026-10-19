@@ -224,7 +224,13 @@ beforeEach(() => {
   intersecting.initially = true;
   useUpdate.setState({ dismissedVersion: null });
   client.clear();
-  useTabs.setState({ tabs: [], active: '', messages: {}, modes: {} });
+  useTabs.setState({
+    tabs: [],
+    active: '',
+    recent: [],
+    messages: {},
+    modes: {},
+  });
   useActivity.setState({ scopes: {} });
   useErrors.setState({ scopes: {} });
   useSuccesses.setState({ scopes: {} });

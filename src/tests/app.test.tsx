@@ -4,6 +4,7 @@ import {
   waitFor,
   act,
   fireEvent,
+  within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect } from 'vitest';
@@ -12,6 +13,7 @@ import { Providers } from '../providers';
 import { QueryProvider } from '../providers/QueryProvider';
 import { useTabs } from '../stores/tabs';
 import { useErrors } from '../stores/errors';
+import { useActivity } from '../stores/activity';
 import { useDiffView } from '../stores/diff-view';
 import { mockCommand, dialog, calls, emit, host } from './harness';
 import { settings, status, repository, diff } from './fixtures';
@@ -182,6 +184,84 @@ describe('application shell', () => {
     );
     await user.click(screen.getByRole('button', { name: repository.name }));
     expect(screen.queryByLabelText('Filter branches')).not.toBeInTheDocument();
+  });
+  it('switches between open repositories from the palette in recent order', async () => {
+    setup();
+    mockCommand('status', ({ repo }) =>
+      repo === '/work/third'
+        ? { ...status, branch: 'feature/pets-rules', entries: [] }
+        : status,
+    );
+    useTabs.getState().open('/work/second', 'second');
+    useTabs.getState().open('/work/third', 'third');
+    useTabs.getState().open(repository.id, repository.name);
+    useTabs.getState().activate('/work/second');
+    useTabs.getState().activate(repository.id);
+    useErrors
+      .getState()
+      .report('/work/third', { category: 'refused', message: 'hidden' });
+    useActivity.setState({
+      scopes: {
+        '/work/second': [
+          {
+            id: 1,
+            command: 'sync',
+            args: {},
+            visible: true,
+            held: false,
+            done: false,
+          },
+        ],
+      },
+    });
+    const user = userEvent.setup();
+    mountApp();
+    await screen.findAllByLabelText('Commit message');
+    fireEvent.keyDown(window, { key: 'F2', shiftKey: true });
+    const palette = await screen.findByRole('dialog', {
+      name: 'Command palette',
+    });
+    const input = within(palette).getByLabelText('Find repository');
+    const rows = () =>
+      within(palette)
+        .getAllByRole('button')
+        .map((row) => row.textContent);
+    await waitFor(() =>
+      expect(rows()).toEqual([
+        expect.stringMatching(/^second\/work/),
+        expect.stringMatching(/^third\/work.*feature\/pets-rules/),
+        expect.stringMatching(/^fixture.*Current$/),
+      ]),
+    );
+    expect(palette.querySelector('[data-current]')).toHaveTextContent(
+      /^second/,
+    );
+    expect(
+      within(palette).getByRole('img', { name: 'Git operation running' }),
+    ).toBeVisible();
+    expect(
+      within(palette).getByRole('img', { name: 'Errors waiting' }),
+    ).toBeVisible();
+    await user.type(input, 'zzz');
+    expect(
+      within(palette).getByText('No open repository matches “zzz”'),
+    ).toBeVisible();
+    expect(
+      within(palette).getByText('Press ⌘+o to open another repository'),
+    ).toBeVisible();
+    await user.clear(input);
+    await user.type(input, 'pets');
+    expect(rows()).toEqual([expect.stringMatching(/^third/)]);
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    );
+    expect(useTabs.getState().active).toBe('/work/third');
+    expect(useTabs.getState().recent).toEqual([
+      '/work/third',
+      repository.id,
+      '/work/second',
+    ]);
   });
   it('stacks failures per tab as floating cards with details and recovery', async () => {
     setup();

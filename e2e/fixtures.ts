@@ -85,19 +85,29 @@ export const test = base.extend({
               }),
             ]
           : [worktree(repository.id, 'main')];
+        const projects: Record<string, string> =
+          scenario === 'repositories'
+            ? {
+                '/Users/me/Projects/axopane': 'main',
+                '/Users/me/work/sykes-reservations': 'feature/pets-rules',
+              }
+            : {};
         const statusOf = (repo: string) =>
           repo === '/worktrees/gv-hotfix'
             ? { ...status, branch: 'fix/watcher-gitdir' }
-            : repo === repository.id
-              ? status
-              : {
-                  ...status,
-                  branch:
-                    worktrees.find((entry) => entry.id === repo)?.branch ||
-                    '(detached)',
-                  oid: '3f9c2a1b',
-                  entries: [],
-                };
+            : repo === '/Users/me/work/sykes-reservations'
+              ? { ...status, branch: projects[repo] }
+              : repo === repository.id
+                ? status
+                : {
+                    ...status,
+                    branch:
+                      projects[repo] ||
+                      worktrees.find((entry) => entry.id === repo)?.branch ||
+                      '(detached)',
+                    oid: '3f9c2a1b',
+                    entries: [],
+                  };
         const editorText = [
           "import { createHighlighter, bundledLanguages } from 'shiki';",
           'const aliases: Record<string, string> = {',
@@ -237,7 +247,13 @@ export const test = base.extend({
               if (name === 'execute') {
                 switch (payload.command) {
                   case 'session_get':
-                    return { tabs: [], active: '' };
+                    return {
+                      tabs: [
+                        ...Object.keys(projects),
+                        ...(scenario === 'repositories' ? [repository.id] : []),
+                      ].map((path) => ({ path, message: '' })),
+                      active: repository.id,
+                    };
                   case 'frontend_log':
                   case 'session_set':
                   case 'session_close':
@@ -275,6 +291,9 @@ export const test = base.extend({
                       ...repository,
                       id: payload.args.path,
                       root: payload.args.path,
+                      ...(payload.args.path in projects && {
+                        project: payload.args.path,
+                      }),
                       status: statusOf(payload.args.path),
                     };
                   case 'status':

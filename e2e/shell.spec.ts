@@ -509,7 +509,7 @@ for (const theme of ['light', 'dark'] as const) {
 for (const theme of ['light', 'dark'] as const) {
   test(`command palette ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme });
-    await page.goto('/');
+    await page.goto('/?scenario=repositories');
     await page
       .getByRole('button', { name: 'Open repository', exact: true })
       .last()
@@ -535,6 +535,13 @@ for (const theme of ['light', 'dark'] as const) {
       palette.getByRole('button', { name: /Go to file/ }),
     ).toBeVisible();
     await expect(palette).toHaveScreenshot(`palette-commands-${theme}.png`);
+    await page.keyboard.press('Escape');
+    await expect(palette).toBeHidden();
+    await page.keyboard.press('Shift+F2');
+    await expect(
+      palette.getByRole('button', { name: /sykes-reservations/ }),
+    ).toBeVisible();
+    await expect(palette).toHaveScreenshot(`palette-repositories-${theme}.png`);
   });
 }
 

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-export type PaletteMode = 'commands' | 'files';
+export type PaletteMode = 'commands' | 'files' | 'repositories';
 interface Palette {
   open: boolean;
   mode: PaletteMode;

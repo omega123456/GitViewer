@@ -9,6 +9,7 @@ export interface Tab {
 interface Tabs {
   tabs: Tab[];
   active: string;
+  recent: string[];
   messages: Record<string, string>;
   modes: Record<string, CommitMode>;
   open: (id: string, name: string, view?: string) => void;
@@ -28,6 +29,9 @@ function joined(tabs: Tab[], id: string, name: string, member: string) {
     t.id === id ? { ...t, members: [...t.members, member] } : t,
   );
 }
+function touched(recent: string[], id: string) {
+  return [id, ...recent.filter((entry) => entry !== id)];
+}
 function without<T>(record: Record<string, T>, keys: string[]) {
   return Object.fromEntries(
     Object.entries(record).filter(([key]) => !keys.includes(key)),
@@ -36,11 +40,13 @@ function without<T>(record: Record<string, T>, keys: string[]) {
 export const useTabs = create<Tabs>((set) => ({
   tabs: [],
   active: '',
+  recent: [],
   messages: {},
   modes: {},
   open: (id, name, view = id) =>
     set((s) => ({
       active: id,
+      recent: touched(s.recent, id),
       tabs: joined(s.tabs, id, name, view).map((t) =>
         t.id === id && t.view !== view ? { ...t, view } : t,
       ),
@@ -67,6 +73,7 @@ export const useTabs = create<Tabs>((set) => ({
       const members = s.tabs.find((t) => t.id === id)?.members ?? [];
       return {
         tabs: s.tabs.filter((t) => t.id !== id),
+        recent: s.recent.filter((entry) => entry !== id),
         active:
           s.active === id
             ? (s.tabs.find((t) => t.id !== id)?.id ?? '')
@@ -75,7 +82,8 @@ export const useTabs = create<Tabs>((set) => ({
         modes: without(s.modes, members),
       };
     }),
-  activate: (active) => set({ active }),
+  activate: (active) =>
+    set((s) => ({ active, recent: touched(s.recent, active) })),
   setMessage: (id, message) =>
     set((s) => ({ messages: { ...s.messages, [id]: message } })),
   setCommitMode: (id, commitMode) =>
@@ -104,6 +112,13 @@ export function useActiveView() {
 }
 export function useProject(repo: string) {
   return useTabs((s) => s.tabs.find((tab) => tab.members.includes(repo)));
+}
+export function recentTabs({ tabs, recent, active }: Tabs) {
+  const rank = (tab: Tab) =>
+    tab.id === active
+      ? Infinity
+      : recent.indexOf(tab.id) + 1 || recent.length + 1;
+  return [...tabs].sort((a, b) => rank(a) - rank(b));
 }
 export function anchorOf(tab: Tab) {
   return tab.members.includes(tab.id) ? tab.id : (tab.members[0] ?? '');
