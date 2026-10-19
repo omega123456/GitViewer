@@ -157,7 +157,7 @@ function WorktreeMenu({
   const summary = useBackend(
     'worktree_summary',
     { repo: worktree.id, target },
-    open && Boolean(main),
+    open && Boolean(main) && !worktree.missing,
   ).data;
   const own = useCurrentActivity(worktree.id);
   const mainActivity = useCurrentActivity(target);
@@ -176,7 +176,7 @@ function WorktreeMenu({
           sideOffset={4}
           className={`w-60 ${menu}`}
         >
-          {main && (
+          {main && !worktree.missing && (
             <>
               <DropdownMenu.Item
                 disabled={busy || empty}
@@ -622,7 +622,9 @@ export function BranchPopover({
                           />
                         </span>
                       </Button>
-                      {project && present.includes(worktree) ? (
+                      {project &&
+                      (present.includes(worktree) ||
+                        (worktree.missing && !worktree.main)) ? (
                         <WorktreeMenu
                           worktree={worktree}
                           view={repo}

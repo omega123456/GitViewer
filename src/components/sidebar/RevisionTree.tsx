@@ -124,7 +124,9 @@ export function RevisionTree({
                 ) : (
                   <ChevronRight className="size-3 shrink-0 text-muted dark:text-muted-dark" />
                 )
-              ) : null}
+              ) : (
+                <span className="size-3 shrink-0" />
+              )}
               <FileIcon
                 name={node.name}
                 directory={node.directory}

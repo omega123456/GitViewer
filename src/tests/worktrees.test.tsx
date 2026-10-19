@@ -441,8 +441,8 @@ describe('worktree actions', () => {
       within(branchList).queryByRole('button', { name: 'Actions for fixture' }),
     ).toBeNull();
     expect(
-      within(branchList).queryByRole('button', { name: 'Actions for legacy' }),
-    ).toBeNull();
+      within(branchList).getByRole('button', { name: 'Actions for legacy' }),
+    ).toBeEnabled();
     await user.click(screen.getByRole('button', { name: 'New worktree' }));
     const form = await screen.findByRole('dialog', { name: 'New worktree' });
     expect(
@@ -820,6 +820,40 @@ describe('worktree actions', () => {
     );
     await waitFor(() =>
       expect(useErrors.getState().scopes[main]?.length).toBeGreaterThan(0),
+    );
+  });
+  it('forgets a missing locked worktree that prune skips', async () => {
+    actions();
+    list.push(
+      worktree('/wt/agent', {
+        branch: 'agent',
+        missing: true,
+        locked: 'claude agent',
+      }),
+    );
+    await opened();
+    const user = await menuFor('agent');
+    expect(
+      screen.queryByRole('menuitem', { name: 'Apply to main checkout' }),
+    ).toBeNull();
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Delete worktree…' }),
+    );
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        command: 'worktree_remove',
+        args: { repo: main, worktree: '/wt/agent', force: 2 },
+      }),
+    );
+    expect(dialog.title).toBe('agent is locked');
+    expect(dialog.message).toBe(
+      'Reason: “claude agent”\n\nDelete it anyway? The folder /wt/agent is already gone, so only Git’s record of it is removed. The branch agent is kept.',
+    );
+    expect(calls).not.toContainEqual(
+      expect.objectContaining({
+        command: 'worktree_summary',
+        args: expect.objectContaining({ repo: '/wt/agent' }),
+      }),
     );
   });
 });

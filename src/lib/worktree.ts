@@ -91,7 +91,9 @@ export function deletion(
       : '',
     changes ? `Its ${plural(changes, 'uncommitted change')} will be lost.` : '',
     summary.submodules ? 'Its submodules are deleted with it.' : '',
-    `This deletes the folder ${worktree.id}, including ignored files.`,
+    worktree.missing
+      ? `The folder ${worktree.id} is already gone, so only Git’s record of it is removed.`
+      : `This deletes the folder ${worktree.id}, including ignored files.`,
     worktree.detached ? '' : `The branch ${worktree.branch} is kept.`,
   ]
     .filter(Boolean)
@@ -114,12 +116,13 @@ export async function deleteWorktree(
   changes: number,
 ) {
   const args = { repo: worktree.id, target: anchorOf(tab) };
-  let summary: WorktreeSummary;
+  let summary: WorktreeSummary = { ahead: 0, orphans: 0, submodules: false };
   try {
-    summary = await client.fetchQuery({
-      queryKey: queryKey('worktree_summary', args),
-      queryFn: () => invoke('worktree_summary', args),
-    });
+    if (!worktree.missing)
+      summary = await client.fetchQuery({
+        queryKey: queryKey('worktree_summary', args),
+        queryFn: () => invoke('worktree_summary', args),
+      });
   } catch (error) {
     useErrors.getState().report(tab.view, normalizeError(error));
     return;
