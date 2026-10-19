@@ -16,6 +16,9 @@ for (const theme of ['light', 'dark'] as const) {
       .getByText('app.ts')
       .click();
     await expect(page.getByText('index → working tree')).toBeVisible();
+    await expect(
+      page.locator('code span[style*="--syntax-color: #"]').first(),
+    ).toBeVisible();
     await expect(page).toHaveScreenshot(`working-tree-${theme}.png`);
   });
 }
