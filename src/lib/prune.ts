@@ -11,7 +11,7 @@ export async function pruneBranches(repo: string, current: string) {
     announce(repo, { key, info: true, ...success });
   say({
     title: 'Checking remote',
-    description: 'Looking for local branches whose remote branch was deleted.',
+    description: 'Looking for local branches with no remote branch.',
     pending: true,
   });
   const names = await perform('branch_gone', { repo });
@@ -19,7 +19,7 @@ export async function pruneBranches(repo: string, current: string) {
   if (!names.length) return;
   const count = names.length === 1 ? '1 branch' : `${names.length} branches`;
   const approved = await confirm(
-    `Delete ${localBranches(names.length)} whose remote branch was deleted?\n\n${listNames(names)}\n\nGit keeps any branch with commits that are not in ${current}.`,
+    `Delete ${localBranches(names.length)} with no remote branch?\n\n${listNames(names)}\n\nGit keeps any branch with commits that are not in ${current}.`,
     {
       title: 'Prune local branches',
       kind: 'warning',

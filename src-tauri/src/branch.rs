@@ -170,7 +170,7 @@ async fn candidates(repo: &Repo) -> Result<Vec<String>> {
         .into_iter()
         .filter(|b| {
             !b.remote
-                && b.gone
+                && (b.gone || b.upstream.is_empty())
                 && !b.current
                 && b.worktree.is_empty()
                 && default.as_deref() != Some(b.name.as_str())

@@ -355,7 +355,7 @@ describe('repository workflows', () => {
     expect(notices()).not.toContain('Checking remote');
     expect(dialog.title).toBe('Prune local branches');
     expect(dialog.message).toBe(
-      'Delete 1 local branch whose remote branch was deleted?\n\nold\n\nGit keeps any branch with commits that are not in main.',
+      'Delete 1 local branch with no remote branch?\n\nold\n\nGit keeps any branch with commits that are not in main.',
     );
     act(() => pruned());
     expect(await screen.findByText('Pruned 1 local branch')).toBeVisible();

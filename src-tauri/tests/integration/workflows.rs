@@ -1081,7 +1081,7 @@ async fn invalid_repositories_upstreams_and_watch_roots_fail_honestly() {
 }
 
 #[tokio::test]
-async fn prune_deletes_merged_branches_whose_remote_branch_is_gone() {
+async fn prune_deletes_merged_branches_without_a_remote_branch() {
     let (dir, handle) = fixture().await;
     base(&dir, &handle).await;
     let remote = tempfile::tempdir().unwrap();
@@ -1119,7 +1119,10 @@ async fn prune_deletes_merged_branches_whose_remote_branch_is_gone() {
     .await;
     let repo = handle.clone();
     assert!(branch::list(&repo).await.unwrap().iter().all(|b| !b.gone));
-    assert_eq!(branch::gone(&repo).await.unwrap(), ["merged", "unmerged"]);
+    assert_eq!(
+        branch::gone(&repo).await.unwrap(),
+        ["local-only", "merged", "unmerged"]
+    );
     let gone: Vec<String> = branch::list(&repo)
         .await
         .unwrap()
@@ -1130,13 +1133,13 @@ async fn prune_deletes_merged_branches_whose_remote_branch_is_gone() {
     assert_eq!(gone, ["held", "merged", "unmerged"]);
     let pruned = branch::prune(
         &repo,
-        ["merged", "unmerged", "live", "missing"]
+        ["local-only", "merged", "unmerged", "live", "missing"]
             .map(String::from)
             .to_vec(),
     )
     .await
     .unwrap();
-    assert_eq!(pruned.deleted, ["merged"]);
+    assert_eq!(pruned.deleted, ["local-only", "merged"]);
     assert_eq!(pruned.kept, ["unmerged"]);
     let names: Vec<String> = branch::list(&repo)
         .await
@@ -1145,7 +1148,7 @@ async fn prune_deletes_merged_branches_whose_remote_branch_is_gone() {
         .filter(|b| !b.remote)
         .map(|b| b.name)
         .collect();
-    assert_eq!(names, ["held", "live", "local-only", "main", "unmerged"]);
+    assert_eq!(names, ["held", "live", "main", "unmerged"]);
 }
 #[tokio::test]
 async fn remote_checkout_creates_tracking_branches_and_never_detaches() {
