@@ -4,6 +4,9 @@ GitViewer is a diff-first desktop Git client for macOS and Windows. It puts the 
 
 The application uses the Git installation on your computer. This keeps your credential helpers, hooks, Git LFS filters, and repository settings in use.
 
+[feature-tour.webm](https://github.com/user-attachments/assets/2729e0f0-1bb0-4232-9945-5b5556f822a9)
+
+
 ## Highlights
 
 - Browse the full working tree, including untracked and ignored files.
