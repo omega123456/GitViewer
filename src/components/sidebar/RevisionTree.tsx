@@ -44,10 +44,10 @@ export function RevisionTree({
         paths.map((path) => ({
           kind: 'ordinary',
           path,
-          index: statuses?.[path] ?? 'M',
-          worktree: '.',
+          index: '.',
+          worktree: statuses?.[path] ?? 'M',
         })),
-        'staged',
+        'unstaged',
         '',
       ),
     [paths, statuses],

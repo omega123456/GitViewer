@@ -942,6 +942,10 @@ describe('repository workflows', () => {
       return null;
     });
     mockCommand('stash_drop', () => null);
+    mockCommand('commit_files', () => ({
+      statuses: { 'src/app.ts': 'M', 'notes.md': '?' },
+      lines: {},
+    }));
     const user = userEvent.setup();
     mount();
     await screen.findByLabelText('Commit message');
@@ -962,6 +966,9 @@ describe('repository workflows', () => {
     expect(stashRow.parentElement!.querySelector('.w-accent')).not.toBeNull();
     const fileTree = await screen.findByRole('tree', { name: 'Stash files' });
     await within(fileTree).findByRole('treeitem', { name: 'app.ts' });
+    expect(
+      within(fileTree).getByRole('treeitem', { name: 'notes.md' }),
+    ).toHaveTextContent('U');
     const filesHandle = screen.getByLabelText('Resize stash files');
     fireEvent.keyDown(filesHandle, { key: 'ArrowDown' });
     expect(useLayout.getState().tabs[repository.id].stashFilesHeight).toBe(52);
