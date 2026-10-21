@@ -7,7 +7,6 @@ import {
   Search,
   Upload,
 } from 'lucide-react';
-import { perform } from '../../lib/query';
 import { runs, useCurrentActivity } from '../../stores/activity';
 import { useActionRegistry } from '../../lib/actions';
 import { shortcutLabel, type Action } from '../../lib/keyboard';
@@ -42,6 +41,7 @@ export function Toolbar({
   const filter = useFilter(repo);
   const activity = useCurrentActivity(repo);
   const stashing = runs(activity, 'stash_save');
+  const stash = actions.find((action) => action.id === 'stash')!;
   const palette = useActionRegistry((state) =>
     state.scopes.app?.find((action) => action.id === 'palette'),
   );
@@ -77,14 +77,9 @@ export function Toolbar({
       <Button
         variant="command"
         aria-busy={stashing}
-        disabled={disabled}
+        disabled={stash.disabled}
         title="Stash changes"
-        onClick={() =>
-          void perform('stash_save', {
-            repo,
-            message: 'Saved from GitViewer',
-          })
-        }
+        onClick={() => void stash.run()}
       >
         {stashing ? <Spinner /> : <Archive className="size-4" />}
         <span>Stash</span>

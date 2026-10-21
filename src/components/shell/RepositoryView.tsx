@@ -19,7 +19,7 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { useActions } from '../../lib/actions';
 import { perform, useBackend } from '../../lib/query';
@@ -64,6 +64,7 @@ import {
 import { aiConfigured, CommitFooter } from '../sidebar/CommitFooter';
 import { FilesSection } from '../sidebar/FilesSection';
 import { SidebarModeToggle } from '../sidebar/SidebarModeToggle';
+import { StashDialog } from '../stash/StashDialog';
 import { StashSection } from '../stash/StashSection';
 import { ResizeHandle } from './ResizeHandle';
 import { StatusBar } from './StatusBar';
@@ -87,6 +88,7 @@ export const RepositoryView = memo(function RepositoryView({
   const all = useAllChanges(repo);
   const fileTabs = useFileTabs(repo, mode);
   const status = query.data;
+  const [naming, setNaming] = useState(false);
   const disabled = busy || !status || status.conflicted;
   const conflicts = (status?.entries ?? []).filter(
     (entry) => entry.kind === 'unmerged',
@@ -312,8 +314,7 @@ export const RepositoryView = memo(function RepositoryView({
       label: 'Stash changes',
       key: 'Mod+Shift+s',
       disabled,
-      run: () =>
-        perform('stash_save', { repo, message: 'Saved from GitViewer' }),
+      run: () => setNaming(true),
     },
     {
       id: 'close-file-tab',
@@ -373,6 +374,7 @@ export const RepositoryView = memo(function RepositoryView({
         disabled={disabled}
         actions={actions}
       />
+      <StashDialog repo={repo} open={naming} onOpenChange={setNaming} />
       {status.conflicted && (
         <div
           role="alert"

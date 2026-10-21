@@ -501,7 +501,7 @@ describe('repository workflows', () => {
     await action('discard-file');
     await action('all');
     await action('previous-file');
-    for (const id of ['fetch', 'pull', 'push', 'stash', 'refresh', 'next-tab'])
+    for (const id of ['fetch', 'pull', 'push', 'refresh', 'next-tab'])
       await action(id);
     expect(useTabs.getState().active).toBe('/second');
     await run('/second', 'previous-tab');
@@ -512,6 +512,31 @@ describe('repository workflows', () => {
     await waitFor(() => expect(count('refresh')).toBe(refreshed + 1));
     await user.click(screen.getByLabelText('Close Second'));
     expect(useTabs.getState().tabs).toHaveLength(1);
+  });
+  it('names a stash from its dialog and falls back to the default name', async () => {
+    setup();
+    const user = userEvent.setup();
+    mount();
+    const saves = () => calls.filter((call) => call.command === 'stash_save');
+    await user.click(await screen.findByTitle('Stash changes'));
+    await user.click(
+      within(await screen.findByRole('dialog')).getByRole('button', {
+        name: 'Cancel',
+      }),
+    );
+    expect(saves()).toHaveLength(0);
+    await user.click(screen.getByTitle('Stash changes'));
+    await user.click(await screen.findByRole('button', { name: 'Stash' }));
+    await action('stash');
+    expect(await screen.findByLabelText('Name')).toHaveFocus();
+    await user.keyboard('  WIP login  {Enter}');
+    await waitFor(() =>
+      expect(saves().map((call) => call.args)).toEqual([
+        { repo: repository.id, message: 'Saved from GitViewer' },
+        { repo: repository.id, message: 'WIP login' },
+      ]),
+    );
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
   it('remembers history selection and independent sidebar widths, and opens blame commits', async () => {
     setup();
