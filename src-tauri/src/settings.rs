@@ -33,6 +33,7 @@ pub struct Settings {
     pub install_update_on_quit: bool,
     pub search_ignored_files: bool,
     pub pull_on_checkout: bool,
+    pub auto_fetch_interval: String,
     pub smart_commit: String,
     pub zoom: u32,
     pub max_file_tabs: u32,
@@ -48,6 +49,7 @@ impl Default for Settings {
             install_update_on_quit: true,
             search_ignored_files: false,
             pull_on_checkout: false,
+            auto_fetch_interval: "off".into(),
             smart_commit: "ask".into(),
             zoom: 100,
             max_file_tabs: 8,
@@ -103,6 +105,8 @@ pub fn read(path: &Path) -> Settings {
 }
 pub fn write(path: &Path, settings: Settings) -> Result<Settings> {
     if !["1h", "5h", "1d", "7d", "off"].contains(&settings.update_check_interval.as_str())
+        || !["30s", "1m", "5m", "10m", "15m", "30m", "off"]
+            .contains(&settings.auto_fetch_interval.as_str())
         || !["system", "light", "dark"].contains(&settings.theme.as_str())
         || !["compact", "comfortable"].contains(&settings.density.as_str())
         || !["split", "unified"].contains(&settings.diff_mode.as_str())

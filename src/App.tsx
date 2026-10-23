@@ -13,6 +13,7 @@ const defaults: SettingsResponse = {
   installUpdateOnQuit: true,
   searchIgnoredFiles: false,
   pullOnCheckout: false,
+  autoFetchInterval: 'off',
   smartCommit: 'ask',
   zoom: 100,
   maxFileTabs: 8,

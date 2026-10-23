@@ -5,6 +5,7 @@ import {
   Eye,
   GitCommitHorizontal,
   PanelTop,
+  RefreshCw,
   Rows3,
   ZoomIn,
 } from 'lucide-react';
@@ -17,6 +18,15 @@ import { SettingCard, SettingGroup } from './SettingCard';
 const zoomLevels = [80, 90, 100, 110, 125, 150];
 const fileTabLimits = Array.from({ length: 18 }, (_, index) => index + 3);
 const icon = 'size-4';
+const fetchIntervals: Record<Settings['autoFetchInterval'], string> = {
+  off: 'Off',
+  '30s': 'Every 30 seconds',
+  '1m': 'Every minute',
+  '5m': 'Every 5 minutes',
+  '10m': 'Every 10 minutes',
+  '15m': 'Every 15 minutes',
+  '30m': 'Every 30 minutes',
+};
 export function GeneralSection({ settings }: { settings: Settings }) {
   const save = (next: Partial<Settings>) =>
     void perform('settings_set', { ...settings, ...next });
@@ -104,6 +114,29 @@ export function GeneralSection({ settings }: { settings: Settings }) {
             options={['ask', 'always', 'never']}
             onChange={(smartCommit) => save({ smartCommit })}
           />
+        </SettingCard>
+        <SettingCard
+          icon={<RefreshCw className={icon} />}
+          title="Auto fetch"
+          description="Fetch every open repository in the background"
+        >
+          <span className="block w-40">
+            <Select
+              label="Auto fetch"
+              placeholder="Off"
+              value={fetchIntervals[settings.autoFetchInterval]}
+              options={Object.values(fetchIntervals)}
+              onChange={(label) =>
+                save({
+                  autoFetchInterval: (
+                    Object.keys(
+                      fetchIntervals,
+                    ) as Settings['autoFetchInterval'][]
+                  ).find((key) => fetchIntervals[key] === label)!,
+                })
+              }
+            />
+          </span>
         </SettingCard>
         <SettingCard
           icon={<Download className={icon} />}

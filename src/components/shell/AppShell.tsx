@@ -1,8 +1,9 @@
 import { Activity, useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { milliseconds, type Duration } from 'date-fns';
 import { UpdateBanner } from '../states/UpdateBanner';
-import type { SettingsResponse } from '../../lib/types';
-import { reportAppError } from '../../lib/ipc';
+import type { Settings, SettingsResponse } from '../../lib/types';
+import { invoke, reportAppError } from '../../lib/ipc';
 import { folderName } from '../../lib/paths';
 import { mica } from '../../lib/platform';
 import { useCompact } from '../../stores/density';
@@ -14,6 +15,14 @@ import { CommandPalette } from './CommandPalette';
 import { RepoTabStrip } from './RepoTabStrip';
 import { RepositoryView } from './RepositoryView';
 import { Toaster } from './Toaster';
+const fetchEvery: Partial<Record<Settings['autoFetchInterval'], Duration>> = {
+  '30s': { seconds: 30 },
+  '1m': { minutes: 1 },
+  '5m': { minutes: 5 },
+  '10m': { minutes: 10 },
+  '15m': { minutes: 15 },
+  '30m': { minutes: 30 },
+};
 export function AppShell({
   settings,
   version,
@@ -37,6 +46,21 @@ export function AppShell({
       .setTitle(project ? `${project} — GitViewer` : 'GitViewer')
       .catch(reportAppError);
   }, [project]);
+  const every = fetchEvery[settings.autoFetchInterval];
+  useEffect(() => {
+    if (!every) return;
+    const fetching = new Set<string>();
+    const timer = setInterval(() => {
+      for (const { view } of useTabs.getState().tabs) {
+        if (fetching.has(view)) continue;
+        fetching.add(view);
+        invoke('sync', { repo: view, action: 'fetch' })
+          .catch(() => undefined)
+          .finally(() => fetching.delete(view));
+      }
+    }, milliseconds(every));
+    return () => clearInterval(timer);
+  }, [every]);
   return (
     <main
       data-theme={dark ? 'dark' : 'light'}

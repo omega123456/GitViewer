@@ -102,6 +102,23 @@ impl Registry {
             .ok_or_else(|| Error::new("invalid_repository", "Repository is not open"))
     }
 }
+fn last_fetch(common_dir: &Path) -> Option<String> {
+    let linked = std::fs::read_dir(common_dir.join("worktrees"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path());
+    std::iter::once(common_dir.to_path_buf())
+        .chain(linked)
+        .filter_map(|dir| {
+            std::fs::metadata(dir.join("FETCH_HEAD"))
+                .ok()?
+                .modified()
+                .ok()
+        })
+        .max()
+        .map(|time| chrono::DateTime::<chrono::Utc>::from(time).to_rfc3339())
+}
 impl Repo {
     pub fn new(root: PathBuf) -> Self {
         Self {
@@ -150,7 +167,10 @@ impl Repo {
         .and_then(|output| output.accept(&[0]))
         .and_then(|output| status::parse(&output.bytes));
         let next = match read {
-            Ok(next) => next,
+            Ok(next) => Status {
+                fetched: last_fetch(&self.common_dir),
+                ..next
+            },
             Err(error) => {
                 self.stale.store(true, Ordering::SeqCst);
                 return Err(error);

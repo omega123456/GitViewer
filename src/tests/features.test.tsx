@@ -898,6 +898,10 @@ describe('repository workflows', () => {
     await user.click(await screen.findByRole('option', { name: '125%' }));
     await user.click(screen.getByLabelText('File tabs'));
     await user.click(await screen.findByRole('option', { name: '5' }));
+    await user.click(screen.getByLabelText('Auto fetch'));
+    await user.click(
+      await screen.findByRole('option', { name: 'Every 5 minutes' }),
+    );
     await waitFor(() =>
       expect(preferences).toEqual({
         ...settings,
@@ -908,6 +912,7 @@ describe('repository workflows', () => {
         pullOnCheckout: true,
         zoom: 125,
         maxFileTabs: 5,
+        autoFetchInterval: '5m',
       }),
     );
     const rail = screen.getByRole('navigation', { name: 'Settings sections' });

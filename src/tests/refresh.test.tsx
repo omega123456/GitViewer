@@ -7,7 +7,7 @@ import {
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi } from 'vitest';
-import { milliseconds } from 'date-fns';
+import { format, milliseconds, parseISO, subMinutes } from 'date-fns';
 import { undo } from '@codemirror/commands';
 import { EditorView } from '@codemirror/view';
 import { useTabs } from '../stores/tabs';
@@ -21,7 +21,8 @@ import {
   lastError,
   pendingActivity,
 } from './harness';
-import { repository } from './fixtures';
+import { repository, settings, status } from './fixtures';
+import type { Status } from '../lib/types';
 import {
   commit,
   setup,
@@ -70,6 +71,68 @@ describe('focus refresh and hidden tabs', () => {
     fireEvent.focus(window);
     await settled();
     expect(count('refresh')).toBe(3);
+  });
+  it('auto fetches every open tab on its interval, untracked, silent and never overlapping', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    setup();
+    useTabs.getState().open('/second', 'Second');
+    useTabs.getState().activate(repository.id);
+    mockCommand('settings_get', () => ({
+      ...settings,
+      autoFetchInterval: '30s',
+    }));
+    const pending: (() => void)[] = [];
+    mockCommand(
+      'sync',
+      () => new Promise<null>((resolve) => pending.push(() => resolve(null))),
+    );
+    mount();
+    await screen.findAllByLabelText('Commit message');
+    expect(count('sync')).toBe(0);
+    act(() => vi.advanceTimersByTime(milliseconds({ seconds: 30 })));
+    await waitFor(() => expect(count('sync')).toBe(2));
+    expect(
+      calls.filter((call) => call.command === 'sync').map((call) => call.args),
+    ).toEqual([
+      { repo: repository.id, action: 'fetch' },
+      { repo: '/second', action: 'fetch' },
+    ]);
+    expect(pendingActivity()).toEqual([]);
+    act(() => vi.advanceTimersByTime(milliseconds({ seconds: 30 })));
+    expect(count('sync')).toBe(2);
+    mockCommand('sync', () => {
+      throw new Error('Offline');
+    });
+    await act(async () => pending.forEach((finish) => finish()));
+    act(() => vi.advanceTimersByTime(milliseconds({ seconds: 30 })));
+    await waitFor(() => expect(count('sync')).toBe(4));
+    await settled();
+    expect(lastError(repository.id)).toBeUndefined();
+    expect(lastError('/second')).toBeUndefined();
+  });
+  it('shows when the view was last fetched and keeps the relative time current', async () => {
+    const now = parseISO('2026-10-23T12:00:00Z');
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(now);
+    setup();
+    let current: Status = status;
+    mockCommand('status', () => current);
+    mount();
+    expect(await screen.findByText('Not fetched yet')).toBeVisible();
+    current = { ...status, fetched: subMinutes(now, 2).toISOString() };
+    act(() => emit('repo://status-changed', { repo: repository.id }));
+    const label = await screen.findByText('Fetched 2 minutes ago');
+    expect(label).toHaveAttribute(
+      'title',
+      `Fetched ${format(subMinutes(now, 2), 'd MMMM yyyy, HH:mm O')}`,
+    );
+    act(() => vi.advanceTimersByTime(milliseconds({ minutes: 1 })));
+    expect(await screen.findByText('Fetched 3 minutes ago')).toBeVisible();
+    current = { ...status, upstream: null, fetched: null };
+    act(() => emit('repo://status-changed', { repo: repository.id }));
+    await waitFor(() =>
+      expect(screen.queryByText(/fetched/i)).not.toBeInTheDocument(),
+    );
   });
   it('keeps a hidden tab to its badge status and catches up when shown', async () => {
     setup();

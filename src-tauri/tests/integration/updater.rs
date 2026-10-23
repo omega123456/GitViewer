@@ -307,15 +307,34 @@ fn old_settings_receive_update_defaults_and_invalid_intervals_are_rejected() {
     let settings: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
     assert_eq!(settings.update_check_interval, "1d");
     assert!(settings.install_update_on_quit);
+    assert_eq!(settings.auto_fetch_interval, "off");
     let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("settings.json");
     assert!(gitviewer_lib::settings::write(
-        &directory.path().join("settings.json"),
+        &path,
         Settings {
             update_check_interval: "bad".into(),
-            ..settings
+            ..settings.clone()
         }
     )
     .is_err());
+    assert!(gitviewer_lib::settings::write(
+        &path,
+        Settings {
+            auto_fetch_interval: "45s".into(),
+            ..settings.clone()
+        }
+    )
+    .is_err());
+    let saved = gitviewer_lib::settings::write(
+        &path,
+        Settings {
+            auto_fetch_interval: "30s".into(),
+            ..settings
+        },
+    )
+    .unwrap();
+    assert_eq!(saved.auto_fetch_interval, "30s");
 }
 
 #[tokio::test]

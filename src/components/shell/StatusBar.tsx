@@ -1,3 +1,5 @@
+import { useEffect, useReducer } from 'react';
+import { format, formatDistanceToNow, milliseconds, parseISO } from 'date-fns';
 import { FolderSymlink, GitBranch } from 'lucide-react';
 import { folderName } from '../../lib/paths';
 import { useProject } from '../../stores/tabs';
@@ -5,6 +7,27 @@ import { describeActivity } from '../../lib/activity';
 import type { Status } from '../../lib/types';
 import { useCurrentActivity } from '../../stores/activity';
 import { Spinner } from '../shared/Spinner';
+function useTicks() {
+  const [, tick] = useReducer((count: number) => count + 1, 0);
+  useEffect(() => {
+    const timer = setInterval(tick, milliseconds({ seconds: 30 }));
+    window.addEventListener('focus', tick);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', tick);
+    };
+  }, []);
+}
+function LastFetched({ fetched }: { fetched: string | null }) {
+  useTicks();
+  if (!fetched) return <span>Not fetched yet</span>;
+  const at = parseISO(fetched);
+  return (
+    <span title={`Fetched ${format(at, 'd MMMM yyyy, HH:mm O')}`}>
+      Fetched {formatDistanceToNow(at, { addSuffix: true })}
+    </span>
+  );
+}
 export function StatusBar({
   repo,
   status,
@@ -37,6 +60,9 @@ export function StatusBar({
         </span>
       )}
       <span>{status.entries.length} changed</span>
+      {(status.upstream || status.fetched) && (
+        <LastFetched fetched={status.fetched} />
+      )}
       {label ? (
         <span className="ml-auto flex items-center gap-1.5 text-ink dark:text-ink-dark">
           <Spinner className="size-3" />

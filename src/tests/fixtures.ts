@@ -24,6 +24,7 @@ export const settings: SettingsResponse = {
   zoom: 100,
   maxFileTabs: 8,
   pullOnCheckout: false,
+  autoFetchInterval: 'off',
   ai,
   keyStored: false,
 };
@@ -40,6 +41,7 @@ export const status: Status = {
   behind: 0,
   conflicted: false,
   merging: null,
+  fetched: null,
   entries: [
     { kind: 'ordinary', path: 'src/app.ts', index: 'M', worktree: 'M' },
     { kind: 'untracked', path: 'new.txt', index: '?', worktree: '?' },

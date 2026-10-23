@@ -547,6 +547,7 @@ async fn local_remote_fetch_pull_push_and_divergence_refusal() {
         );
     }
     let repo = handle.clone();
+    assert_eq!(repo.refresh().await.unwrap().fetched, None);
     let reported = Arc::new(Mutex::new(Vec::<String>::new()));
     let collector = reported.clone();
     let fetched = branch::sync(&repo, "fetch", move |line| {
@@ -556,7 +557,12 @@ async fn local_remote_fetch_pull_push_and_divergence_refusal() {
     .unwrap();
     assert_eq!(fetched, Some(1));
     assert!(!reported.lock().unwrap().is_empty());
-    assert_eq!(repo.refresh().await.unwrap().behind, Some(1));
+    let refreshed = repo.refresh().await.unwrap();
+    assert_eq!(refreshed.behind, Some(1));
+    assert!(refreshed
+        .fetched
+        .as_deref()
+        .is_some_and(|at| chrono::DateTime::parse_from_rfc3339(at).is_ok()));
     std::fs::write(dir.path().join("file.txt"), "one\ntwo\ndirty\n").unwrap();
     std::fs::write(dir.path().join("untracked.txt"), "untracked\n").unwrap();
     repo.refresh().await.unwrap();
@@ -623,6 +629,31 @@ async fn local_remote_fetch_pull_push_and_divergence_refusal() {
         .contains("fixture remotes"));
 }
 
+#[tokio::test]
+async fn last_fetch_is_the_newest_fetch_head_across_worktrees() {
+    let (dir, repo) = fixture().await;
+    let main = dir.path().join(".git/FETCH_HEAD");
+    std::fs::write(&main, "").unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&main)
+        .unwrap()
+        .set_modified((chrono::Utc::now() - chrono::Duration::days(1)).into())
+        .unwrap();
+    let linked = dir.path().join(".git/worktrees/linked");
+    std::fs::create_dir_all(&linked).unwrap();
+    std::fs::write(linked.join("FETCH_HEAD"), "").unwrap();
+    let newest = chrono::DateTime::<chrono::Utc>::from(
+        std::fs::metadata(linked.join("FETCH_HEAD"))
+            .unwrap()
+            .modified()
+            .unwrap(),
+    );
+    assert_eq!(
+        repo.refresh().await.unwrap().fetched,
+        Some(newest.to_rfc3339())
+    );
+}
 #[tokio::test]
 async fn push_publishes_a_branch_without_upstream() {
     let (dir, handle) = fixture().await;

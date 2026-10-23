@@ -1,4 +1,11 @@
-import { getUnixTime, parseISO, subDays, subHours, subWeeks } from 'date-fns';
+import {
+  getUnixTime,
+  parseISO,
+  subDays,
+  subHours,
+  subMinutes,
+  subWeeks,
+} from 'date-fns';
 import { test as base, expect } from '@playwright/test';
 import {
   diff,
@@ -534,7 +541,7 @@ export const test = base.extend({
         gappedText,
         repository,
         settings: { ...settings, theme: 'system' },
-        status,
+        status: { ...status, fetched: subMinutes(frozen, 2).toISOString() },
         stashes,
         update,
       },

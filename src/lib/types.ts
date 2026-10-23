@@ -32,6 +32,7 @@ export interface Status {
   entries: Entry[];
   conflicted: boolean;
   merging: string | null;
+  fetched: string | null;
 }
 export interface MergePreview {
   outcome: 'upToDate' | 'fastForward' | 'commit' | 'conflict';
@@ -126,6 +127,7 @@ export interface Settings {
   installUpdateOnQuit: boolean;
   searchIgnoredFiles: boolean;
   pullOnCheckout: boolean;
+  autoFetchInterval: '30s' | '1m' | '5m' | '10m' | '15m' | '30m' | 'off';
   smartCommit: 'ask' | 'always' | 'never';
   zoom: number;
   maxFileTabs: number;

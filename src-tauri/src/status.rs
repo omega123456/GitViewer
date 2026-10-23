@@ -82,6 +82,8 @@ pub struct Status {
     pub conflicted: bool,
     #[serde(default)]
     pub merging: Option<String>,
+    #[serde(default)]
+    pub fetched: Option<String>,
 }
 
 pub fn parse(bytes: &[u8]) -> Result<Status> {
