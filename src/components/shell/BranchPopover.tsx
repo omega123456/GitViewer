@@ -706,6 +706,7 @@ export function BranchPopover({
                           <DropdownMenu.Item
                             disabled={disabled || branch.current}
                             className={menuItem}
+                            title={`Merge into ${status.branch}`}
                             onSelect={() => {
                               setOpen(false);
                               void mergeBranch(
@@ -715,12 +716,15 @@ export function BranchPopover({
                               );
                             }}
                           >
-                            <GitMerge className="size-3" />
-                            Merge into {status.branch}
+                            <GitMerge className="size-3 shrink-0" />
+                            <span className="truncate">
+                              Merge into {status.branch}
+                            </span>
                           </DropdownMenu.Item>
                           <DropdownMenu.Item
                             disabled={branch.current}
                             className={menuItem}
+                            title={`Compare with ${status.branch}`}
                             onSelect={() => {
                               setOpen(false);
                               openCompare(repo, {
@@ -729,8 +733,10 @@ export function BranchPopover({
                               });
                             }}
                           >
-                            <GitCompare className="size-3" />
-                            Compare with {status.branch}
+                            <GitCompare className="size-3 shrink-0" />
+                            <span className="truncate">
+                              Compare with {status.branch}
+                            </span>
                           </DropdownMenu.Item>
                           <DropdownMenu.Separator className={menuSeparator} />
                           <DropdownMenu.Item
@@ -753,7 +759,7 @@ export function BranchPopover({
                               });
                             }}
                           >
-                            <Trash2 className="size-3" />
+                            <Trash2 className="size-3 shrink-0" />
                             Delete branch
                           </DropdownMenu.Item>
                           {holder && (
