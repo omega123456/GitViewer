@@ -14,7 +14,7 @@ use std::{
 
 pub const DIFF_BUDGET: usize = 175_000;
 pub const MESSAGE_CAP: usize = 4000;
-pub const TIMEOUT: Duration = Duration::from_secs(60);
+pub const TIMEOUT: Duration = Duration::from_secs(120);
 
 const LAST_REASONING_TIER: usize = 3;
 const THINK_OPEN: [&str; 3] = ["<think>", "<thinking>", "<reasoning>"];
