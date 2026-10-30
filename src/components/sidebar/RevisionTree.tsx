@@ -21,8 +21,11 @@ import {
   useExpandNewDirectories,
   type Node,
 } from './nodes';
+import { openNode, useRevealInTree } from './reveal';
 
 export function RevisionTree({
+  repo,
+  tree: key,
   paths,
   statuses,
   lines,
@@ -30,6 +33,8 @@ export function RevisionTree({
   selectedPath,
   onSelect,
 }: {
+  repo: string;
+  tree: string;
   paths: string[];
   statuses?: Record<string, string>;
   lines?: Record<string, Lines>;
@@ -88,6 +93,14 @@ export function RevisionTree({
   useEffect(() => {
     if (selectedIndex >= 0) virtual.scrollToIndex(selectedIndex);
   }, [virtual, selectedIndex]);
+  useRevealInTree({
+    repo,
+    tree: key,
+    instance: tree,
+    items,
+    scroll: (index) => virtual.scrollToIndex(index, { align: 'center' }),
+    open: openNode(tree, nodes),
+  });
   return (
     <div
       {...tree.getContainerProps()}

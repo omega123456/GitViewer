@@ -1,5 +1,6 @@
 import { RevisionTree } from '../sidebar/RevisionTree';
-import { memo, useState } from 'react';
+import { revisionTree } from '../sidebar/reveal';
+import { memo, useEffect, useState } from 'react';
 import { formatDistanceToNowStrict, fromUnixTime } from 'date-fns';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { Archive, Copy, CopyMinus, Layers, Trash2 } from 'lucide-react';
@@ -11,6 +12,7 @@ import { runs, useCurrentActivity } from '../../stores/activity';
 import { ask } from '../../stores/decision';
 import { useErrors } from '../../stores/errors';
 import { useLayout, useLayoutFields } from '../../stores/layout';
+import { useReveal } from '../../stores/reveal';
 import { useSelection, useWorkingSelection } from '../../stores/selection';
 import { Button } from '../shared/Button';
 import { Decision } from '../shared/Decision';
@@ -42,6 +44,16 @@ export const StashSection = memo(function StashSection({
   );
   const selection = useWorkingSelection(repo);
   const [selected, setSelected] = useState('');
+  const revealing = useReveal((s) => s.targets[repo]);
+  useEffect(() => {
+    if (
+      revealing &&
+      selection?.source === 'stash' &&
+      selection.revision &&
+      revealing.tree === revisionTree(selection)
+    )
+      setSelected(selection.revision);
+  }, [revealing, selection]);
   const activity = useCurrentActivity(repo);
   const files = useBackend(
     'commit_files',
@@ -308,6 +320,8 @@ export const StashSection = memo(function StashSection({
                 {files.data && (
                   <RevisionTree
                     key={selected}
+                    repo={repo}
+                    tree={revisionTree({ source: 'stash', revision: selected })}
                     label="Stash files"
                     paths={Object.keys(files.data.statuses)}
                     statuses={files.data.statuses}

@@ -10,6 +10,8 @@ import {
   type FileTab,
 } from '../../stores/selection';
 import { Button } from '../shared/Button';
+import { FileMenu } from '../shared/FileMenu';
+import { revealInSidebar } from '../sidebar/reveal';
 import { tabSteps } from '../shared/ViewSwitch';
 export function FileTabStrip({
   repo,
@@ -100,44 +102,50 @@ function FileTabCell({
     },
   };
   return (
-    <div
-      className={`group relative flex min-w-30 max-w-52 shrink-0 items-center rounded-t pr-1 text-sm first:rounded-tl-none first:border-l-transparent ${active ? 'h-8 border border-b-0 border-line bg-surface font-semibold text-ink dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark' : 'mb-px h-7.75 text-muted hover:bg-hover hover:text-ink dark:text-muted-dark dark:hover:bg-hover-dark dark:hover:text-ink-dark'}`}
+    <FileMenu
+      repo={repo}
+      path={path}
+      reveal={() => revealInSidebar(repo, tab.selection)}
     >
-      <Button
-        variant="chrome"
-        role="tab"
-        aria-selected={active}
-        tabIndex={focusable ? 0 : -1}
-        title={path}
-        {...middle}
-        className="min-w-0 flex-1 justify-start gap-1.5 self-stretch rounded-tl pl-2.75"
-        onClick={() => useSelection.getState().select(repo, tab.selection)}
+      <div
+        className={`group relative flex min-w-30 max-w-52 shrink-0 items-center rounded-t pr-1 text-sm first:rounded-tl-none first:border-l-transparent ${active ? 'h-8 border border-b-0 border-line bg-surface font-semibold text-ink dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark' : 'mb-px h-7.75 text-muted hover:bg-hover hover:text-ink dark:text-muted-dark dark:hover:bg-hover-dark dark:hover:text-ink-dark'}`}
       >
-        <span className="truncate">{name}</span>
-        {suffix && (
-          <span className="shrink-0 font-mono text-badge text-faint dark:text-faint-dark">
-            {suffix}
-          </span>
-        )}
-      </Button>
-      <span className="relative grid size-control shrink-0 place-items-center">
-        {unsaved && (
-          <span
-            role="img"
-            aria-label="Unsaved edits"
-            className={`size-1.5 rounded-full bg-modified dark:bg-modified-dark ${active ? 'hidden' : 'group-hover:opacity-0 group-focus-within:opacity-0'}`}
-          />
-        )}
         <Button
           variant="chrome"
-          aria-label={`Close ${name}`}
+          role="tab"
+          aria-selected={active}
+          tabIndex={focusable ? 0 : -1}
+          title={path}
           {...middle}
-          className={`absolute inset-0 rounded hover:bg-hover dark:hover:bg-hover-dark ${active ? '' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`}
-          onClick={close}
+          className="min-w-0 flex-1 justify-start gap-1.5 self-stretch rounded-tl pl-2.75"
+          onClick={() => useSelection.getState().select(repo, tab.selection)}
         >
-          <X className="size-3.5" />
+          <span className="truncate">{name}</span>
+          {suffix && (
+            <span className="shrink-0 font-mono text-badge text-faint dark:text-faint-dark">
+              {suffix}
+            </span>
+          )}
         </Button>
-      </span>
-    </div>
+        <span className="relative grid size-control shrink-0 place-items-center">
+          {unsaved && (
+            <span
+              role="img"
+              aria-label="Unsaved edits"
+              className={`size-1.5 rounded-full bg-modified dark:bg-modified-dark ${active ? 'hidden' : 'group-hover:opacity-0 group-focus-within:opacity-0'}`}
+            />
+          )}
+          <Button
+            variant="chrome"
+            aria-label={`Close ${name}`}
+            {...middle}
+            className={`absolute inset-0 rounded hover:bg-hover dark:hover:bg-hover-dark ${active ? '' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`}
+            onClick={close}
+          >
+            <X className="size-3.5" />
+          </Button>
+        </span>
+      </div>
+    </FileMenu>
   );
 }

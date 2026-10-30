@@ -16,6 +16,7 @@ import { TextInput } from '../shared/TextInput';
 import { field } from '../shared/styles';
 import { ErrorState } from '../states/Errors';
 import { State } from '../states/State';
+import { revisionTree } from './reveal';
 import { RevisionTree } from './RevisionTree';
 export function openCompare(repo: string, patch: Partial<TabLayout> = {}) {
   useLayout.getState().update(repo, { ...patch, mode: 'compare' });
@@ -211,6 +212,12 @@ export function CompareSection({
       ) : data ? (
         <RevisionTree
           key={`${data.base}:${data.target}`}
+          repo={repo}
+          tree={revisionTree({
+            source: 'compare',
+            base: data.base,
+            revision: data.target,
+          })}
           label="Changed files"
           paths={data.files.map((file) => file.path)}
           statuses={statuses}

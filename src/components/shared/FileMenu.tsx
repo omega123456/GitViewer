@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { ContextMenu } from 'radix-ui';
-import { Copy, ExternalLink, FileText } from 'lucide-react';
+import { Copy, ExternalLink, FileText, LocateFixed } from 'lucide-react';
 import { reportAppError } from '../../lib/ipc';
 import { perform } from '../../lib/query';
 import { menu, menuItem, menuSeparator } from './styles';
@@ -17,11 +17,13 @@ export function FileMenu({
   repo,
   path,
   disabled = false,
+  reveal,
   children,
 }: {
   repo: string;
   path: string;
   disabled?: boolean;
+  reveal?: () => void;
   children: ReactNode;
 }) {
   return (
@@ -31,6 +33,15 @@ export function FileMenu({
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
         <ContextMenu.Content className={`w-60 ${menu}`}>
+          {reveal && (
+            <>
+              <ContextMenu.Item className={menuItem} onSelect={reveal}>
+                <LocateFixed className="size-3.75 text-muted dark:text-muted-dark" />
+                Reveal in sidebar
+              </ContextMenu.Item>
+              <ContextMenu.Separator className={menuSeparator} />
+            </>
+          )}
           <ContextMenu.Item
             className={menuItem}
             onSelect={() => copy(path.slice(path.lastIndexOf('/') + 1))}

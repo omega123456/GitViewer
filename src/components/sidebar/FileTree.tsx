@@ -43,6 +43,7 @@ import {
   type Node,
   type Section,
 } from './nodes';
+import { openEntry, useRevealInTree } from './reveal';
 const rowAction = 'size-6';
 const discardTint =
   'text-muted hover:text-deleted dark:text-muted-dark dark:hover:text-deleted-dark';
@@ -403,6 +404,14 @@ export function FilesTree({ repo, status }: { repo: string; status: Status }) {
     getScrollElement: () => parent.current,
     estimateSize: () => (compact ? 24 : 28),
     overscan: 8,
+  });
+  useRevealInTree({
+    repo,
+    tree: 'files',
+    instance: tree,
+    items,
+    scroll: (index) => virtual.scrollToIndex(index, { align: 'center' }),
+    open: openEntry(tree),
   });
   return (
     <div

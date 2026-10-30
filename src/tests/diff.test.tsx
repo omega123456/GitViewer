@@ -6,12 +6,14 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import userEvent, { type UserEvent } from '@testing-library/user-event';
 import { describe, it, expect, vi } from 'vitest';
 import { QueryProvider } from '../providers/QueryProvider';
 import { useTabs } from '../stores/tabs';
 import { useLayout } from '../stores/layout';
 import { useSelection } from '../stores/selection';
+import { useFilterStore } from '../stores/filter';
+import { useReveal } from '../stores/reveal';
 import { useDiffView } from '../stores/diff-view';
 import { DiffPane } from '../components/diff/DiffPane';
 import { ImageDiff } from '../components/image/ImageDiff';
@@ -119,6 +121,157 @@ describe('file context menu', () => {
       'C:\\repo\\src\\app.ts',
     );
     expect(absolutePath('C:\\repo', 'a.txt')).toBe('C:\\repo\\a.txt');
+  });
+});
+
+async function tabMenu(user: UserEvent, name: string) {
+  const strip = await screen.findByRole('tablist', { name: 'Open files' });
+  await user.pointer({
+    keys: '[MouseRight]',
+    target: within(strip).getByRole('tab', { name }),
+  });
+}
+async function revealTab(user: UserEvent, name: string) {
+  await tabMenu(user, name);
+  await user.click(
+    await screen.findByRole('menuitem', { name: 'Reveal in sidebar' }),
+  );
+}
+function entry(path: string, directory = false) {
+  return {
+    path,
+    name: path.slice(path.lastIndexOf('/') + 1),
+    directory,
+    ignored: false,
+    status: '',
+  };
+}
+describe('file tab menu', () => {
+  it('copies the name and path and reveals a change in the files tree, not the changes tree', async () => {
+    setup();
+    mockCommand('tree', ({ path }) =>
+      path === '' ? [entry('src', true)] : [entry('src/app.ts')],
+    );
+    const user = userEvent.setup();
+    useFilterStore.getState().set(repository.id, 'app');
+    useSelection
+      .getState()
+      .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
+    mount();
+    await user.click(await screen.findByRole('button', { name: /^Files/ }));
+    const files = await screen.findByRole('tree', { name: 'All files' });
+    await within(files).findByRole('treeitem', { name: 'src' });
+    expect(
+      within(files).queryByRole('treeitem', { name: 'app.ts' }),
+    ).not.toBeInTheDocument();
+    await tabMenu(user, 'app.ts');
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Copy filename' }),
+    );
+    expect(await navigator.clipboard.readText()).toBe('app.ts');
+    await tabMenu(user, 'app.ts');
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Copy path' }),
+    );
+    expect(await navigator.clipboard.readText()).toBe('/fixture/src/app.ts');
+    await revealTab(user, 'app.ts');
+    await waitFor(() =>
+      expect(
+        within(files).getByRole('treeitem', { name: 'app.ts' }),
+      ).toHaveFocus(),
+    );
+    expect(useFilterStore.getState().text[repository.id]).toBe('app');
+    expect(useReveal.getState().targets[repository.id]).toBeUndefined();
+  });
+  it('opens the files section, clears a hiding filter, and loads folders to reveal a clean file', async () => {
+    setup();
+    mockCommand('tree', ({ path }) =>
+      path === ''
+        ? [entry('docs', true), entry('src', true)]
+        : path === 'docs'
+          ? [entry('docs/guide.md')]
+          : [],
+    );
+    const user = userEvent.setup();
+    useFilterStore.getState().set(repository.id, 'app');
+    useSelection
+      .getState()
+      .select(repository.id, { path: 'docs/guide.md', source: 'file' });
+    mount();
+    await revealTab(user, 'guide.md');
+    expect(useLayout.getState().tabs[repository.id].filesOpen).toBe(true);
+    expect(useFilterStore.getState().text[repository.id]).toBe('');
+    const files = await screen.findByRole('tree', { name: 'All files' });
+    await waitFor(() =>
+      expect(
+        within(files).getByRole('treeitem', { name: 'guide.md' }),
+      ).toHaveFocus(),
+    );
+  });
+  it('gives up on a file the tree no longer lists', async () => {
+    setup();
+    mockCommand('tree', ({ path }) =>
+      path === '' ? [entry('docs', true)] : [],
+    );
+    const user = userEvent.setup();
+    useFilterStore.getState().set(repository.id, 'gone');
+    useSelection
+      .getState()
+      .select(repository.id, { path: 'docs/gone.txt', source: 'file' });
+    mount();
+    await revealTab(user, 'gone.txt');
+    expect(useFilterStore.getState().text[repository.id]).toBe('gone');
+    await waitFor(() =>
+      expect(useReveal.getState().targets[repository.id]).toBeUndefined(),
+    );
+  });
+  it('reveals a commit file in the commit tree', async () => {
+    setup();
+    const user = userEvent.setup();
+    useLayout.getState().update(repository.id, { mode: 'history' });
+    useSelection.getState().select(repository.id, {
+      path: 'src/app.ts',
+      source: 'commit',
+      revision: commit.hash,
+    });
+    mount();
+    const tree = await screen.findByRole('tree', { name: 'Commit files' });
+    await user.click(
+      await within(tree).findByRole('treeitem', { name: 'src' }),
+    );
+    await revealTab(user, 'app.ts');
+    await waitFor(() =>
+      expect(
+        within(tree).getByRole('treeitem', { name: 'app.ts' }),
+      ).toHaveFocus(),
+    );
+  });
+  it('opens the stash section on the tab stash to reveal a stash file', async () => {
+    setup();
+    mockCommand('stashes', () => [
+      {
+        hash: 'stash-hash',
+        selector: 'stash@{0}',
+        message: 'Saved experiment',
+        timestamp: commit.timestamp,
+      },
+    ]);
+    const user = userEvent.setup();
+    useSelection.getState().select(repository.id, {
+      path: 'src/app.ts',
+      source: 'stash',
+      revision: 'stash-hash',
+    });
+    mount();
+    await screen.findByRole('button', { name: /Stashes/ });
+    await revealTab(user, 'app.ts');
+    expect(useLayout.getState().tabs[repository.id].stashOpen).toBe(true);
+    const tree = await screen.findByRole('tree', { name: 'Stash files' });
+    await waitFor(() =>
+      expect(
+        within(tree).getByRole('treeitem', { name: 'app.ts' }),
+      ).toHaveFocus(),
+    );
   });
 });
 

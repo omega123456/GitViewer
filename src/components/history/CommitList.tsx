@@ -1,4 +1,5 @@
 import { RevisionTree } from '../sidebar/RevisionTree';
+import { revisionTree } from '../sidebar/reveal';
 import { sumLines } from '../shared/LineCount';
 import { memo, useEffect, useMemo, useRef } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
@@ -232,6 +233,8 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
           {files.data && (
             <RevisionTree
               key={selection.revision}
+              repo={repo}
+              tree={revisionTree(selection)}
               label="Commit files"
               paths={paths}
               statuses={files.data.statuses}
