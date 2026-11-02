@@ -207,6 +207,33 @@ describe('working-tree editor', () => {
     await user.click(screen.getByRole('button', { name: 'Blame' }));
     expect(useSelection.getState().working[repository.id]?.editing).toBe(false);
   });
+  it('wraps lines from the button and Alt+Z and shares the setting with the diff', async () => {
+    setup();
+    mount();
+    const { user, view } = await startEditing();
+    const button = screen.getByTitle('Word wrap');
+    expect(button).toHaveAttribute('aria-pressed', 'false');
+    expect(view.dom.querySelector('.cm-lineWrapping')).toBeNull();
+    await user.click(button);
+    expect(button).toHaveAttribute('aria-pressed', 'true');
+    expect(view.dom.querySelector('.cm-lineWrapping')).not.toBeNull();
+    act(() => {
+      fireEvent.keyDown(view.contentDOM, {
+        key: 'z',
+        code: 'KeyZ',
+        keyCode: 90,
+        altKey: true,
+      });
+    });
+    expect(button).toHaveAttribute('aria-pressed', 'false');
+    expect(view.dom.querySelector('.cm-lineWrapping')).toBeNull();
+    await user.click(button);
+    await user.click(screen.getByRole('button', { name: 'Diff' }));
+    expect(await screen.findByTitle('Word wrap')).toHaveAttribute(
+      'data-state',
+      'on',
+    );
+  });
   it('reverts unsaved edits in place and lets undo bring them back', async () => {
     setup();
     mount();

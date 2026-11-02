@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { FileWarning, RotateCcw, Search } from 'lucide-react';
+import { FileWarning, RotateCcw, Search, WrapText } from 'lucide-react';
 import { isolateHistory } from '@codemirror/commands';
 import { openSearchPanel } from '@codemirror/search';
 import type { Transaction } from '@codemirror/state';
@@ -35,15 +35,21 @@ import {
   describeLanguage,
   languageSlot,
   themeSlot,
+  wrapping,
+  wrapSlot,
 } from './setup';
 const outline =
   'border border-line bg-surface text-ink dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark';
 export default function EditSurface({
   repo,
   path,
+  wrap,
+  toggleWrap,
 }: {
   repo: string;
   path: string;
+  wrap: boolean;
+  toggleWrap: () => void;
 }) {
   const opened = useBackend('file_read', { repo, path });
   const base = useBackend('file_lines', { repo, path, source: 'staged' });
@@ -107,6 +113,8 @@ export default function EditSurface({
       buffer={ready}
       base={base.data}
       dark={dark}
+      wrap={wrap}
+      toggleWrap={toggleWrap}
     />
   );
 }
@@ -116,12 +124,16 @@ function Editor({
   buffer,
   base,
   dark,
+  wrap,
+  toggleWrap,
 }: {
   repo: string;
   path: string;
   buffer: Buffer;
   base: string | null | undefined;
   dark: boolean;
+  wrap: boolean;
+  toggleWrap: () => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<EditorView>();
@@ -163,6 +175,11 @@ function Editor({
     view?.dispatch({ effects: baseSlot.reconfigure(baseText(base)) });
   }, [view, base]);
   useEffect(() => {
+    view?.dispatch({
+      effects: wrapSlot.reconfigure(wrapping(wrap, toggleWrap)),
+    });
+  }, [view, wrap, toggleWrap]);
+  useEffect(() => {
     const description = describeLanguage(path);
     if (!view || !description) return;
     let cancelled = false;
@@ -189,6 +206,19 @@ function Editor({
           </span>
         </span>
         <span className="ml-auto flex items-center gap-1.5">
+          <Button
+            title="Word wrap"
+            aria-pressed={wrap}
+            variant="icon"
+            className={`size-control ${
+              wrap
+                ? 'bg-selected text-accent dark:bg-selected-dark dark:text-accent-dark'
+                : 'text-muted dark:text-muted-dark'
+            }`}
+            onClick={toggleWrap}
+          >
+            <WrapText className="size-3.5" />
+          </Button>
           <Button
             className="text-muted dark:text-muted-dark"
             disabled={!view}

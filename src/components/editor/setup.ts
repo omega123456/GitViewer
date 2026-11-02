@@ -46,6 +46,21 @@ import { tags } from '@lezer/highlight';
 export const themeSlot = new Compartment();
 export const languageSlot = new Compartment();
 export const baseSlot = new Compartment();
+export const wrapSlot = new Compartment();
+export function wrapping(wrap: boolean, toggle: () => void) {
+  return [
+    wrap ? EditorView.lineWrapping : [],
+    keymap.of([
+      {
+        key: 'Alt-z',
+        run: () => {
+          toggle();
+          return true;
+        },
+      },
+    ]),
+  ];
+}
 const original = Facet.define<Text, Text>({
   combine: (values) => values[0] ?? Text.empty,
   compare: (a, b) => a.eq(b),
@@ -307,6 +322,7 @@ export function createState({
       themeSlot.of(chrome(dark)),
       languageSlot.of([]),
       baseSlot.of(baseText(base)),
+      wrapSlot.of([]),
     ],
   });
 }

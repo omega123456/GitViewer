@@ -120,6 +120,7 @@ function SelectedDiff({
   );
   const mode = useDiffView((s) => s.mode) ?? settings.diffMode;
   const [wrap, setWrap] = useState(false);
+  const toggleWrap = useCallback(() => setWrap((value) => !value), []);
   const [whitespace, setWhitespace] = useState(false);
   const [currentHunk, setCurrentHunk] = useState(0);
   const surface = useRef<DiffSurfaceHandle>(null);
@@ -313,7 +314,7 @@ function SelectedDiff({
       icon: <WrapText className="size-3.5" />,
       label: 'Toggle word wrap',
       key: 'Alt+z',
-      run: () => setWrap((value) => !value),
+      run: toggleWrap,
     },
     {
       id: 'whitespace',
@@ -453,7 +454,12 @@ function SelectedDiff({
         <State title="Loading file…" />
       ) : editing ? (
         <Suspense fallback={<State title="Loading editor…" />}>
-          <EditSurface repo={repo} path={selection.path} />
+          <EditSurface
+            repo={repo}
+            path={selection.path}
+            wrap={wrap}
+            toggleWrap={toggleWrap}
+          />
         </Suspense>
       ) : data.tooLarge ? (
         <State
@@ -503,7 +509,7 @@ function SelectedDiff({
             wrap={wrap}
             whitespace={whitespace}
             full={expansion.available ? expansion.full : undefined}
-            toggleWrap={() => setWrap(!wrap)}
+            toggleWrap={toggleWrap}
             toggleWhitespace={() => setWhitespace(!whitespace)}
             toggleFull={expansion.toggleFull}
             move={move}
