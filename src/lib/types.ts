@@ -311,7 +311,12 @@ export interface Commands {
   unsaved_set: Command<{ paths: string[] }, null>;
   quit: Command<Record<string, never>, null>;
   file_lines: Command<
-    FileArgs & { source: Source; revision?: string; base?: string },
+    FileArgs & {
+      source: Source;
+      revision?: string;
+      base?: string;
+      old?: boolean;
+    },
     string | null
   >;
   diff_stack: Command<

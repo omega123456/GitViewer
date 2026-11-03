@@ -303,6 +303,7 @@ pub async fn dispatch<R: tauri::Runtime>(
                     string(&args, "source")?,
                     revision,
                     optional(&args, "base"),
+                    flag(&args, "old"),
                 )
                 .await?);
             }

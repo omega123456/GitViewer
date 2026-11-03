@@ -281,7 +281,7 @@ describe('diff context gaps', () => {
     mockCommand('diff', () => gapped);
     mockCommand('file_lines', () => text);
   }
-  it('labels every gap from the hunk headers before fetching the file', async () => {
+  it('labels every gap from the hunk headers until a gap is opened', async () => {
     gaps();
     const pane = renderFile({ path: 'src/app.ts', source: 'unstaged' });
     expect(await screen.findByText('26 hidden lines above')).toBeVisible();
@@ -297,7 +297,8 @@ describe('diff context gaps', () => {
     expect(
       screen.queryByLabelText('Show 20 more lines above hunk 2'),
     ).toBeNull();
-    expect(count('file_lines')).toBe(0);
+    await waitFor(() => expect(count('file_lines')).toBe(2));
+    expect(screen.getByText('Rest of file hidden')).toBeVisible();
     pane.unmount();
   });
   it('reveals twenty lines per step and fetches the file text once', async () => {
@@ -317,11 +318,21 @@ describe('diff context gaps', () => {
     expect(
       screen.queryByLabelText('Show 20 more lines above hunk 1'),
     ).toBeNull();
-    expect(calls).toContainEqual({
-      command: 'file_lines',
-      args: { repo: repository.id, path: 'src/app.ts', source: 'unstaged' },
-    });
-    expect(count('file_lines')).toBe(1);
+    expect(calls.filter((call) => call.command === 'file_lines')).toEqual([
+      {
+        command: 'file_lines',
+        args: {
+          repo: repository.id,
+          path: 'src/app.ts',
+          source: 'unstaged',
+          old: true,
+        },
+      },
+      {
+        command: 'file_lines',
+        args: { repo: repository.id, path: 'src/app.ts', source: 'unstaged' },
+      },
+    ]);
   });
   it('closes a gap with show all and moves focus to its hunk header', async () => {
     gaps();

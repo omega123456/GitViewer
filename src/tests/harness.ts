@@ -34,6 +34,7 @@ export function resetHarness() {
   mockCommand('ai_key_set', () => null);
   mockCommand('ai_generate', () => ({ ...generated }));
   mockCommand('line_stats', () => ({ staged: {}, unstaged: {} }));
+  mockCommand('file_lines', () => null);
   mockCommand('worktrees', ({ repo }) => [
     {
       id: repo,

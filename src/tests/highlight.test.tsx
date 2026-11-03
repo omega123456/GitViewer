@@ -54,8 +54,8 @@ describe('highlighting in a worker', () => {
     );
     workers.held = true;
     renderFile({ path: 'src/app.ts', source: 'unstaged' });
-    await waitFor(() => expect(workers.queued).toHaveLength(6));
-    expect(workers.jobs.map((job) => job.lines.length)).toEqual([1200, 1200]);
+    await waitFor(() => expect(workers.queued).toHaveLength(3));
+    expect(workers.jobs.map((job) => job.lines.length)).toEqual([1200]);
     const pane = screen.getByRole('region', { name: 'Diff viewer' });
     expect(colored(pane)).toBe(0);
     while (!colored(pane) && workers.queued.length)
@@ -64,7 +64,7 @@ describe('highlighting in a worker', () => {
         await new Promise((resolve) => setTimeout(resolve, 20));
       });
     expect(colored(pane)).toBeGreaterThan(0);
-    expect(workers.queued.length).toBeGreaterThanOrEqual(3);
+    expect(workers.queued.length).toBeGreaterThanOrEqual(2);
     const capped = [...pane.querySelectorAll('code')].find((code) =>
       code.textContent?.includes('aaaa'),
     )!;
@@ -118,16 +118,108 @@ describe('highlighting in a worker', () => {
       expect(colored(blockOf(pane, /lib\.ts/))).toBeGreaterThan(0);
     });
   });
+  it('highlights each side against its full file so a hidden gap cannot leave later hunks inside a string', async () => {
+    setup();
+    useDiffView.getState().setMode('unified');
+    const shared = [
+      'const text = `',
+      'first',
+      'second',
+      'third',
+      '`;',
+      'const filler = 7;',
+      'const filler2 = 8;',
+    ];
+    const before = ['const a = 0;', ...shared, 'const old = 9;', 'end();'];
+    const after = ['const a = 1;', ...shared, 'const fresh = 9;', 'end();'];
+    const line = (
+      kind: 'context' | 'add' | 'remove',
+      number: number,
+      content: string,
+    ) => ({
+      kind,
+      content,
+      old: kind === 'add' ? null : number,
+      new: kind === 'remove' ? null : number,
+      noNewline: false,
+      marks: [] as [number, number][],
+    });
+    mockCommand('diff', () => ({
+      ...diff,
+      patches: ['patch', 'patch'],
+      hunks: [
+        {
+          header: '@@ -1,4 +1,4 @@',
+          oldStart: 1,
+          oldCount: 4,
+          newStart: 1,
+          newCount: 4,
+          lines: [
+            line('remove', 1, before[0]),
+            line('add', 1, after[0]),
+            ...[2, 3, 4].map((number) =>
+              line('context', number, after[number - 1]),
+            ),
+          ],
+        },
+        {
+          header: '@@ -8,3 +8,3 @@',
+          oldStart: 8,
+          oldCount: 3,
+          newStart: 8,
+          newCount: 3,
+          lines: [
+            line('context', 8, after[7]),
+            line('remove', 9, before[8]),
+            line('add', 9, after[8]),
+            line('context', 10, after[9]),
+          ],
+        },
+      ],
+    }));
+    mockCommand(
+      'file_lines',
+      (args) => `${(args.old ? before : after).join('\n')}\n`,
+    );
+    renderFile({ path: 'src/app.ts', source: 'unstaged' });
+    const pane = await screen.findByRole('region', { name: 'Diff viewer' });
+    const keyword = (text: string) => {
+      const code = [...pane.querySelectorAll('code')].find((code) =>
+        code.textContent?.includes(text),
+      );
+      return [...(code?.querySelectorAll<HTMLElement>('.text-syntax') ?? [])]
+        .find((span) => span.textContent === 'const')
+        ?.style.getPropertyValue('--syntax-color');
+    };
+    await waitFor(() => expect(keyword('const a = 1;')).toMatch(/^#/));
+    await act(settled);
+    expect(keyword('const fresh = 9;')).toBe(keyword('const a = 1;'));
+    expect(keyword('const old = 9;')).toBe(keyword('const a = 1;'));
+  });
+  it('falls back to the diff lines when the file text no longer matches them', async () => {
+    setup();
+    useDiffView.getState().setMode('unified');
+    mockCommand('file_lines', () => 'unrelated\n');
+    renderFile({ path: 'src/app.ts', source: 'unstaged' });
+    const pane = await screen.findByRole('region', { name: 'Diff viewer' });
+    await waitFor(() => expect(colored(pane)).toBeGreaterThan(0));
+    await act(settled);
+    expect(shown(pane, 'new value')).toBe(1);
+    expect(shown(pane, 'unrelated')).toBe(0);
+  });
   it('hands every remount the same merged tokens without copying them again', async () => {
-    const first = renderHook(() => useTokens(diff, 'src/app.ts'));
+    setup();
+    const selection = { path: 'src/app.ts', source: 'unstaged' as const };
+    const useAppTokens = () => useTokens(repository.id, selection, diff);
+    const first = renderHook(useAppTokens, { wrapper: QueryProvider });
     await waitFor(() =>
       expect(Object.keys(first.result.current).length).toBeGreaterThan(0),
     );
     await act(settled);
     const finished = first.result.current;
     first.unmount();
-    const again = renderHook(() => useTokens(diff, 'src/app.ts'));
-    const twice = renderHook(() => useTokens(diff, 'src/app.ts'));
+    const again = renderHook(useAppTokens, { wrapper: QueryProvider });
+    const twice = renderHook(useAppTokens, { wrapper: QueryProvider });
     expect(again.result.current).toBe(finished);
     expect(twice.result.current).toBe(finished);
   });
@@ -146,7 +238,7 @@ describe('highlighting in a worker', () => {
     const pane = await screen.findByRole('region', { name: 'Diff viewer' });
     await user.click(await screen.findByTitle('Show full file'));
     await screen.findByTitle('Collapse to changes');
-    await waitFor(() => expect(jobsFor('src/app.ts')).toBe(3));
+    await waitFor(() => expect(jobsFor('src/app.ts')).toBe(2));
     await waitFor(() => expect(colored(pane)).toBeGreaterThan(0));
     await act(settled);
     act(() =>
@@ -162,9 +254,9 @@ describe('highlighting in a worker', () => {
     await user.click(await screen.findByTitle('Show full file'));
     await screen.findByTitle('Collapse to changes');
     await act(settled);
-    expect(jobsFor('src/app.ts')).toBe(3);
+    expect(jobsFor('src/app.ts')).toBe(2);
     act(() => useTheme.getState().setPreference('dark'));
-    await waitFor(() => expect(jobsFor('src/app.ts')).toBe(5));
+    await waitFor(() => expect(jobsFor('src/app.ts')).toBe(4));
     expect(workers.jobs.slice(-2).every((job) => job.dark)).toBe(true);
   });
 });

@@ -484,7 +484,7 @@ const FileDiff = memo(function FileDiff({
     opening ?? shut,
     setOpening,
   ]);
-  const tokens = useTokens(data, path, near, expansion.reveal.lines);
+  const tokens = useTokens(repo, selection, data, near);
   const mode = useDiffView((s) => s.mode) ?? settings.diffMode;
   const split = mode === 'split' && data?.content === null;
   const rows = useMemo(

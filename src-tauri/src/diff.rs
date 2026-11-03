@@ -724,11 +724,12 @@ pub async fn text(
     source: &str,
     revision: &str,
     base: &str,
+    old: bool,
 ) -> Result<Option<String>> {
-    if size(repo, path, source, revision, base, false).await? > size_limit(false) {
+    if size(repo, path, source, revision, base, old).await? > size_limit(false) {
         return Ok(None);
     }
-    let bytes = bytes(repo, path, source, revision, base, false).await?;
+    let bytes = bytes(repo, path, source, revision, base, old).await?;
     if bytes.contains(&0) {
         return Ok(None);
     }

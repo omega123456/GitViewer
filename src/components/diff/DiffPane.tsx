@@ -140,12 +140,7 @@ function SelectedDiff({
   }, [data]);
   const editable = canEdit(selection.source, entry?.worktree, data);
   const editing = Boolean(selection.editing) && editable;
-  const tokens = useTokens(
-    data,
-    selection.path,
-    !editing,
-    expansion.reveal.lines,
-  );
+  const tokens = useTokens(repo, selection, data, !editing);
   const blame = useBackend(
     'blame',
     { repo, path: selection.path },

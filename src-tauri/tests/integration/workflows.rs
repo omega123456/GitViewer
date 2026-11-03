@@ -1241,7 +1241,7 @@ async fn file_text_reads_the_new_side_of_every_source_within_the_limits() {
     let text = |source: &'static str, revision: String, base: String| {
         let repo = &repo;
         async move {
-            diff::text(repo, "file.txt", source, &revision, &base)
+            diff::text(repo, "file.txt", source, &revision, &base, false)
                 .await
                 .unwrap()
         }
@@ -1282,6 +1282,64 @@ async fn file_text_reads_the_new_side_of_every_source_within_the_limits() {
     assert!(text("unstaged", String::new(), String::new())
         .await
         .is_none());
+}
+
+#[tokio::test]
+async fn file_text_reads_the_old_side_of_every_source() {
+    let (dir, handle) = fixture().await;
+    let repo = handle.clone();
+    std::fs::write(dir.path().join("file.txt"), "base\n").unwrap();
+    actions::files(&repo, &["file.txt".into()], "stage")
+        .await
+        .unwrap();
+    actions::commit(&repo, "Base").await.unwrap();
+    let base = command(dir.path(), &["rev-parse", "HEAD"]).await;
+    std::fs::write(dir.path().join("file.txt"), "second\n").unwrap();
+    actions::files(&repo, &["file.txt".into()], "stage")
+        .await
+        .unwrap();
+    actions::commit(&repo, "Second").await.unwrap();
+    std::fs::write(dir.path().join("file.txt"), "indexed\n").unwrap();
+    actions::files(&repo, &["file.txt".into()], "stage")
+        .await
+        .unwrap();
+    std::fs::write(dir.path().join("file.txt"), "working\n").unwrap();
+    let text = |source: &'static str, revision: String, base: String| {
+        let repo = &repo;
+        async move {
+            diff::text(repo, "file.txt", source, &revision, &base, true)
+                .await
+                .unwrap()
+        }
+    };
+    assert_eq!(
+        text("unstaged", String::new(), String::new())
+            .await
+            .as_deref(),
+        Some("indexed\n")
+    );
+    assert_eq!(
+        text("staged", String::new(), String::new())
+            .await
+            .as_deref(),
+        Some("second\n")
+    );
+    assert_eq!(
+        text("commit", "HEAD".into(), String::new())
+            .await
+            .as_deref(),
+        Some("base\n")
+    );
+    assert_eq!(
+        text("compare", "HEAD".into(), base.trim().into())
+            .await
+            .as_deref(),
+        Some("base\n")
+    );
+    assert_eq!(
+        text("file", String::new(), String::new()).await.as_deref(),
+        Some("")
+    );
 }
 
 #[tokio::test]

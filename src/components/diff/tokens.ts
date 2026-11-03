@@ -1,33 +1,81 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { tokenize } from '../../lib/highlight';
-import type { Diff } from '../../lib/types';
+import { useBackend } from '../../lib/query';
+import type { Diff, Selection } from '../../lib/types';
 import { useDark } from '../../stores/theme';
+import { splitLines } from './expansion';
 export type Tokens = Record<string, { content: string; color?: string }[]>;
 type Side = 'old' | 'new';
 const none: Tokens = {};
 const cache = new WeakMap<Diff, Map<string, Tokens>>();
 interface Highlighted {
   data?: Diff;
-  full?: string;
+  oldText?: string;
+  newText?: string;
   path: string;
   dark: boolean;
   done: boolean;
   tokens: Tokens;
 }
-function sideLines(data: Diff, side: Side, text?: string[]) {
-  if (side === 'new' && text)
-    return text.map((content, index) => ({ content, line: index + 1 }));
+function needed(data: Diff | undefined, side: Side) {
+  return Boolean(
+    data &&
+    data.content === null &&
+    data.hunks.some((hunk) =>
+      hunk.lines.some((line) =>
+        side === 'old' ? line.kind === 'remove' : line.new !== null,
+      ),
+    ),
+  );
+}
+function sideLines(data: Diff, side: Side, text?: string) {
   if (data.content !== null)
     return side === 'old'
       ? []
       : data.content
           .split('\n')
           .map((content, index) => ({ content, line: index + 1 }));
-  return data.hunks.flatMap((hunk) =>
+  if (!needed(data, side)) return [];
+  const shown = data.hunks.flatMap((hunk) =>
     hunk.lines.flatMap((line) =>
       line[side] === null ? [] : [{ content: line.content, line: line[side] }],
     ),
   );
+  const file = text === undefined ? undefined : splitLines(text);
+  if (
+    !file ||
+    shown.some(
+      (line) => file[line.line - 1] !== line.content.replace(/\r$/, ''),
+    )
+  )
+    return shown;
+  const end = side === 'old' ? shown[shown.length - 1].line : file.length;
+  return file
+    .slice(0, end)
+    .map((content, index) => ({ content, line: index + 1 }));
+}
+function useSideText(
+  repo: string,
+  selection: Selection,
+  side: Side,
+  enabled: boolean,
+) {
+  const args = {
+    repo,
+    path: selection.path,
+    source: selection.source,
+    revision: selection.revision,
+    base: selection.base,
+  };
+  const query = useBackend(
+    'file_lines',
+    side === 'old' ? { ...args, old: true } : args,
+    enabled,
+  );
+  return {
+    text: typeof query.data === 'string' ? query.data : undefined,
+    settled: !enabled || query.data !== undefined || query.isError,
+  };
 }
 function joined(entry: Map<string, Tokens>, keys: Record<Side, string>) {
   const key = `${keys.old}\0${keys.new}`;
@@ -44,17 +92,35 @@ function cached(data: Diff, keys: Record<Side, string>) {
   const entry = cache.get(data);
   return entry && joined(entry, keys);
 }
+function sideKey(base: string, side: Side, text?: string) {
+  return text === undefined ? `${base}\n${side}` : `${base}\n${side}\n${text}`;
+}
 export function useTokens(
+  repo: string,
+  selection: Selection,
   data: Diff | undefined,
-  path: string,
   enabled = true,
-  text?: string[],
 ) {
   const dark = useDark();
-  const full = useMemo(() => text?.join('\n'), [text]);
+  const path = selection.path;
+  const old = useSideText(
+    repo,
+    selection,
+    'old',
+    enabled && needed(data, 'old'),
+  );
+  const fresh = useSideText(
+    repo,
+    selection,
+    'new',
+    enabled && needed(data, 'new'),
+  );
+  const oldText = old.text;
+  const newText = fresh.text;
+  const settled = old.settled && fresh.settled;
   const base = `${dark ? 'dark' : 'light'}\n${path}`;
-  const oldKey = `${base}\nold`;
-  const newKey = full === undefined ? `${base}\nnew` : `${base}\nfull\n${full}`;
+  const oldKey = sideKey(base, 'old', oldText);
+  const newKey = sideKey(base, 'new', newText);
   const [state, setState] = useState<Highlighted>({
     path,
     dark,
@@ -63,12 +129,16 @@ export function useTokens(
   });
   const current =
     state.data === data &&
-    state.full === full &&
+    state.oldText === oldText &&
+    state.newText === newText &&
     state.path === path &&
     state.dark === dark;
   const hit =
-    !current && data ? cached(data, { old: oldKey, new: newKey }) : undefined;
-  if (hit) setState({ data, full, path, dark, done: true, tokens: hit });
+    !current && data && settled
+      ? cached(data, { old: oldKey, new: newKey })
+      : undefined;
+  if (hit)
+    setState({ data, oldText, newText, path, dark, done: true, tokens: hit });
   else if (!enabled && !current && state.tokens !== none)
     setState({ path, dark, done: false, tokens: none });
   const finished = current && state.done;
@@ -77,13 +147,14 @@ export function useTokens(
     shown.current = state.tokens;
   });
   useEffect(() => {
-    if (!enabled || !data || finished) return;
+    if (!enabled || !data || !settled || finished) return;
     const keys = { old: oldKey, new: newKey };
+    const texts = { old: oldText, new: newText };
     const entry = cache.get(data) ?? new Map<string, Tokens>();
     cache.set(data, entry);
     let display: Tokens | undefined;
     const cancels = (['old', 'new'] as const).map((side) => {
-      const lines = sideLines(data, side, text);
+      const lines = sideLines(data, side, texts[side]);
       if (!entry.has(keys[side]) && !lines.length) entry.set(keys[side], {});
       if (entry.has(keys[side])) return undefined;
       const progress: Tokens = {};
@@ -104,7 +175,8 @@ export function useTokens(
           display = all ?? Object.assign(display ?? { ...shown.current }, part);
           setState({
             data,
-            full,
+            oldText,
+            newText,
             path,
             dark,
             done: Boolean(all),
@@ -114,8 +186,20 @@ export function useTokens(
       );
     });
     const all = joined(entry, keys);
-    if (all) setState({ data, full, path, dark, done: true, tokens: all });
+    if (all)
+      setState({ data, oldText, newText, path, dark, done: true, tokens: all });
     return () => cancels.forEach((cancel) => cancel?.());
-  }, [data, text, full, path, dark, enabled, finished, oldKey, newKey]);
+  }, [
+    data,
+    oldText,
+    newText,
+    settled,
+    path,
+    dark,
+    enabled,
+    finished,
+    oldKey,
+    newKey,
+  ]);
   return hit ?? state.tokens;
 }

@@ -5,6 +5,11 @@ import { gaps, hidden, type Gap, type Opening, type Reveal } from './rows';
 export const step = 20;
 export type Direction = 'down' | 'up' | 'all';
 export type Openings = Record<string, Opening>;
+export function splitLines(text: string) {
+  const split = text.split(/\r?\n/);
+  if (split[split.length - 1] === '') split.pop();
+  return split;
+}
 export interface Expansion {
   reveal: Reveal;
   available: boolean;
@@ -35,12 +40,13 @@ export function useExpansion(
     },
     wanted,
   );
-  const lines = useMemo(() => {
-    if (typeof text.data !== 'string') return undefined;
-    const split = text.data.split(/\r?\n/);
-    if (split[split.length - 1] === '') split.pop();
-    return split;
-  }, [text.data]);
+  const lines = useMemo(
+    () =>
+      wanted && typeof text.data === 'string'
+        ? splitLines(text.data)
+        : undefined,
+    [wanted, text.data],
+  );
   const reveal = useMemo(() => ({ lines, open }), [lines, open]);
   const full =
     lines !== undefined &&
@@ -51,7 +57,7 @@ export function useExpansion(
     available: list.length > 0,
     full,
     loading: wanted && text.isFetching && text.data === undefined,
-    tooLarge: text.data === null,
+    tooLarge: wanted && text.data === null,
     expand: (gap, direction) => {
       if (text.isError) void text.refetch();
       setOpen((current) => {
