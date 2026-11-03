@@ -401,6 +401,11 @@ describe('working-tree editor', () => {
     const tabs = within(strip()).getAllByRole('tab');
     expect(tabs.map((tab) => tab.textContent)).toEqual(['app.ts', 'new.txt']);
     expect(tabs[1]).toHaveAttribute('aria-selected', 'true');
+    expect(tabs[1].parentElement).toHaveClass(
+      'before:h-accent',
+      'before:bg-accent',
+    );
+    expect(tabs[0].parentElement).not.toHaveClass('before:bg-accent');
     expect(
       within(strip()).getByRole('img', { name: 'Unsaved edits' }),
     ).toBeInTheDocument();

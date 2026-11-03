@@ -21,6 +21,8 @@ export const selectItem = `relative h-8 ${item}`;
 export const menuSeparator = 'my-0.75 h-px bg-line dark:bg-line-dark';
 export const pill =
   'absolute top-1/2 left-0 h-4 w-accent -translate-y-1/2 rounded-full bg-accent dark:bg-accent-dark';
+export const tabBar =
+  'before:absolute before:inset-x-1 before:-top-px before:h-accent before:rounded-b-xs before:bg-accent before:forced-color-adjust-none dark:before:bg-accent-dark forced-colors:before:bg-highlight';
 export const revealSlot =
   'pointer-events-none absolute inset-y-0 flex items-center bg-inherit opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100';
 export const pinnedSlot = 'absolute inset-y-0 flex items-center bg-inherit';

@@ -5,7 +5,7 @@ import {
   Settings as SettingsIcon,
   X,
 } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, type KeyboardEvent } from 'react';
 import { folderName } from '../../lib/paths';
 import { mica } from '../../lib/platform';
 import {
@@ -20,18 +20,44 @@ import { usePalette } from '../../stores/palette';
 import { anchorOf, useTabs, type Tab } from '../../stores/tabs';
 import { Button } from '../shared/Button';
 import { Spinner } from '../shared/Spinner';
+import { tabBar } from '../shared/styles';
+import { tabSteps } from '../shared/ViewSwitch';
 const strip =
   'size-8 rounded text-muted hover:bg-tab-hover hover:text-ink dark:text-muted-dark dark:hover:bg-tab-hover-dark dark:hover:text-ink-dark';
 export function RepoTabStrip() {
   const tabs = useTabs((s) => s.tabs);
   const active = useTabs((s) => s.active);
+  const keydown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const step = tabSteps[event.key];
+    if (!step) return;
+    event.preventDefault();
+    const index = step(
+      Math.max(
+        tabs.findIndex((tab) => tab.id === active),
+        0,
+      ),
+      tabs.length,
+    );
+    useTabs.getState().activate(tabs[index].id);
+    const cells =
+      event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]');
+    cells[index]?.focus();
+  };
   return (
     <div
       className={`flex h-tab-strip shrink-0 items-end gap-0.5 pr-2 ${mica() ? 'bg-transparent' : 'bg-chrome dark:bg-chrome-dark'}`}
     >
-      {tabs.map((tab) => (
-        <RepoTab key={tab.id} tab={tab} active={active === tab.id} />
-      ))}
+      <div
+        role="tablist"
+        aria-label="Open repositories"
+        tabIndex={-1}
+        onKeyDown={keydown}
+        className="flex h-full min-w-0 items-end gap-0.5"
+      >
+        {tabs.map((tab) => (
+          <RepoTab key={tab.id} tab={tab} active={active === tab.id} />
+        ))}
+      </div>
       <Button
         variant="chrome"
         title="Open repository"
@@ -119,10 +145,13 @@ function RepoTab({ tab, active }: { tab: Tab; active: boolean }) {
   const working = signals.working && !active;
   return (
     <div
-      className={`group relative flex h-tab w-44 min-w-0 shrink items-center rounded-t border-x border-t pr-1 first:rounded-tl-none first:border-l-transparent ${active ? 'z-10 border-tab-stroke bg-sub font-semibold text-ink dark:border-tab-stroke-dark dark:bg-sub-dark dark:text-ink-dark' : 'border-transparent text-muted hover:bg-tab-hover hover:text-ink dark:text-muted-dark dark:hover:bg-tab-hover-dark dark:hover:text-ink-dark'}`}
+      className={`group relative flex h-tab w-44 min-w-0 shrink items-center rounded-t border-x border-t pr-1 first:rounded-tl-none first:border-l-transparent ${active ? `z-10 border-tab-stroke bg-sub font-semibold text-ink dark:border-tab-stroke-dark dark:bg-sub-dark dark:text-ink-dark ${tabBar}` : 'border-transparent text-muted hover:bg-tab-hover hover:text-ink dark:text-muted-dark dark:hover:bg-tab-hover-dark dark:hover:text-ink-dark'}`}
     >
       <Button
         variant="chrome"
+        role="tab"
+        aria-selected={active}
+        tabIndex={active ? 0 : -1}
         className="min-w-0 flex-1 justify-start gap-2 self-stretch rounded-tl pl-2.75"
         title={
           tab.members.length > 1

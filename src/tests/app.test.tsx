@@ -176,14 +176,43 @@ describe('application shell', () => {
     await screen.findByLabelText('Commit message');
     await user.click(screen.getByRole('button', { name: 'main' }));
     expect(await screen.findByLabelText('Filter branches')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Second' }));
+    await user.click(screen.getByRole('tab', { name: 'Second' }));
     await waitFor(() =>
       expect(
         screen.queryByLabelText('Filter branches'),
       ).not.toBeInTheDocument(),
     );
-    await user.click(screen.getByRole('button', { name: repository.name }));
+    await user.click(screen.getByRole('tab', { name: repository.name }));
     expect(screen.queryByLabelText('Filter branches')).not.toBeInTheDocument();
+  });
+  it('marks the selected repository tab with the accent bar and moves it with arrow keys', async () => {
+    setup();
+    useTabs.getState().open('/second', 'Second');
+    useTabs.getState().open(repository.id, repository.name);
+    const user = userEvent.setup();
+    mountApp();
+    await screen.findByLabelText('Commit message');
+    const strip = screen.getByRole('tablist', { name: 'Open repositories' });
+    const selected = within(strip).getByRole('tab', { name: repository.name });
+    expect(selected).toHaveAttribute('aria-selected', 'true');
+    expect(selected).toHaveAttribute('tabindex', '0');
+    expect(selected.parentElement).toHaveClass(
+      'before:h-accent',
+      'before:bg-accent',
+      'forced-colors:before:bg-highlight',
+    );
+    const other = within(strip).getByRole('tab', { name: 'Second' });
+    expect(other).toHaveAttribute('aria-selected', 'false');
+    expect(other).toHaveAttribute('tabindex', '-1');
+    expect(other.parentElement).not.toHaveClass('before:bg-accent');
+    selected.focus();
+    await user.keyboard('{ArrowLeft}');
+    expect(useTabs.getState().active).toBe('/second');
+    expect(within(strip).getByRole('tab', { name: 'Second' })).toHaveFocus();
+    await user.keyboard('{End}');
+    expect(useTabs.getState().active).toBe(repository.id);
+    await user.keyboard('a');
+    expect(useTabs.getState().active).toBe(repository.id);
   });
   it('switches between open repositories from the palette in recent order', async () => {
     setup();

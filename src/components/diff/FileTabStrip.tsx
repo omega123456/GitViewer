@@ -11,6 +11,7 @@ import {
 } from '../../stores/selection';
 import { Button } from '../shared/Button';
 import { FileMenu } from '../shared/FileMenu';
+import { tabBar } from '../shared/styles';
 import { revealInSidebar } from '../sidebar/reveal';
 import { tabSteps } from '../shared/ViewSwitch';
 export function FileTabStrip({
@@ -108,7 +109,7 @@ function FileTabCell({
       reveal={() => revealInSidebar(repo, tab.selection)}
     >
       <div
-        className={`group relative flex min-w-30 max-w-52 shrink-0 items-center rounded-t pr-1 text-sm first:rounded-tl-none first:border-l-transparent ${active ? 'h-8 border border-b-0 border-line bg-surface font-semibold text-ink dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark' : 'mb-px h-7.75 text-muted hover:bg-hover hover:text-ink dark:text-muted-dark dark:hover:bg-hover-dark dark:hover:text-ink-dark'}`}
+        className={`group relative flex min-w-30 max-w-52 shrink-0 items-center rounded-t pr-1 text-sm first:rounded-tl-none first:border-l-transparent ${active ? `h-8 border border-b-0 border-line bg-surface font-semibold text-ink dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark ${tabBar}` : 'mb-px h-7.75 text-muted hover:bg-hover hover:text-ink dark:text-muted-dark dark:hover:bg-hover-dark dark:hover:text-ink-dark'}`}
       >
         <Button
           variant="chrome"

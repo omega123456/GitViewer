@@ -241,7 +241,7 @@ describe('worktrees', () => {
     project();
     await opened();
     act(() => useTabs.getState().open('/other', 'other'));
-    const projectTab = screen.getByRole('button', { name: /^fixture/ });
+    const projectTab = screen.getByRole('tab', { name: /^fixture/ });
     expect(projectTab).toHaveAttribute(
       'title',
       'fixture · worktree fixture on main',
