@@ -25,10 +25,11 @@ import { registeredActions } from '../lib/actions';
 import { closeRepository } from '../lib/repository';
 import type { Opened, Selection } from '../lib/types';
 import { useEditor } from '../stores/editor';
+import { useLayout } from '../stores/layout';
 import { useSelection } from '../stores/selection';
 import { useTabs } from '../stores/tabs';
 import { useTheme } from '../stores/theme';
-import { calls, dialog, emit, mockCommand } from './harness';
+import { calls, dialog, emit, host, mockCommand } from './harness';
 import { diff, repository, settings, stack, status } from './fixtures';
 
 const index = 'a\nb\nc\nd\ne\nf\ng\nh\n';
@@ -199,13 +200,133 @@ describe('working-tree editor', () => {
     expect(diffs()).toBe(before);
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Find' }));
-    expect(view.dom.querySelector('.cm-search')).not.toBeNull();
+    expect(
+      await screen.findByRole('textbox', { name: 'Find in file' }),
+    ).toHaveFocus();
     act(() => useTheme.setState({ preference: 'dark' }));
     expect(view.state.facet(EditorView.darkTheme)).toBe(true);
     fireEvent.contextMenu(view.contentDOM);
     expect(calls.some((call) => call.command === 'edit_menu')).toBe(true);
     await user.click(screen.getByRole('button', { name: 'Blame' }));
     expect(useSelection.getState().working[repository.id]?.editing).toBe(false);
+  });
+  it('keeps find apart from replace and replaces quotes verbatim', async () => {
+    setup(opened("say 'a' and 'a'\nend\n", 'v1'));
+    mount();
+    const { user, view } = await startEditing();
+    key({ key: 'f', metaKey: true });
+    const find = await screen.findByRole('textbox', { name: 'Find in file' });
+    const bar = within(screen.getByRole('search'));
+    expect(find).toHaveFocus();
+    expect(find).toHaveAttribute('autocorrect', 'off');
+    expect(find).toHaveAttribute('spellcheck', 'false');
+    expect(bar.queryByRole('textbox', { name: 'Replace with' })).toBeNull();
+    await user.type(find, "'a'");
+    const selected = () =>
+      view.state.sliceDoc(
+        view.state.selection.main.from,
+        view.state.selection.main.to,
+      );
+    expect(selected()).toBe("'a'");
+    expect(bar.getByRole('status')).toHaveTextContent('1 of 2');
+    await user.keyboard('{Enter}');
+    expect(bar.getByRole('status')).toHaveTextContent('2 of 2');
+    await user.keyboard('{Shift>}{Enter}{/Shift}');
+    expect(bar.getByRole('status')).toHaveTextContent('1 of 2');
+    key({ key: 'F3' });
+    expect(bar.getByRole('status')).toHaveTextContent('2 of 2');
+    key({ key: 'F3', shiftKey: true });
+    expect(bar.getByRole('status')).toHaveTextContent('1 of 2');
+    act(() => view.dispatch({ selection: { anchor: 0 } }));
+    expect(bar.getByRole('status')).toHaveTextContent('2 results');
+    await user.click(bar.getByRole('button', { name: 'Next match' }));
+    expect(bar.getByRole('status')).toHaveTextContent('1 of 2');
+    await user.click(bar.getByRole('button', { name: 'Previous match' }));
+    expect(bar.getByRole('status')).toHaveTextContent('2 of 2');
+    act(() => view.dispatch({ selection: { anchor: view.state.doc.length } }));
+    await user.clear(find);
+    expect(bar.getByRole('status')).toBeEmptyDOMElement();
+    await user.type(find, "'a'");
+    expect(bar.getByRole('status')).toHaveTextContent('1 of 2');
+    act(() => view.dispatch({ selection: { anchor: 4, head: 7 } }));
+    key({ key: 'r', metaKey: true, shiftKey: true });
+    const replace = await bar.findByRole('textbox', { name: 'Replace with' });
+    expect(replace).toHaveFocus();
+    expect(replace).toHaveAttribute('autocorrect', 'off');
+    await user.type(replace, '"b"');
+    await user.click(bar.getByRole('button', { name: 'Replace' }));
+    expect(view.state.doc.toString()).toBe('say "b" and \'a\'\nend\n');
+    expect(bar.getByRole('status')).toHaveTextContent('1 of 1');
+    await user.click(bar.getByRole('button', { name: 'Replace all' }));
+    expect(view.state.doc.toString()).toBe('say "b" and "b"\nend\n');
+    expect(bar.getByRole('status')).toHaveTextContent('No results');
+    expect(bar.getByRole('button', { name: 'Replace all' })).toBeDisabled();
+    fireEvent.keyDown(replace, { key: 'Escape' });
+    expect(screen.queryByRole('search')).toBeNull();
+    act(() => view.dispatch({ selection: { anchor: 0 } }));
+    key({ key: 'r', metaKey: true, shiftKey: true });
+    expect(
+      await screen.findByRole('textbox', { name: 'Find in file' }),
+    ).toHaveValue("'a'");
+    expect(screen.getByRole('textbox', { name: 'Replace with' })).toHaveFocus();
+    expect(screen.getByRole('textbox', { name: 'Replace with' })).toHaveValue(
+      '"b"',
+    );
+    key({ key: 'f', metaKey: true });
+    expect(screen.queryByRole('textbox', { name: 'Replace with' })).toBeNull();
+    expect(screen.getByRole('textbox', { name: 'Find in file' })).toHaveFocus();
+    await user.click(screen.getByRole('button', { name: 'Close find' }));
+    expect(screen.queryByRole('search')).toBeNull();
+    key({ key: 'f', metaKey: true });
+    expect(
+      await screen.findByRole('textbox', { name: 'Find in file' }),
+    ).toHaveFocus();
+    act(() => {
+      fireEvent.keyDown(view.contentDOM, { key: 'Escape' });
+    });
+    expect(screen.queryByRole('search')).toBeNull();
+    expect(screen.getByLabelText('Editor')).toBeVisible();
+  });
+  it('opens replace with Ctrl+H from the editor and keeps it for history elsewhere', async () => {
+    setup();
+    mount();
+    const { view } = await startEditing();
+    const replaceRow = () =>
+      screen.queryByRole('textbox', { name: 'Replace with' });
+    act(() => {
+      fireEvent.keyDown(view.contentDOM, {
+        key: 'h',
+        code: 'KeyH',
+        keyCode: 72,
+        ctrlKey: true,
+      });
+    });
+    expect(replaceRow()).toBeVisible();
+    key({ key: 'f', metaKey: true });
+    expect(replaceRow()).toBeNull();
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Find in file' }), {
+      key: 'h',
+      ctrlKey: true,
+    });
+    expect(
+      await screen.findByRole('textbox', { name: 'Replace with' }),
+    ).toBeVisible();
+    act(() => {
+      fireEvent.keyDown(view.contentDOM, { key: 'Escape' });
+    });
+    host.platform = 'windows';
+    act(() => {
+      fireEvent.keyDown(view.contentDOM, {
+        key: 'h',
+        code: 'KeyH',
+        keyCode: 72,
+        ctrlKey: true,
+      });
+    });
+    expect(replaceRow()).toBeVisible();
+    expect(useLayout.getState().tabs[repository.id]?.mode).not.toBe('history');
+    key({ key: 'h', ctrlKey: true });
+    expect(useLayout.getState().tabs[repository.id]?.mode).toBe('history');
   });
   it('wraps lines from the button and Alt+Z and shares the setting with the diff', async () => {
     setup();

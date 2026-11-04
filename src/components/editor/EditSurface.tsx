@@ -1,9 +1,18 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { FileWarning, RotateCcw, Search, WrapText } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  FileWarning,
+  Replace,
+  RotateCcw,
+  Search,
+  WrapText,
+} from 'lucide-react';
 import { isolateHistory } from '@codemirror/commands';
-import { openSearchPanel } from '@codemirror/search';
+import { findNext, findPrevious, searchPanelOpen } from '@codemirror/search';
 import type { Transaction } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
+import { useActions } from '../../lib/actions';
 import { useBackend } from '../../lib/query';
 import type { Opened } from '../../lib/types';
 import {
@@ -34,10 +43,12 @@ import {
   createState,
   describeLanguage,
   languageSlot,
+  openFind,
   themeSlot,
   wrapping,
   wrapSlot,
 } from './setup';
+import { FindPanel } from './FindPanel';
 const outline =
   'border border-line bg-surface text-ink dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark';
 export default function EditSurface({
@@ -192,6 +203,45 @@ function Editor({
       cancelled = true;
     };
   }, [view, path]);
+  const finding = searchPanelOpen(buffer.state);
+  useActions(`${repo}:editor`, [
+    {
+      id: 'find',
+      icon: <Search className="size-3.5" />,
+      label: 'Find in file',
+      key: 'Mod+f',
+      run: () => view && openFind(view, false),
+      disabled: !view,
+    },
+    {
+      id: 'replace',
+      icon: <Replace className="size-3.5" />,
+      label: 'Replace in file',
+      key: 'Mod+Shift+r',
+      run: () => view && openFind(view, true),
+      disabled: !view,
+    },
+    {
+      id: 'find-next',
+      icon: <ArrowDown className="size-3.5" />,
+      label: 'Next match',
+      key: 'F3',
+      run: () => {
+        if (view) findNext(view);
+      },
+      disabled: !view || !finding,
+    },
+    {
+      id: 'find-previous',
+      icon: <ArrowUp className="size-3.5" />,
+      label: 'Previous match',
+      key: 'Shift+F3',
+      run: () => {
+        if (view) findPrevious(view);
+      },
+      disabled: !view || !finding,
+    },
+  ]);
   const head = buffer.state.selection.main.head;
   const line = buffer.state.doc.lineAt(head);
   return (
@@ -222,7 +272,7 @@ function Editor({
           <Button
             className="text-muted dark:text-muted-dark"
             disabled={!view}
-            onClick={() => view && openSearchPanel(view)}
+            onClick={() => view && openFind(view, false)}
           >
             <Search className="size-4" />
             <span>Find</span>
@@ -270,6 +320,7 @@ function Editor({
         />
       )}
       <div ref={host} className="min-h-0 flex-1" aria-label="Editor" />
+      {view && <FindPanel view={view} state={buffer.state} />}
     </>
   );
 }

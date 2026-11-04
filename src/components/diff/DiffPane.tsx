@@ -217,7 +217,7 @@ function SelectedDiff({
       selection.source === 'staged' ? 'unstage' : 'stage',
     );
   useActions(`${repo}:diff`, [
-    ...findActions(find, editing || rendered),
+    ...(editing ? [] : findActions(find, rendered)),
     {
       id: 'next-hunk',
       icon: <ChevronDown className="size-3.5" />,

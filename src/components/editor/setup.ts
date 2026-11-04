@@ -20,12 +20,25 @@ import {
 } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
 import { Change as DiffChange, Chunk, diff } from '@codemirror/merge';
-import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
+import {
+  closeSearchPanel,
+  getSearchQuery,
+  gotoLine,
+  highlightSelectionMatches,
+  openSearchPanel,
+  search,
+  SearchQuery,
+  searchPanelOpen,
+  selectNextOccurrence,
+  selectSelectionMatches,
+  setSearchQuery,
+} from '@codemirror/search';
 import {
   Compartment,
   EditorState,
   Facet,
   RangeSet,
+  StateEffect,
   StateField,
   Text,
 } from '@codemirror/state';
@@ -60,6 +73,48 @@ export function wrapping(wrap: boolean, toggle: () => void) {
       },
     ]),
   ];
+}
+const findHosts = new WeakMap<EditorView, HTMLElement>();
+export function findHost(view: EditorView) {
+  let host = findHosts.get(view);
+  if (!host) {
+    host = document.createElement('div');
+    findHosts.set(view, host);
+  }
+  return host;
+}
+const requestFind = StateEffect.define<boolean>();
+export const finding = StateField.define({
+  create: () => ({ replace: false, request: 0 }),
+  update: (value, transaction) =>
+    transaction.effects.reduce(
+      (next, effect) =>
+        effect.is(requestFind)
+          ? { replace: effect.value, request: next.request + 1 }
+          : next,
+      value,
+    ),
+});
+const longestSeed = 100;
+export function openFind(view: EditorView, replace: boolean) {
+  const previous = getSearchQuery(view.state);
+  if (!searchPanelOpen(view.state)) openSearchPanel(view);
+  const range = view.state.selection.main;
+  const selected = view.state.sliceDoc(range.from, range.to);
+  const seed =
+    selected && selected.length <= longestSeed && !selected.includes('\n');
+  view.dispatch({
+    effects: [
+      requestFind.of(replace),
+      setSearchQuery.of(
+        new SearchQuery({
+          search: seed ? selected : previous.search,
+          replace: previous.replace,
+          literal: true,
+        }),
+      ),
+    ],
+  });
 }
 const original = Facet.define<Text, Text>({
   combine: (values) => values[0] ?? Text.empty,
@@ -142,7 +197,12 @@ export function chrome(dark: boolean) {
         backgroundColor: color('sub', dark),
         color: color('ink', dark),
       },
+      '.cm-panels-top': { borderBottom: `1px solid ${color('line', dark)}` },
       '.cm-panels-bottom': { borderTop: `1px solid ${color('line', dark)}` },
+      '.cm-searchMatch': { backgroundColor: color('find', dark) },
+      '.cm-searchMatch.cm-searchMatch-selected': {
+        backgroundColor: color('find-current', dark),
+      },
       '.cm-tooltip': {
         backgroundColor: color('surface', dark),
         border: `1px solid ${color('line', dark)}`,
@@ -304,17 +364,33 @@ export function createState({
       rectangularSelection(),
       crosshairCursor(),
       highlightSelectionMatches(),
+      search({
+        top: true,
+        literal: true,
+        createPanel: (view) => ({ dom: findHost(view), top: true }),
+      }),
+      finding,
       keymap.of([
+        {
+          key: 'Mod-h',
+          mac: 'Ctrl-h',
+          run: (view) => {
+            openFind(view, true);
+            return true;
+          },
+        },
         ...closeBracketsKeymap,
         ...completionKeymap,
         ...defaultKeymap,
-        ...searchKeymap,
         ...historyKeymap,
         indentWithTab,
+        { key: 'Mod-d', run: selectNextOccurrence, preventDefault: true },
+        { key: 'Mod-Shift-l', run: selectSelectionMatches },
+        { key: 'Mod-Alt-g', run: gotoLine },
         {
           key: 'Escape',
-          run: () => {
-            leave();
+          run: (view) => {
+            if (!closeSearchPanel(view)) leave();
             return true;
           },
         },

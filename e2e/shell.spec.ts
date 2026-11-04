@@ -566,6 +566,16 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(
       page.getByRole('region', { name: 'Diff viewer', exact: true }),
     ).toHaveScreenshot(`editor-${theme}.png`);
+    await page.keyboard.press('ControlOrMeta+Shift+r');
+    const bar = page.getByRole('search');
+    await bar.getByRole('textbox', { name: 'Find in file' }).fill('aliases');
+    await bar.getByRole('textbox', { name: 'Replace with' }).fill("'names'");
+    await expect(bar.getByRole('status')).toHaveText(/^1 of \d+$/);
+    await expect(
+      page.getByRole('region', { name: 'Diff viewer', exact: true }),
+    ).toHaveScreenshot(`editor-replace-${theme}.png`);
+    await page.keyboard.press('Escape');
+    await expect(bar).toBeHidden();
     const tabs = page.getByRole('tablist', { name: 'Open files' });
     await tabs.getByRole('tab', { name: 'new.txt' }).click();
     await expect(tabs.getByLabel('Unsaved edits')).toBeVisible();
