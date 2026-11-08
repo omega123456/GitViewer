@@ -661,6 +661,11 @@ export function BranchPopover({
                         className={`size-3 ${branch.current ? '' : 'opacity-0'}`}
                       />
                       <span className="truncate">{branch.name}</span>
+                      {branch.default && (
+                        <span className="shrink-0 rounded-full border border-line bg-sub px-1.5 text-badge text-muted dark:border-line-dark dark:bg-sub-dark dark:text-muted-dark">
+                          default
+                        </span>
+                      )}
                       <span className="ml-auto flex items-center gap-1.5 text-label text-muted">
                         {holder ? (
                           <>
@@ -741,7 +746,10 @@ export function BranchPopover({
                           <DropdownMenu.Separator className={menuSeparator} />
                           <DropdownMenu.Item
                             disabled={
-                              disabled || branch.current || Boolean(holder)
+                              disabled ||
+                              branch.current ||
+                              branch.default ||
+                              Boolean(holder)
                             }
                             className={`${menuItem} text-deleted dark:text-deleted-dark`}
                             onSelect={() => {

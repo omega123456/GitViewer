@@ -181,6 +181,22 @@ describe('repository workflows', () => {
       await within(tree).findByRole('treeitem', { name: 'guide.md' }),
     ).toBeVisible();
   });
+  it('tags the default branch and refuses to delete it', async () => {
+    setup();
+    const user = userEvent.setup();
+    mount();
+    await screen.findByLabelText('Commit message');
+    await action('branches');
+    await user.type(screen.getByLabelText('Filter branches'), 'origin/main');
+    const row = await screen.findByRole('button', { name: /^origin\/main/ });
+    expect(within(row).getByText('default')).toBeVisible();
+    await user.click(
+      screen.getByRole('button', { name: 'Actions for origin/main' }),
+    );
+    expect(
+      await screen.findByRole('menuitem', { name: 'Delete branch' }),
+    ).toHaveAttribute('aria-disabled', 'true');
+  });
   it('creates from another reference, filters groups, switches and confirms deletion', async () => {
     setup();
     mockCommand('branch_create', () => null);
@@ -322,6 +338,7 @@ describe('repository workflows', () => {
       {
         name: 'old',
         current: false,
+        default: false,
         remote: false,
         upstream: 'origin/old',
         gone: true,

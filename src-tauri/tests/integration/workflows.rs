@@ -1221,6 +1221,43 @@ async fn remote_checkout_creates_tracking_branches_and_never_detaches() {
     assert!(remote_branches.is_empty());
 }
 
+async fn default_branches(repo: &Repository) -> Vec<String> {
+    branch::list(repo)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|branch| branch.default)
+        .map(|branch| branch.name)
+        .collect()
+}
+#[tokio::test]
+async fn the_default_branch_named_by_the_remote_head_cannot_be_deleted() {
+    let (dir, handle) = fixture().await;
+    base(&dir, &handle).await;
+    let remote = tempfile::tempdir().unwrap();
+    command(remote.path(), &["init", "--bare", "--initial-branch=main"]).await;
+    command(
+        dir.path(),
+        &["remote", "add", "origin", remote.path().to_str().unwrap()],
+    )
+    .await;
+    command(dir.path(), &["push", "origin", "main", "main:feature"]).await;
+    let repo = handle.clone();
+    assert!(default_branches(&repo).await.is_empty());
+    command(dir.path(), &["remote", "set-head", "origin", "main"]).await;
+    assert_eq!(default_branches(&repo).await, ["main", "origin/main"]);
+    branch::create(&repo, "other", "main").await.unwrap();
+    branch::switch(&repo, "other").await.unwrap();
+    for name in ["main", "origin/main"] {
+        assert!(branch::delete(&repo, name)
+            .await
+            .unwrap_err()
+            .message
+            .contains("default branch"));
+    }
+    branch::delete(&repo, "origin/feature").await.unwrap();
+}
+
 #[tokio::test]
 async fn file_text_reads_the_new_side_of_every_source_within_the_limits() {
     let (dir, handle) = fixture().await;

@@ -11,6 +11,7 @@ pub struct Branch {
     pub name: String,
     pub remote: bool,
     pub current: bool,
+    pub default: bool,
     pub upstream: String,
     pub gone: bool,
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -34,26 +35,36 @@ pub async fn list(repo: &Repo) -> Result<Vec<Branch>> {
         &repo.root,
         &[
             "for-each-ref",
-            "--format=%(refname)%00%(HEAD)%00%(upstream:short)%00%(worktreepath)%00%(upstream:track)",
+            "--format=%(refname)%00%(HEAD)%00%(upstream:short)%00%(worktreepath)%00%(upstream:track)%00%(symref:short)",
             "refs/heads",
             "refs/remotes",
         ],
     )
     .await?;
-    Ok(text
+    let records: Vec<Vec<&str>> = text
         .lines()
-        .filter_map(|line| {
-            let fields: Vec<&str> = line.split('\0').collect();
-            if fields.len() != 5 || fields[0].ends_with("/HEAD") {
-                return None;
-            }
-            Some(Branch {
-                name: fields[0]
-                    .trim_start_matches("refs/heads/")
-                    .trim_start_matches("refs/remotes/")
-                    .into(),
-                remote: fields[0].starts_with("refs/remotes/"),
+        .map(|line| line.split('\0').collect::<Vec<&str>>())
+        .filter(|fields| fields.len() == 6)
+        .collect();
+    let remote_defaults: Vec<&str> = records
+        .iter()
+        .filter(|fields| is_remote_head(fields[0]))
+        .map(|fields| fields[5])
+        .filter(|target| !target.is_empty())
+        .collect();
+    Ok(records
+        .iter()
+        .filter(|fields| !is_remote_head(fields[0]))
+        .map(|fields| {
+            let name = fields[0]
+                .trim_start_matches("refs/heads/")
+                .trim_start_matches("refs/remotes/");
+            let remote = fields[0].starts_with("refs/remotes/");
+            Branch {
+                name: name.into(),
+                remote,
                 current: fields[1] == "*",
+                default: is_default(name, remote, &remote_defaults),
                 upstream: fields[2].into(),
                 gone: fields[4] == "[gone]",
                 worktree: Some(fields[3])
@@ -64,9 +75,21 @@ pub async fn list(repo: &Repo) -> Result<Vec<Branch>> {
                             .into_owned()
                     })
                     .unwrap_or_default(),
-            })
+            }
         })
         .collect())
+}
+fn is_remote_head(refname: &str) -> bool {
+    refname.ends_with("/HEAD")
+}
+fn is_default(name: &str, remote: bool, remote_defaults: &[&str]) -> bool {
+    if remote {
+        return remote_defaults.contains(&name);
+    }
+    remote_defaults
+        .iter()
+        .filter_map(|target| target.split_once('/'))
+        .any(|(_, local)| local == name)
 }
 pub async fn switch(repo: &Repo, name: &str) -> Result<()> {
     repo.writable().await?;
@@ -121,6 +144,9 @@ pub async fn delete(repo: &Repo, name: &str) -> Result<()> {
         return Err(Error::refused(
             "Switch away from this branch before deleting it",
         ));
+    }
+    if branch.default {
+        return Err(Error::refused("The default branch cannot be deleted"));
     }
     if branch.remote {
         return delete_remote(repo, name).await;

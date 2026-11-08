@@ -492,6 +492,7 @@ describe('worktree actions', () => {
       {
         name: 'idle',
         current: false,
+        default: false,
         remote: false,
         upstream: '',
         gone: false,

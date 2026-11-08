@@ -428,6 +428,7 @@ describe('all changes pane', () => {
       {
         name: 'island',
         current: false,
+        default: false,
         remote: false,
         upstream: '',
         gone: false,

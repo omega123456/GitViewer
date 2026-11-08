@@ -204,6 +204,7 @@ export interface Branch {
   name: string;
   remote: boolean;
   current: boolean;
+  default: boolean;
   upstream: string;
   gone: boolean;
   worktree?: string;
