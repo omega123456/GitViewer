@@ -633,6 +633,11 @@ describe('presentation state', () => {
       'src/app.ts',
       'src/lib/app-shell.ts',
     ]);
+    expect(fuzzyFilter('  ', files, (f) => f)).toBe(files);
+    expect(fuzzyFilter(' sapt ', files, (f) => f)).toEqual([
+      'src/app.ts',
+      'src/lib/app-shell.ts',
+    ]);
   });
   it('highlights syntax and safely encodes image references', async () => {
     expect(

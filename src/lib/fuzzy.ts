@@ -18,9 +18,10 @@ export function fuzzyFilter<T>(
   items: T[],
   key: (item: T) => string,
 ): T[] {
-  if (!query) return items;
+  const trimmed = query.trim();
+  if (!trimmed) return items;
   return items
-    .map((item) => ({ item, score: fuzzyScore(query, key(item)) }))
+    .map((item) => ({ item, score: fuzzyScore(trimmed, key(item)) }))
     .filter(
       (entry): entry is { item: T; score: number } => entry.score !== null,
     )

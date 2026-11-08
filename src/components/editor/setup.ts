@@ -178,6 +178,7 @@ export function chrome(dark: boolean) {
       '&.cm-focused': { outline: 'none' },
       '.cm-scroller': {
         fontFamily: 'var(--font-mono)',
+        fontFeatureSettings: 'var(--font-mono--font-feature-settings)',
         fontSize: 'var(--text-diff)',
         lineHeight: 'var(--text-diff--line-height)',
       },

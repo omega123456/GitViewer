@@ -180,6 +180,7 @@
   --font-mono:
     'Cascadia Code', 'Cascadia Mono', 'Cascadia Code Variable', ui-monospace,
     'SF Mono', Consolas, monospace;
+  --font-mono--font-feature-settings: 'calt' 0, 'liga' 0;
   --text-diff: 13px;
   --text-diff--line-height: 20px;
   --text-meta: 12px;
