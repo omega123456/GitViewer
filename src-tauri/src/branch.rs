@@ -123,26 +123,20 @@ pub async fn delete(repo: &Repo, name: &str) -> Result<()> {
         ));
     }
     if branch.remote {
-        let sha = resolve(repo, &format!("refs/remotes/{name}")).await?;
-        git::run(
-            &repo.root,
-            &["merge-base", "--is-ancestor", &sha, "HEAD"],
-            None,
-        )
-        .await?
-        .accept(&[0])
-        .map_err(|_| Error::refused("Remote branch is not fully merged into HEAD"))?;
-        let (remote, branch) = name
-            .split_once('/')
-            .ok_or_else(|| Error::refused("Invalid remote branch"))?;
-        git::run(&repo.root, &["push", remote, "--delete", branch], None)
-            .await?
-            .accept(&[0])?;
-    } else {
-        git::run(&repo.root, &["branch", "-D", "--", name], None)
-            .await?
-            .accept(&[0])?;
+        return delete_remote(repo, name).await;
     }
+    git::run(&repo.root, &["branch", "-D", "--", name], None)
+        .await?
+        .accept(&[0])?;
+    Ok(())
+}
+async fn delete_remote(repo: &Repo, name: &str) -> Result<()> {
+    let (remote, branch) = name
+        .split_once('/')
+        .ok_or_else(|| Error::refused("Invalid remote branch"))?;
+    git::run(&repo.root, &["push", remote, "--delete", branch], None)
+        .await?
+        .accept(&[0])?;
     Ok(())
 }
 async fn local_remotes_only(repo: &Repo) -> Result<()> {

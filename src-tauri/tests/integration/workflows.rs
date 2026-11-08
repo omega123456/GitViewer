@@ -1216,11 +1216,9 @@ async fn remote_checkout_creates_tracking_branches_and_never_detaches() {
     actions::commit(&repo, "Feature").await.unwrap();
     command(dir.path(), &["push", "origin", "feature"]).await;
     branch::switch(&repo, "main").await.unwrap();
-    assert!(branch::delete(&repo, "origin/feature")
-        .await
-        .unwrap_err()
-        .message
-        .contains("not fully merged"));
+    branch::delete(&repo, "origin/feature").await.unwrap();
+    let remote_branches = command(remote.path(), &["branch", "--list", "feature"]).await;
+    assert!(remote_branches.is_empty());
 }
 
 #[tokio::test]

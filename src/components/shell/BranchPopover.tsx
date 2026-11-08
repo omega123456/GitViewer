@@ -746,9 +746,7 @@ export function BranchPopover({
                             className={`${menuItem} text-deleted dark:text-deleted-dark`}
                             onSelect={() => {
                               void confirm(
-                                branch.remote
-                                  ? `Delete ${branch.name}? Unmerged branches will be refused.`
-                                  : `Delete ${branch.name}? Unmerged commits will be lost.`,
+                                `Delete ${branch.name}? Unmerged commits will be lost.`,
                                 { title: 'Delete branch', kind: 'warning' },
                               ).then((approved) => {
                                 if (approved)
