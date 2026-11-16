@@ -21,7 +21,10 @@ const defaults: SettingsResponse = {
     baseUrl: '',
     model: '',
     prompt:
-      'Write a commit message for this diff. One short imperative subject line under 60 characters. Add a body only when needed.',
+      'Write a concise commit message for this diff (under 220 characters total).\n' +
+      '- Subject line: Imperative mood, under 72 characters, summarizing the core functional change.\n' +
+      '- Body (when needed): 1–2 short sentences explaining *why* the change was made or how behavior changed.\n' +
+      '- Rules: Describe functional impact and intent, not code mechanics. Do not name specific classes/functions or mention routine test updates.',
   },
 };
 export default function App() {
