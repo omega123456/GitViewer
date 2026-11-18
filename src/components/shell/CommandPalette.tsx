@@ -10,7 +10,7 @@ import {
 import { useShallow } from 'zustand/react/shallow';
 import { Eye, EyeOff, FolderGit2, Search } from 'lucide-react';
 import { useActionRegistry } from '../../lib/actions';
-import { fuzzyFilter } from '../../lib/fuzzy';
+import { fuzzyFilter, fuzzySearch } from '../../lib/fuzzy';
 import { shortcutLabel } from '../../lib/keyboard';
 import { parentPath } from '../../lib/paths';
 import { useBackend, useStatuses } from '../../lib/query';
@@ -22,6 +22,7 @@ import { FileIcon } from '../sidebar/FileIcon';
 import { sourceFor } from '../sidebar/nodes';
 import { StatusBadge } from '../sidebar/StatusBadge';
 import { Button } from '../shared/Button';
+import { MatchedText } from '../shared/MatchedText';
 import { Modal } from '../shared/Modal';
 import { RepositorySignals } from './RepoTabStrip';
 import { focusInset, pill } from '../shared/styles';
@@ -83,16 +84,27 @@ function Keys({ shortcut }: { shortcut: string }) {
     </span>
   );
 }
-function FileLabel({ path }: { path: string }) {
+function FileLabel({
+  path,
+  positions,
+}: {
+  path: string;
+  positions: ReadonlySet<number>;
+}) {
   const slash = path.lastIndexOf('/');
+  const nameStart = slash + 1;
   return (
     <span className="flex min-w-0 items-baseline gap-2.5">
       <span className="max-w-full shrink-0 truncate font-medium">
-        {path.slice(slash + 1)}
+        <MatchedText
+          text={path.slice(nameStart)}
+          start={nameStart}
+          positions={positions}
+        />
       </span>
       {slash > 0 && (
         <span className="truncate text-meta text-muted dark:text-muted-dark">
-          {path.slice(0, slash)}
+          <MatchedText text={path.slice(0, slash)} positions={positions} />
         </span>
       )}
     </span>
@@ -139,7 +151,7 @@ export function CommandPalette({ repo }: { repo: string }) {
   const matches = useMemo(
     () =>
       mode === 'files'
-        ? fuzzyFilter(query, files.data ?? [], (path) => path).slice(
+        ? fuzzySearch(query, files.data ?? [], (path) => path).slice(
             0,
             rowLimit,
           )
@@ -178,7 +190,7 @@ export function CommandPalette({ repo }: { repo: string }) {
         ? [
             {
               name: 'Files',
-              rows: matches.map((path): Row => {
+              rows: matches.map(({ item: path, positions }): Row => {
                 const entry = entries.get(path);
                 return {
                   id: path,
@@ -189,7 +201,7 @@ export function CommandPalette({ repo }: { repo: string }) {
                       size="size-3.5"
                     />
                   ),
-                  label: <FileLabel path={path} />,
+                  label: <FileLabel path={path} positions={positions} />,
                   title: path,
                   trailing: (
                     <StatusBadge
@@ -223,11 +235,15 @@ export function CommandPalette({ repo }: { repo: string }) {
             .sort(([a], [b]) => groupOrder.indexOf(a) - groupOrder.indexOf(b))
             .map(([group, actions]) => ({
               name: groupNames[group] ?? group,
-              rows: fuzzyFilter(filter, actions, (action) => action.label).map(
-                (action): Row => ({
+              rows: fuzzySearch(filter, actions, (action) => action.label).map(
+                ({ item: action, positions }): Row => ({
                   id: action.id,
                   icon: action.icon,
-                  label: <span className="truncate">{action.label}</span>,
+                  label: (
+                    <span className="truncate">
+                      <MatchedText text={action.label} positions={positions} />
+                    </span>
+                  ),
                   title: action.label,
                   trailing: <Keys shortcut={action.key} />,
                   disabled: action.disabled,

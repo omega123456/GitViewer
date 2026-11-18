@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import type { EditorState, Text } from '@codemirror/state';
 import { normalizeError } from '../lib/ipc';
+import { fileName } from '../lib/paths';
 import { attempt } from '../lib/query';
 import type { Opened } from '../lib/types';
 import { useErrors } from './errors';
@@ -36,9 +37,6 @@ function patch(repo: string, path: string, change: Partial<Buffer>) {
         }
       : s;
   });
-}
-export function fileName(path: string) {
-  return path.slice(path.lastIndexOf('/') + 1);
 }
 export function useBuffer(repo: string, path: string) {
   return useEditor((s) => s.buffers[repo]?.[path]);

@@ -703,6 +703,8 @@ describe('keyboard and pointer access', () => {
     expect(within(palette).getAllByRole('button', { name: /\./ })).toHaveLength(
       1,
     );
+    const marks = [...palette.querySelectorAll('mark')];
+    expect(marks.map((mark) => mark.textContent)).toEqual(['ap', 't', 's']);
     const scored = vi.mocked(fuzzyFilter).mock.calls.length;
     fireEvent.keyDown(input, { key: 'ArrowDown' });
     fireEvent.keyDown(input, { key: 'ArrowUp' });

@@ -24,7 +24,7 @@ import { matches, runShortcut } from '../lib/keyboard';
 import { highlight, terminate, tokenize } from '../lib/highlight';
 import { highlightWorker, type Reply } from '../lib/highlight.worker';
 import { workers } from './setup';
-import { fuzzyFilter, fuzzyScore } from '../lib/fuzzy';
+import { fuzzyFilter, fuzzySearch } from '../lib/fuzzy';
 import { diffRows, gaps } from '../components/diff/rows';
 import { fileCategory, folderGlyph, type FileCategory } from '../lib/file-type';
 import {
@@ -623,21 +623,43 @@ describe('presentation state', () => {
     ).toBe(false);
   });
   it('ranks fuzzy matches by adjacency, boundaries and length', () => {
-    expect(fuzzyScore('xyz', 'src/app.ts')).toBeNull();
-    expect(fuzzyScore('cp', 'CommandPalette.tsx')).toBeGreaterThan(
-      fuzzyScore('cp', 'scripts/copy.js') ?? 0,
-    );
+    expect(fuzzyFilter('xyz', ['src/app.ts'], (f) => f)).toEqual([]);
+    expect(
+      fuzzyFilter('cp', ['scripts/copy.js', 'CommandPalette.tsx'], (f) => f),
+    ).toEqual(['CommandPalette.tsx', 'scripts/copy.js']);
     const files = ['src/lib/app-shell.ts', 'src/app.ts', 'README.md'];
-    expect(fuzzyFilter('', files, (f) => f)).toBe(files);
+    expect(fuzzyFilter('', files, (f) => f)).toEqual(files);
     expect(fuzzyFilter('sapt', files, (f) => f)).toEqual([
       'src/app.ts',
       'src/lib/app-shell.ts',
     ]);
-    expect(fuzzyFilter('  ', files, (f) => f)).toBe(files);
+    expect(fuzzyFilter('  ', files, (f) => f)).toEqual(files);
     expect(fuzzyFilter(' sapt ', files, (f) => f)).toEqual([
       'src/app.ts',
       'src/lib/app-shell.ts',
     ]);
+  });
+  it('ranks file name matches above matches spread across folders', () => {
+    const files = [
+      'tests/Functional/Favourites/FavouritesListPropertySourceMySQLTest.php',
+      'tests/Unit/Property/SourceMySQLTest.php',
+      'tests/Unit/Sources/MySQL/Property/PropertySourceMySQLTest.php',
+      'src/Sources/MySQL/Property/PropertySourceMySQL.php',
+      '.gitignore',
+    ];
+    expect(fuzzyFilter('propertysourcemysql', files, (f) => f)).toEqual([
+      'src/Sources/MySQL/Property/PropertySourceMySQL.php',
+      'tests/Unit/Sources/MySQL/Property/PropertySourceMySQLTest.php',
+      'tests/Functional/Favourites/FavouritesListPropertySourceMySQLTest.php',
+      'tests/Unit/Property/SourceMySQLTest.php',
+    ]);
+    expect(fuzzyFilter('gitignore', files, (f) => f)).toEqual(['.gitignore']);
+    const [exact] = fuzzySearch('psm', [files[3]], (f) => f);
+    expect([...exact.positions]).toEqual([27, 35, 41]);
+    expect([...fuzzySearch('', files, (f) => f)[0].positions]).toEqual([]);
+    expect(fuzzyFilter('fpsm', files, (f) => f)[0]).toBe(
+      'tests/Functional/Favourites/FavouritesListPropertySourceMySQLTest.php',
+    );
   });
   it('highlights syntax and safely encodes image references', async () => {
     expect(

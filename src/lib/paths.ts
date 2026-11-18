@@ -4,3 +4,6 @@ export function folderName(path: string) {
 export function parentPath(path: string) {
   return path.replace(/[\\/]*[^\\/]+[\\/]*$/, '');
 }
+export function fileName(path: string) {
+  return path.slice(path.lastIndexOf('/') + 1);
+}

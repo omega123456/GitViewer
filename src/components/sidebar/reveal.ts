@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { ItemInstance, TreeInstance } from '@headless-tree/core';
 import type { Selection } from '../../lib/types';
-import { fileName } from '../../stores/editor';
+import { fileName } from '../../lib/paths';
 import { useFilterStore } from '../../stores/filter';
 import { useLayout } from '../../stores/layout';
 import {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, type KeyboardEvent, type MouseEvent } from 'react';
 import { X } from 'lucide-react';
-import { fileName, useDirty } from '../../stores/editor';
+import { useDirty } from '../../stores/editor';
+import { fileName } from '../../lib/paths';
 import type { SidebarMode } from '../../stores/layout';
 import {
   tabKey,

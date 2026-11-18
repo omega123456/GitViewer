@@ -105,6 +105,11 @@ describe('application shell', () => {
       await screen.findByRole('dialog', { name: 'Command palette' }),
     ).toBeVisible();
     await user.type(screen.getByLabelText('Find command'), 'refresh');
+    expect(
+      screen
+        .getByRole('button', { name: /Refresh repository/ })
+        .querySelector('mark'),
+    ).toHaveTextContent('Refresh');
     await user.click(
       screen.getByRole('button', { name: /Refresh repository/ }),
     );

@@ -13,6 +13,7 @@ import { findNext, findPrevious, searchPanelOpen } from '@codemirror/search';
 import type { Transaction } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { useActions } from '../../lib/actions';
+import { fileName } from '../../lib/paths';
 import { useBackend } from '../../lib/query';
 import type { Opened } from '../../lib/types';
 import {
@@ -20,7 +21,6 @@ import {
   conflict,
   current,
   drop,
-  fileName,
   keepEdits,
   openBuffer,
   reload,

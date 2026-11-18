@@ -1,32 +1,44 @@
-const separator = /[/._\-\s]/;
-export function fuzzyScore(query: string, text: string): number | null {
-  const lower = text.toLowerCase();
-  let score = 0;
-  let last = -1;
-  for (const char of query.toLowerCase()) {
-    const at = lower.indexOf(char, last + 1);
-    if (at === -1) return null;
-    const boundary =
-      at === 0 || separator.test(lower[at - 1]) || text[at] !== lower[at];
-    score += at === last + 1 ? 3 : boundary ? 2 : 0;
-    last = at;
-  }
-  return score;
+import fuzzysort, { type KeysResult } from 'fuzzysort';
+import { fileName } from './paths';
+
+const anyMatch = 0;
+const unlimited = 0;
+const noPositions: ReadonlySet<number> = new Set();
+export interface FuzzyMatch<T> {
+  item: T;
+  positions: ReadonlySet<number>;
+}
+export function fuzzySearch<T>(
+  query: string,
+  items: T[],
+  key: (item: T) => string,
+): FuzzyMatch<T>[] {
+  const trimmed = query.trim();
+  if (!trimmed) return items.map((item) => ({ item, positions: noPositions }));
+  const results = fuzzysort.go(trimmed, items, {
+    keys: [(item: T) => fileName(key(item)), key],
+    threshold: anyMatch,
+    limit: unlimited,
+  });
+  return results.map((result) => ({
+    item: result.obj,
+    positions: matchedPositions(result, key(result.obj)),
+  }));
 }
 export function fuzzyFilter<T>(
   query: string,
   items: T[],
   key: (item: T) => string,
 ): T[] {
-  const trimmed = query.trim();
-  if (!trimmed) return items;
-  return items
-    .map((item) => ({ item, score: fuzzyScore(trimmed, key(item)) }))
-    .filter(
-      (entry): entry is { item: T; score: number } => entry.score !== null,
-    )
-    .sort(
-      (a, b) => b.score - a.score || key(a.item).length - key(b.item).length,
-    )
-    .map((entry) => entry.item);
+  return fuzzySearch(query, items, key).map((match) => match.item);
+}
+function matchedPositions<T>(
+  result: KeysResult<T>,
+  text: string,
+): ReadonlySet<number> {
+  const [nameResult, textResult] = result;
+  const nameScoredBest = nameResult.score >= textResult.score;
+  if (!nameScoredBest) return new Set(textResult.indexes);
+  const nameStart = text.length - nameResult.target.length;
+  return new Set(nameResult.indexes.map((index) => nameStart + index));
 }
