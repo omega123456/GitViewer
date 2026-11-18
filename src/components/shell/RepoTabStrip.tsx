@@ -69,7 +69,7 @@ export function RepoTabStrip() {
       <Button
         variant="chrome"
         title="Settings"
-        className={`ml-auto self-center ${strip}`}
+        className={`ml-auto ${strip}`}
         onClick={() => usePalette.getState().setSettings(true)}
       >
         <SettingsIcon className="size-4" />
