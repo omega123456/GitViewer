@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
+import { invoke } from '../../lib/ipc';
 import { Button } from './Button';
 export function CopyButton({
   text,
@@ -18,7 +19,7 @@ export function CopyButton({
       title={copied ? 'Copied' : label}
       className={className}
       onClick={() =>
-        void navigator.clipboard.writeText(text).then(
+        void invoke('clipboard_write', { text }).then(
           () => setCopied(true),
           () => setCopied(false),
         )

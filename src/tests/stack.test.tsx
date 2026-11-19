@@ -356,7 +356,10 @@ describe('all changes pane', () => {
       name: /app\.ts/,
     }).parentElement!;
     await user.click(within(header).getByLabelText('Copy file path'));
-    expect(await navigator.clipboard.readText()).toBe('src/app.ts');
+    expect(calls).toContainEqual({
+      command: 'clipboard_write',
+      args: { text: 'src/app.ts' },
+    });
     await user.click(within(header).getByRole('button', { name: 'Open' }));
     expect(calls).toContainEqual({
       command: 'system_open',

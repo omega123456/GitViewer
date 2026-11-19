@@ -48,12 +48,18 @@ describe('file context menu', () => {
     await user.click(
       await screen.findByRole('menuitem', { name: 'Copy filename' }),
     );
-    expect(await navigator.clipboard.readText()).toBe('app.ts');
+    expect(calls).toContainEqual({
+      command: 'clipboard_write',
+      args: { text: 'app.ts' },
+    });
     await user.pointer({ keys: '[MouseRight]', target: row });
     await user.click(
       await screen.findByRole('menuitem', { name: 'Copy path' }),
     );
-    expect(await navigator.clipboard.readText()).toBe('/fixture/src/app.ts');
+    expect(calls).toContainEqual({
+      command: 'clipboard_write',
+      args: { text: '/fixture/src/app.ts' },
+    });
     await user.pointer({ keys: '[MouseRight]', target: row });
     await user.click(
       await screen.findByRole('menuitem', { name: 'Open in default editor' }),
@@ -82,7 +88,10 @@ describe('file context menu', () => {
     await user.click(
       await screen.findByRole('menuitem', { name: 'Copy filename' }),
     );
-    expect(await navigator.clipboard.readText()).toBe('app.ts');
+    expect(calls).toContainEqual({
+      command: 'clipboard_write',
+      args: { text: 'app.ts' },
+    });
   });
   it('lists new ignored files in the all files tree without a status change', async () => {
     setup();
@@ -168,12 +177,18 @@ describe('file tab menu', () => {
     await user.click(
       await screen.findByRole('menuitem', { name: 'Copy filename' }),
     );
-    expect(await navigator.clipboard.readText()).toBe('app.ts');
+    expect(calls).toContainEqual({
+      command: 'clipboard_write',
+      args: { text: 'app.ts' },
+    });
     await tabMenu(user, 'app.ts');
     await user.click(
       await screen.findByRole('menuitem', { name: 'Copy path' }),
     );
-    expect(await navigator.clipboard.readText()).toBe('/fixture/src/app.ts');
+    expect(calls).toContainEqual({
+      command: 'clipboard_write',
+      args: { text: '/fixture/src/app.ts' },
+    });
     await revealTab(user, 'app.ts');
     await waitFor(() =>
       expect(
@@ -460,7 +475,30 @@ describe('diff interaction', () => {
     mount();
     await user.click(await screen.findByLabelText('Copy file path'));
     expect(await screen.findByLabelText('Copied')).toBeVisible();
-    expect(await navigator.clipboard.readText()).toBe('src/app.ts');
+    expect(calls).toContainEqual({
+      command: 'clipboard_write',
+      args: { text: 'src/app.ts' },
+    });
+  });
+  it('keeps the copy label when the clipboard write fails', async () => {
+    setup();
+    mockCommand('clipboard_write', () => {
+      throw { category: 'unexpected', message: 'Clipboard write failed' };
+    });
+    useSelection
+      .getState()
+      .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByLabelText('Copy file path'));
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        command: 'clipboard_write',
+        args: { text: 'src/app.ts' },
+      }),
+    );
+    expect(screen.getByLabelText('Copy file path')).toBeVisible();
+    expect(screen.queryByLabelText('Copied')).not.toBeInTheDocument();
   });
   it('uses the registry for hunk actions, view controls, and system opening', async () => {
     setup();

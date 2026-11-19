@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { ContextMenu } from 'radix-ui';
 import { Copy, ExternalLink, FileText, LocateFixed } from 'lucide-react';
-import { reportAppError } from '../../lib/ipc';
+import { invoke, reportAppError } from '../../lib/ipc';
 import { perform } from '../../lib/query';
 import { menu, menuItem, menuSeparator } from './styles';
 export function absolutePath(repo: string, path: string) {
@@ -11,7 +11,7 @@ export function absolutePath(repo: string, path: string) {
     : `${root}/${path}`;
 }
 function copy(text: string) {
-  navigator.clipboard.writeText(text).catch(reportAppError);
+  invoke('clipboard_write', { text }).catch(reportAppError);
 }
 export function FileMenu({
   repo,

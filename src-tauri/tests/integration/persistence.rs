@@ -136,6 +136,18 @@ async fn session_commands_are_isolated_and_preserve_native_geometry() {
             .await
             .is_err()
     );
+    let refused = super::ipc::dispatch(
+        app.handle().clone(),
+        "clipboard_write",
+        json!({"text":"/repo/file.txt"}),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(refused.message, "System clipboard is unavailable in tests");
+    let missing = super::ipc::dispatch(app.handle().clone(), "clipboard_write", json!({}))
+        .await
+        .unwrap_err();
+    assert_eq!(missing.message, "Missing text");
     lifecycle::flush(app.handle());
     assert_eq!(store.get().tabs.len(), 1);
 }

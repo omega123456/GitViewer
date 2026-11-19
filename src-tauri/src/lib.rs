@@ -27,6 +27,8 @@ pub mod worktree;
 pub fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     #[cfg(feature = "test-utils")]
     let builder = builder.manage(session::Store::default());
+    #[cfg(not(feature = "test-utils"))]
+    let builder = builder.plugin(tauri_plugin_clipboard_manager::init());
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())

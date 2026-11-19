@@ -9,6 +9,8 @@ use serde::Serialize;
 use serde_json::{json, value::RawValue, Value};
 use tauri::{Emitter, Manager};
 #[cfg(not(feature = "test-utils"))]
+use tauri_plugin_clipboard_manager::ClipboardExt;
+#[cfg(not(feature = "test-utils"))]
 use tauri_plugin_opener::OpenerExt;
 
 fn string<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
@@ -105,6 +107,21 @@ pub async fn dispatch<R: tauri::Runtime>(
                 )
                 .map_err(Error::from)?;
                 window.popup_menu(&menu).map_err(Error::from)?;
+                return done();
+            }
+        }
+        "clipboard_write" => {
+            let text = string(&args, "text")?;
+            #[cfg(feature = "test-utils")]
+            {
+                let _ = text;
+                return Err(Error::refused("System clipboard is unavailable in tests"));
+            }
+            #[cfg(not(feature = "test-utils"))]
+            {
+                app.clipboard().write_text(text).map_err(|error| {
+                    Error::new("unexpected", format!("Clipboard write failed: {error}"))
+                })?;
                 return done();
             }
         }

@@ -30,6 +30,7 @@ export function resetHarness() {
   mockCommand('session_set', () => null);
   mockCommand('session_close', () => null);
   mockCommand('frontend_log', () => null);
+  mockCommand('clipboard_write', () => null);
   mockCommand('ai_models', () => []);
   mockCommand('ai_key_set', () => null);
   mockCommand('ai_generate', () => ({ ...generated }));
