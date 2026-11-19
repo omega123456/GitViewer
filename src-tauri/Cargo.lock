@@ -1698,7 +1698,7 @@ dependencies = [
 
 [[package]]
 name = "gitviewer"
-version = "3.8.1"
+version = "3.8.2"
 dependencies = [
  "async-openai",
  "chrono",
