@@ -25,14 +25,16 @@ import { useActions } from '../../lib/actions';
 import {
   attempt,
   client,
+  freshStatus,
   perform,
   queryKey,
   useBackend,
   useStatuses,
 } from '../../lib/query';
+import { pull } from '../../lib/pull';
 import { switchWorktree } from '../../lib/repository';
 import { applyWorktree, deleteWorktree } from '../../lib/worktree';
-import { invoke, normalizeError } from '../../lib/ipc';
+import { normalizeError } from '../../lib/ipc';
 import { overwrittenPaths } from '../../lib/failure';
 import { runs, useCurrentActivity } from '../../stores/activity';
 import { ask } from '../../stores/decision';
@@ -260,12 +262,8 @@ async function pullOnCheckout(repo: string) {
     queryKey('settings_get', {}),
   );
   if (!settings?.pullOnCheckout) return;
-  const status = await client.fetchQuery({
-    queryKey: queryKey('status', { repo }),
-    queryFn: () => invoke('status', { repo }),
-    staleTime: 0,
-  });
-  if (status.upstream) await perform('sync', { repo, action: 'pull' });
+  const status = await freshStatus(repo);
+  if (status.upstream) await pull(repo);
 }
 export function BranchPopover({
   repo,

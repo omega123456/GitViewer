@@ -269,11 +269,11 @@ pub async fn sync<F: Fn(&str)>(repo: &Repo, action: &str, progress: F) -> Result
             git::stream(&repo.root, &["fetch", "--progress"], &progress)
                 .await?
                 .accept(&[0])?;
-            let upstream = status
+            let upstream_name = status
                 .upstream
                 .as_deref()
                 .ok_or_else(|| Error::refused("No upstream configured"))?;
-            let upstream = resolve(repo, upstream).await?;
+            let upstream = resolve(repo, upstream_name).await?;
             let ancestor = git::run(
                 &repo.root,
                 &["merge-base", "--is-ancestor", "HEAD", &upstream],
@@ -292,8 +292,9 @@ pub async fn sync<F: Fn(&str)>(repo: &Repo, action: &str, progress: F) -> Result
                 if ahead.code == 0 {
                     return Ok(Some(0));
                 }
-                return Err(Error::refused(
-                    "Pull cannot fast-forward; resolve the diverged history in a terminal",
+                return Err(Error::new(
+                    "diverged",
+                    format!("{} and {upstream_name} have diverged", status.branch),
                 ));
             }
             git::run(&repo.root, &["merge", "--ff-only", &upstream], None)

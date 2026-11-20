@@ -599,11 +599,9 @@ async fn local_remote_fetch_pull_push_and_divergence_refusal() {
         actions::commit(&other_repo, "Divergence").await.unwrap();
         branch::sync(&other_repo, "push", silent()).await.unwrap();
     }
-    assert!(branch::sync(&repo, "pull", silent())
-        .await
-        .unwrap_err()
-        .message
-        .contains("cannot fast-forward"));
+    let diverged = branch::sync(&repo, "pull", silent()).await.unwrap_err();
+    assert_eq!(diverged.category, "diverged");
+    assert_eq!(diverged.message, "main and origin/main have diverged");
     assert!(repo.refresh().await.unwrap().entries.is_empty());
     assert!(branch::sync(&repo, "invalid", silent()).await.is_err());
     command(dir.path(), &["checkout", "--detach"]).await;

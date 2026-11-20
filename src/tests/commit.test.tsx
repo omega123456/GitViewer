@@ -247,6 +247,32 @@ describe('commit and push', () => {
     );
     expect(screen.queryByText('Push failed')).not.toBeInTheDocument();
   });
+  it('offers a pull instead of pushing again when the remote rejects the push', async () => {
+    setup(staged);
+    mockCommand('sync', () => {
+      throw {
+        category: 'refused',
+        message:
+          "To origin\n ! [rejected] main -> main (fetch first)\nerror: failed to push some refs to 'origin'",
+      };
+    });
+    mount();
+    await screen.findByRole('button', { name: 'Commit 1 file to main' });
+    await run('commit-push');
+    expect(await screen.findByText('Push failed')).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: /Push again/ }),
+    ).not.toBeInTheDocument();
+    mockCommand('sync', () => null);
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Pull' }));
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        command: 'sync',
+        args: { repo: repository.id, action: 'pull' },
+      }),
+    );
+    expect(screen.queryByText('Push failed')).not.toBeInTheDocument();
+  });
   it('carries the shortcut mode through the staging prompt', async () => {
     setup(unstaged);
     const user = userEvent.setup();

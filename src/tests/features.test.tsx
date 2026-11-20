@@ -331,6 +331,54 @@ describe('repository workflows', () => {
       calls.filter((call) => call.command === 'branch_merge'),
     ).toHaveLength(1);
   });
+  it('offers to merge the upstream when a pull finds diverged history', async () => {
+    setup();
+    mockCommand('sync', () => {
+      throw {
+        category: 'diverged',
+        message: 'main and origin/main have diverged',
+      };
+    });
+    mockCommand('merge_preview', () => ({
+      outcome: 'commit' as const,
+      changed: 2,
+      conflicts: [],
+    }));
+    mockCommand('branch_merge', () => true);
+    const user = userEvent.setup();
+    mount();
+    await screen.findByLabelText('Commit message');
+    const merges = () =>
+      calls.filter((call) => call.command === 'branch_merge');
+    await action('pull');
+    expect(dialog.title).toBe('Pull');
+    expect(dialog.message).toBe(
+      'main and origin/main have diverged. Merge origin/main into main? GitViewer checked the result: 2 files change and nothing conflicts. This will create a merge commit on main.',
+    );
+    expect(calls).toContainEqual({
+      command: 'merge_preview',
+      args: { repo: repository.id, name: 'origin/main' },
+    });
+    expect(merges()).toEqual([
+      {
+        command: 'branch_merge',
+        args: { repo: repository.id, name: 'origin/main' },
+      },
+    ]);
+    expect(lastError(repository.id)).toBeUndefined();
+    dialog.approved = false;
+    await action('pull');
+    expect(merges()).toHaveLength(1);
+    mockCommand('sync', () => {
+      throw { category: 'network', message: 'fatal: offline' };
+    });
+    await action('pull');
+    expect(lastError(repository.id)?.message).toBe('fatal: offline');
+    mockCommand('sync', () => 1);
+    await user.click(await screen.findByRole('button', { name: /Retry/ }));
+    await waitFor(() => expect(lastError(repository.id)).toBeUndefined());
+    expect(merges()).toHaveLength(1);
+  });
   it('announces every prune stage in a toast, and respects cancellation and failure', async () => {
     setup();
     mockCommand('branches', () => [

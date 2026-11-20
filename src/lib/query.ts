@@ -37,6 +37,13 @@ export function useBackend<K extends keyof Commands>(
     initialDataUpdatedAt: initial?.updatedAt,
   });
 }
+export function freshStatus(repo: string) {
+  return client.fetchQuery({
+    queryKey: queryKey('status', { repo }),
+    queryFn: () => invoke('status', { repo }),
+    staleTime: 0,
+  });
+}
 export function useStatuses(repos: string[]) {
   return useQueries({
     queries: repos.map((repo) => ({

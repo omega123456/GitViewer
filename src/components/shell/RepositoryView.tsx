@@ -23,6 +23,7 @@ import { memo, useState } from 'react';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { useActions } from '../../lib/actions';
 import { perform, useBackend } from '../../lib/query';
+import { pull } from '../../lib/pull';
 import type { Action } from '../../lib/keyboard';
 import type { SettingsResponse } from '../../lib/types';
 import { useBusy } from '../../stores/activity';
@@ -276,7 +277,7 @@ export const RepositoryView = memo(function RepositoryView({
       label: 'Pull',
       key: 'Mod+Shift+l',
       disabled: disabled || status?.branch === '(detached)',
-      run: () => perform('sync', { repo, action: 'pull' }),
+      run: () => pull(repo),
     },
     {
       id: 'push',

@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { Check, FolderGit2, RotateCw, Undo2, X } from 'lucide-react';
 import { describe, type Recovery } from '../../lib/failure';
 import { perform } from '../../lib/query';
+import { pull } from '../../lib/pull';
 import { showWorktree } from '../../lib/repository';
 import { unapplyWorktree } from '../../lib/worktree';
 import { appScope, useErrors, type Failure } from '../../stores/errors';
@@ -48,18 +49,19 @@ function Glyph({ tone, children }: { tone: Tone; children: ReactNode }) {
 const none: Failure[] = [];
 const quiet: Notice[] = [];
 function recovery(scope: string, failure: Failure, kind: Recovery) {
+  const pullable = kind === 'pull' && scope !== appScope;
+  if (pullable)
+    return {
+      label: 'Pull',
+      again: false,
+      run: () => void pull(scope),
+    };
   const retry = failure.retry;
   if (retry && (failure.retryLabel || kind === 'retry'))
     return {
       label: failure.retryLabel ?? 'Retry',
       again: true,
       run: () => void retry(),
-    };
-  if (kind === 'pull' && scope !== appScope)
-    return {
-      label: 'Pull',
-      again: false,
-      run: () => void perform('sync', { repo: scope, action: 'pull' }),
     };
   return null;
 }
