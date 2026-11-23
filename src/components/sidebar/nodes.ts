@@ -27,11 +27,9 @@ export function statusClass(status: string) {
 }
 export function sourceFor(entry?: Entry): Source {
   if (!entry || entry.index === UNTRACKED) return 'file';
-  return entry.worktree !== UNMODIFIED
-    ? 'unstaged'
-    : entry.index !== UNMODIFIED
-      ? 'staged'
-      : 'file';
+  if (entry.worktree !== UNMODIFIED) return 'unstaged';
+  if (entry.index !== UNMODIFIED) return 'staged';
+  return 'file';
 }
 export type Section = Group | 'conflicts';
 export function inSection(entry: Entry, section: Section) {
@@ -69,40 +67,52 @@ export function changeNodes(entries: Entry[], source: Section, filter: string) {
   const selected = entries
     .filter((entry) => inSection(entry, source))
     .filter((entry) => entry.path.toLowerCase().includes(needle));
-  for (const entry of selected) {
-    const parts = entry.path.split('/');
-    let parent = treeRoot;
-    parts.forEach((part, index) => {
-      const path = parts.slice(0, index + 1).join('/');
-      if (!map[path]) {
-        map[path] = {
-          path: path,
-          name: part,
-          directory: index < parts.length - 1,
-          ignored: false,
-          status:
-            index === parts.length - 1
-              ? source === 'staged'
-                ? entry.index
-                : entry.worktree
-              : '',
-          children: [],
-          paths: [],
-          partial: false,
-        };
-        map[parent].children.push(path);
-      }
-      map[path].paths.push(entry.path);
-      map[path].partial ||=
-        source !== 'conflicts' &&
-        entry.index !== UNMODIFIED &&
-        entry.index !== UNTRACKED &&
-        entry.worktree !== UNMODIFIED;
-      parent = path;
-    });
-  }
+  for (const entry of selected) addEntry(map, entry, source);
   compactChains(map, treeRoot);
   return map;
+}
+function sideStatus(entry: Entry, source: Section) {
+  return source === 'staged' ? entry.index : entry.worktree;
+}
+function stagedAndUnstaged(entry: Entry) {
+  const indexed = entry.index !== UNMODIFIED && entry.index !== UNTRACKED;
+  return indexed && entry.worktree !== UNMODIFIED;
+}
+function isPartial(entry: Entry, source: Section) {
+  return source !== 'conflicts' && stagedAndUnstaged(entry);
+}
+interface NodeSpot {
+  path: string;
+  name: string;
+  leaf: boolean;
+}
+function newNode(spot: NodeSpot, status: string): Node {
+  return {
+    path: spot.path,
+    name: spot.name,
+    directory: !spot.leaf,
+    ignored: false,
+    status: status,
+    children: [],
+    paths: [],
+    partial: false,
+  };
+}
+function addEntry(map: Record<string, Node>, entry: Entry, source: Section) {
+  const parts = entry.path.split('/');
+  let parent = treeRoot;
+  parts.forEach((part, index) => {
+    const path = parts.slice(0, index + 1).join('/');
+    const leaf = index === parts.length - 1;
+    if (!map[path]) {
+      const status = leaf ? sideStatus(entry, source) : '';
+      map[path] = newNode({ path: path, name: part, leaf: leaf }, status);
+      map[parent].children.push(path);
+    }
+    map[path].paths.push(entry.path);
+    map[path].partial ||= isPartial(entry, source);
+    parent = path;
+  });
 }
 
 function compactChains(map: Record<string, Node>, id: string) {

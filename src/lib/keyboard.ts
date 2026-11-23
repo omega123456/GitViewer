@@ -49,19 +49,17 @@ const glyphs: Record<string, string> = {
   ArrowLeft: '←',
   ArrowRight: '→',
 };
+function modifierLabel() {
+  return platform() === 'macos' ? '⌘' : 'Ctrl';
+}
+function keyLabel(part: string) {
+  const macos = platform() === 'macos';
+  if (part === 'Mod') return modifierLabel();
+  if (part === 'Ctrl' && macos) return '⌃';
+  return glyphs[part] ?? part;
+}
 export function shortcutLabel(key: string) {
-  return key
-    .split('+')
-    .map((part) =>
-      part === 'Mod'
-        ? platform() === 'macos'
-          ? '⌘'
-          : 'Ctrl'
-        : part === 'Ctrl' && platform() === 'macos'
-          ? '⌃'
-          : (glyphs[part] ?? part),
-    )
-    .join('+');
+  return key.split('+').map(keyLabel).join('+');
 }
 
 export type KeyHandlers = Partial<Record<string, () => void>>;

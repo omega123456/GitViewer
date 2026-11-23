@@ -368,15 +368,15 @@ async fn reads_proceed_while_a_write_holds_the_repository() {
     .await
     .is_err());
     drop(write);
-    timeout(patient, async {
-        let mut interval = tokio::time::interval(Duration::from_millis(500));
-        while *files.lock().unwrap() == 0 {
-            interval.tick().await;
-            std::fs::write(dir.path().join("generated").join("out.js"), "out").unwrap();
-        }
-    })
-    .await
-    .unwrap();
+    super::workflows::poll_until(
+        super::workflows::Polling {
+            limit: patient,
+            period: Duration::from_millis(500),
+        },
+        || *files.lock().unwrap() != 0,
+        || std::fs::write(dir.path().join("generated").join("out.js"), "out").unwrap(),
+    )
+    .await;
 }
 
 pub(super) fn app() -> tauri::App<tauri::test::MockRuntime> {
@@ -414,12 +414,13 @@ async fn patches_travel_only_with_working_tree_sources() {
     let id = info["id"].as_str().unwrap();
     let stash = super::workflows::command(root, &["stash", "create"]).await;
     let stash = stash.trim();
-    for (source, path, revision, base) in [
+    let committed = [
         ("commit", "file.txt", "HEAD", ""),
         ("stash", "file.txt", stash, ""),
         ("compare", "file.txt", "HEAD", "HEAD~1"),
         ("file", "file.txt", "", ""),
-    ] {
+    ];
+    for (source, path, revision, base) in committed {
         let single = call(
             "diff",
             json!({"repo":id,"path":path,"source":source,"revision":revision,"base":base}),
@@ -427,16 +428,25 @@ async fn patches_travel_only_with_working_tree_sources() {
         .await
         .unwrap();
         assert_eq!(single["patches"], json!([]), "{source}");
-        if source != "file" {
-            assert!(!single["hunks"].as_array().unwrap().is_empty(), "{source}");
-            let stack = call(
-                "diff_stack",
-                json!({"repo":id,"source":source,"revision":revision,"base":base}),
-            )
-            .await
-            .unwrap();
-            assert_eq!(stack["files"][path]["patches"], json!([]), "{source}");
-        }
+    }
+    let stacked = committed
+        .into_iter()
+        .filter(|(source, ..)| *source != "file");
+    for (source, path, revision, base) in stacked {
+        let single = call(
+            "diff",
+            json!({"repo":id,"path":path,"source":source,"revision":revision,"base":base}),
+        )
+        .await
+        .unwrap();
+        assert!(!single["hunks"].as_array().unwrap().is_empty(), "{source}");
+        let stack = call(
+            "diff_stack",
+            json!({"repo":id,"source":source,"revision":revision,"base":base}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(stack["files"][path]["patches"], json!([]), "{source}");
     }
     for (source, path) in [("unstaged", "file.txt"), ("staged", "staged.txt")] {
         let single = call("diff", json!({"repo":id,"path":path,"source":source}))
@@ -485,7 +495,12 @@ async fn patches_travel_only_with_working_tree_sources() {
         "file.txt"
     );
     let status = call("status", json!({"repo":id})).await.unwrap();
-    for entry in status["entries"].as_array().unwrap() {
+    let ordinary = status["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| entry["kind"] == "ordinary");
+    for entry in ordinary {
         let mut keys: Vec<&str> = entry
             .as_object()
             .unwrap()
@@ -493,9 +508,7 @@ async fn patches_travel_only_with_working_tree_sources() {
             .map(String::as_str)
             .collect();
         keys.sort_unstable();
-        if entry["kind"] == "ordinary" {
-            assert_eq!(keys, ["index", "kind", "path", "worktree"]);
-        }
+        assert_eq!(keys, ["index", "kind", "path", "worktree"]);
     }
 }
 

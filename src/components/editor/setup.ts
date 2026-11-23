@@ -13,7 +13,6 @@ import {
 } from '@codemirror/commands';
 import {
   bracketMatching,
-  HighlightStyle,
   indentOnInput,
   LanguageDescription,
   syntaxHighlighting,
@@ -55,8 +54,9 @@ import {
   lineNumbers,
   rectangularSelection,
 } from '@codemirror/view';
-import { tags } from '@lezer/highlight';
 import { fileName } from '../../lib/paths';
+import { chrome, highlight } from './theme';
+export { chrome } from './theme';
 export const themeSlot = new Compartment();
 export const languageSlot = new Compartment();
 export const baseSlot = new Compartment();
@@ -124,93 +124,6 @@ const original = Facet.define<Text, Text>({
 export function baseText(text: string | null | undefined) {
   return original.of(
     Text.of((text ?? '').replace(/^\uFEFF/, '').split(/\r?\n/)),
-  );
-}
-const highlight = HighlightStyle.define([
-  { tag: tags.keyword, class: 'text-code-keyword dark:text-code-keyword-dark' },
-  {
-    tag: [tags.string, tags.regexp, tags.special(tags.string)],
-    class: 'text-code-string dark:text-code-string-dark',
-  },
-  {
-    tag: [
-      tags.function(tags.variableName),
-      tags.function(tags.propertyName),
-      tags.macroName,
-    ],
-    class: 'text-code-function dark:text-code-function-dark',
-  },
-  {
-    tag: [
-      tags.number,
-      tags.bool,
-      tags.null,
-      tags.atom,
-      tags.constant(tags.variableName),
-      tags.standard(tags.variableName),
-      tags.attributeName,
-      tags.heading,
-      tags.link,
-    ],
-    class: 'text-code-constant dark:text-code-constant-dark',
-  },
-  { tag: tags.comment, class: 'text-code-comment dark:text-code-comment-dark' },
-  {
-    tag: [tags.typeName, tags.className, tags.namespace],
-    class: 'text-code-type dark:text-code-type-dark',
-  },
-  { tag: tags.tagName, class: 'text-code-tag dark:text-code-tag-dark' },
-  { tag: tags.heading, class: 'font-semibold' },
-  { tag: tags.strong, class: 'font-semibold' },
-  { tag: tags.emphasis, class: 'italic' },
-  { tag: tags.link, class: 'underline' },
-]);
-function color(name: string, dark: boolean) {
-  return `var(--color-${name}${dark ? '-dark' : ''})`;
-}
-export function chrome(dark: boolean) {
-  return EditorView.theme(
-    {
-      '&': {
-        height: '100%',
-        backgroundColor: color('surface', dark),
-        color: color('ink', dark),
-      },
-      '&.cm-focused': { outline: 'none' },
-      '.cm-scroller': {
-        fontFamily: 'var(--font-mono)',
-        fontFeatureSettings: 'var(--font-mono--font-feature-settings)',
-        fontSize: 'var(--text-diff)',
-        lineHeight: 'var(--text-diff--line-height)',
-      },
-      '.cm-gutters': {
-        backgroundColor: color('gutter', dark),
-        color: color('faint', dark),
-        border: 'none',
-      },
-      '.cm-activeLineGutter': {
-        backgroundColor: color('hover', dark),
-      },
-      '.cm-cursor, .cm-dropCursor': { borderLeftColor: color('ink', dark) },
-      '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground':
-        { backgroundColor: color('selected', dark) },
-      '.cm-changes': { width: '4px' },
-      '.cm-panels': {
-        backgroundColor: color('sub', dark),
-        color: color('ink', dark),
-      },
-      '.cm-panels-top': { borderBottom: `1px solid ${color('line', dark)}` },
-      '.cm-panels-bottom': { borderTop: `1px solid ${color('line', dark)}` },
-      '.cm-searchMatch': { backgroundColor: color('find', dark) },
-      '.cm-searchMatch.cm-searchMatch-selected': {
-        backgroundColor: color('find-current', dark),
-      },
-      '.cm-tooltip': {
-        backgroundColor: color('surface', dark),
-        border: `1px solid ${color('line', dark)}`,
-      },
-    },
-    { dark },
   );
 }
 class Change extends GutterMarker {
@@ -328,6 +241,65 @@ export const changes = StateField.define<Changes>({
 export function describeLanguage(path: string) {
   return LanguageDescription.matchFilename(languages, fileName(path));
 }
+function editorKeymap(leave: () => void) {
+  return keymap.of([
+    {
+      key: 'Mod-h',
+      mac: 'Ctrl-h',
+      run: (view) => {
+        openFind(view, true);
+        return true;
+      },
+    },
+    ...closeBracketsKeymap,
+    ...completionKeymap,
+    ...defaultKeymap,
+    ...historyKeymap,
+    indentWithTab,
+    { key: 'Mod-d', run: selectNextOccurrence, preventDefault: true },
+    { key: 'Mod-Shift-l', run: selectSelectionMatches },
+    { key: 'Mod-Alt-g', run: gotoLine },
+    {
+      key: 'Escape',
+      run: (view) => {
+        if (!closeSearchPanel(view)) leave();
+        return true;
+      },
+    },
+  ]);
+}
+const coreExtensions = [
+  lineNumbers(),
+  changes,
+  gutter({
+    class: 'cm-changes',
+    markers: (view) => view.state.field(changes).markers,
+    lineMarkerChange: (update) =>
+      update.startState.field(changes) !== update.state.field(changes),
+  }),
+  highlightActiveLineGutter(),
+  highlightSpecialChars(),
+  history(),
+  drawSelection(),
+  dropCursor(),
+  EditorState.allowMultipleSelections.of(true),
+  indentOnInput(),
+  syntaxHighlighting(highlight),
+  bracketMatching(),
+  closeBrackets(),
+  autocompletion(),
+  EditorState.languageData.of(() => [{ autocomplete: completeAnyWord }]),
+  rectangularSelection(),
+  crosshairCursor(),
+  highlightSelectionMatches(),
+  search({
+    top: true,
+    literal: true,
+    createPanel: (view) => ({ dom: findHost(view), top: true }),
+  }),
+  finding,
+  EditorView.contentAttributes.of({ class: 'select-text' }),
+];
 export function createState({
   text,
   base,
@@ -342,61 +314,8 @@ export function createState({
   return EditorState.create({
     doc: text,
     extensions: [
-      lineNumbers(),
-      changes,
-      gutter({
-        class: 'cm-changes',
-        markers: (view) => view.state.field(changes).markers,
-        lineMarkerChange: (update) =>
-          update.startState.field(changes) !== update.state.field(changes),
-      }),
-      highlightActiveLineGutter(),
-      highlightSpecialChars(),
-      history(),
-      drawSelection(),
-      dropCursor(),
-      EditorState.allowMultipleSelections.of(true),
-      indentOnInput(),
-      syntaxHighlighting(highlight),
-      bracketMatching(),
-      closeBrackets(),
-      autocompletion(),
-      EditorState.languageData.of(() => [{ autocomplete: completeAnyWord }]),
-      rectangularSelection(),
-      crosshairCursor(),
-      highlightSelectionMatches(),
-      search({
-        top: true,
-        literal: true,
-        createPanel: (view) => ({ dom: findHost(view), top: true }),
-      }),
-      finding,
-      keymap.of([
-        {
-          key: 'Mod-h',
-          mac: 'Ctrl-h',
-          run: (view) => {
-            openFind(view, true);
-            return true;
-          },
-        },
-        ...closeBracketsKeymap,
-        ...completionKeymap,
-        ...defaultKeymap,
-        ...historyKeymap,
-        indentWithTab,
-        { key: 'Mod-d', run: selectNextOccurrence, preventDefault: true },
-        { key: 'Mod-Shift-l', run: selectSelectionMatches },
-        { key: 'Mod-Alt-g', run: gotoLine },
-        {
-          key: 'Escape',
-          run: (view) => {
-            if (!closeSearchPanel(view)) leave();
-            return true;
-          },
-        },
-      ]),
-      EditorView.contentAttributes.of({ class: 'select-text' }),
+      ...coreExtensions,
+      editorKeymap(leave),
       themeSlot.of(chrome(dark)),
       languageSlot.of([]),
       baseSlot.of(baseText(base)),

@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, type KeyboardEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  type KeyboardEvent,
+  type RefObject,
+} from 'react';
 import { createPortal } from 'react-dom';
 import {
   closeSearchPanel,
@@ -60,53 +66,149 @@ export function FindPanel({
   if (!searchPanelOpen(state)) return null;
   return createPortal(<Panel view={view} state={state} />, findHost(view));
 }
-function Panel({ view, state }: { view: EditorView; state: EditorState }) {
-  const searchField = useRef<HTMLInputElement>(null);
-  const replaceField = useRef<HTMLInputElement>(null);
-  const query = getSearchQuery(state);
-  const { replace, request } = state.field(finding);
+function updateSearchQuery({
+  view,
+  state,
+  previous,
+  search,
+  replacement,
+}: {
+  view: EditorView;
+  state: EditorState;
+  previous: SearchQuery;
+  search: string;
+  replacement: string;
+}) {
+  const next = new SearchQuery({
+    search: search,
+    replace: replacement,
+    literal: true,
+  });
+  const match = search === previous.search ? undefined : nearest(next, state);
+  view.dispatch({
+    effects: [
+      setSearchQuery.of(next),
+      ...(match
+        ? [EditorView.scrollIntoView(match.from, { y: 'center' })]
+        : []),
+    ],
+    selection: match && EditorSelection.single(match.from, match.to),
+  });
+}
+function ReplaceRow({
+  inputRef,
+  value,
+  hasMatches,
+  onChange,
+  onKeyDown,
+  onReplace,
+  onReplaceAll,
+}: {
+  inputRef: RefObject<HTMLInputElement | null>;
+  value: string;
+  hasMatches: boolean;
+  onChange: (value: string) => void;
+  onKeyDown: (event: KeyboardEvent) => void;
+  onReplace: () => void;
+  onReplaceAll: () => void;
+}) {
+  return (
+    <div className="flex h-7 items-center gap-2">
+      <div className="w-64 shrink-0">
+        <TextInput
+          ref={inputRef}
+          aria-label="Replace with"
+          placeholder="Replace with"
+          className={`${field} h-7 text-sm`}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onKeyDown={onKeyDown}
+        />
+      </div>
+      <Button variant="standard" disabled={!hasMatches} onClick={onReplace}>
+        Replace
+      </Button>
+      <Button variant="standard" disabled={!hasMatches} onClick={onReplaceAll}>
+        Replace all
+      </Button>
+    </div>
+  );
+}
+function useFocusFindField(
+  request: number,
+  focusReplace: boolean,
+  fields: {
+    search: RefObject<HTMLInputElement | null>;
+    replace: RefObject<HTMLInputElement | null>;
+  },
+) {
+  const handled = useRef(0);
+  useEffect(() => {
+    if (handled.current === request) return;
+    handled.current = request;
+    const target = focusReplace
+      ? fields.replace.current
+      : fields.search.current;
+    target?.focus();
+    target?.select();
+  }, [request, focusReplace, fields.replace, fields.search]);
+}
+function handleFindKeys(
+  event: KeyboardEvent,
+  handlers: { view: EditorView; enter: () => void; close: () => void },
+) {
+  if (pressed(event.nativeEvent, replaceShortcut())) {
+    event.preventDefault();
+    openFind(handlers.view, true);
+    return;
+  }
+  handleKeyByTable(event, { Enter: handlers.enter, Escape: handlers.close });
+}
+function useCurrentMatches(query: SearchQuery, state: EditorState) {
   const doc = state.doc;
   const matches = useMemo(() => allMatches(query, doc), [query, doc]);
   const { from, to } = state.selection.main;
   const current = matches.findIndex(
     (match) => match.from === from && match.to === to,
   );
-  const seeded = Boolean(query.search);
-  const handled = useRef(0);
-  useEffect(() => {
-    if (handled.current === request) return;
-    handled.current = request;
-    const target =
-      replace && seeded ? replaceField.current : searchField.current;
-    target?.focus();
-    target?.select();
-  }, [request, replace, seeded]);
-  const update = (search: string, replacement: string) => {
-    const next = new SearchQuery({
+  return { matches, current };
+}
+function findKeyHandlers(view: EditorView, close: () => void) {
+  return {
+    onSearchKey: (event: KeyboardEvent) =>
+      handleFindKeys(event, {
+        view: view,
+        enter: () => (event.shiftKey ? findPrevious : findNext)(view),
+        close: close,
+      }),
+    onReplaceKey: (event: KeyboardEvent) =>
+      handleFindKeys(event, {
+        view: view,
+        enter: () => replaceNext(view),
+        close: close,
+      }),
+  };
+}
+function Panel({ view, state }: { view: EditorView; state: EditorState }) {
+  const searchField = useRef<HTMLInputElement>(null);
+  const replaceField = useRef<HTMLInputElement>(null);
+  const query = getSearchQuery(state);
+  const { replace, request } = state.field(finding);
+  const { matches, current } = useCurrentMatches(query, state);
+  useFocusFindField(request, replace && Boolean(query.search), {
+    search: searchField,
+    replace: replaceField,
+  });
+  const update = (search: string, replacement: string) =>
+    updateSearchQuery({
+      view: view,
+      state: state,
+      previous: query,
       search: search,
-      replace: replacement,
-      literal: true,
+      replacement: replacement,
     });
-    const match = search === query.search ? undefined : nearest(next, state);
-    view.dispatch({
-      effects: [
-        setSearchQuery.of(next),
-        ...(match
-          ? [EditorView.scrollIntoView(match.from, { y: 'center' })]
-          : []),
-      ],
-      selection: match && EditorSelection.single(match.from, match.to),
-    });
-  };
   const close = () => closeSearchPanel(view);
-  const keys = (event: KeyboardEvent, enter: () => void) => {
-    if (pressed(event.nativeEvent, replaceShortcut())) {
-      event.preventDefault();
-      openFind(view, true);
-      return;
-    }
-    handleKeyByTable(event, { Enter: enter, Escape: close });
-  };
+  const { onSearchKey, onReplaceKey } = findKeyHandlers(view, close);
   return (
     <div role="search" className="flex flex-col gap-1.5 px-2 py-1">
       <div className="flex h-7 items-center gap-2">
@@ -117,42 +219,22 @@ function Panel({ view, state }: { view: EditorView; state: EditorState }) {
           hasMatches={matches.length > 0}
           tint="text-muted dark:text-muted-dark"
           onSearch={(search) => update(search, query.replace)}
-          onKeyDown={(event) =>
-            keys(event, () => (event.shiftKey ? findPrevious : findNext)(view))
-          }
+          onKeyDown={onSearchKey}
           onPrevious={() => findPrevious(view)}
           onNext={() => findNext(view)}
           onClose={close}
         />
       </div>
       {replace && (
-        <div className="flex h-7 items-center gap-2">
-          <div className="w-64 shrink-0">
-            <TextInput
-              ref={replaceField}
-              aria-label="Replace with"
-              placeholder="Replace with"
-              className={`${field} h-7 text-sm`}
-              value={query.replace}
-              onChange={(event) => update(query.search, event.target.value)}
-              onKeyDown={(event) => keys(event, () => replaceNext(view))}
-            />
-          </div>
-          <Button
-            variant="standard"
-            disabled={!matches.length}
-            onClick={() => replaceNext(view)}
-          >
-            Replace
-          </Button>
-          <Button
-            variant="standard"
-            disabled={!matches.length}
-            onClick={() => replaceAll(view)}
-          >
-            Replace all
-          </Button>
-        </div>
+        <ReplaceRow
+          inputRef={replaceField}
+          value={query.replace}
+          hasMatches={matches.length > 0}
+          onChange={(replacement) => update(query.search, replacement)}
+          onKeyDown={onReplaceKey}
+          onReplace={() => replaceNext(view)}
+          onReplaceAll={() => replaceAll(view)}
+        />
       )}
     </div>
   );

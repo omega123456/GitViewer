@@ -93,8 +93,23 @@ impl Session {
             cursor: Cursor::default(),
         })
     }
+    async fn stderr_text(&mut self) -> Result<String> {
+        let Some(task) = self.stderr.take() else {
+            return Ok(String::new());
+        };
+        Ok(String::from_utf8_lossy(&git::finish(task).await?).into_owned())
+    }
+    async fn finish(&mut self) -> Result<()> {
+        let code = self.child.wait().await?;
+        let stderr = self.stderr_text().await?;
+        let unborn = code.code() == Some(git::EXIT_FATAL) && stderr.contains(UNBORN_MESSAGE);
+        let failed = !code.success() && !unborn;
+        if failed {
+            return Err(Error::git(stderr));
+        }
+        Ok(())
+    }
     async fn page(&mut self, cursor: &str) -> Result<Page> {
-        use tokio::io::AsyncBufReadExt;
         if let Some(page) = self.cursor.replay(cursor) {
             return Ok(page.clone());
         }
@@ -103,52 +118,72 @@ impl Session {
                 "History changed; reload from the first page",
             ));
         }
-        let mut commits = Vec::new();
-        let mut eof = false;
-        while commits.len() < PAGE_SIZE {
-            let mut fields = Vec::new();
-            for _ in 0..HISTORY_FIELDS {
-                let mut bytes = Vec::new();
-                let count = self.reader.read_until(git::NUL_BYTE, &mut bytes).await?;
-                if count == 0 || (fields.is_empty() && bytes.iter().all(u8::is_ascii_whitespace)) {
-                    eof = true;
-                    break;
-                }
-                if bytes.last() == Some(&git::NUL_BYTE) {
-                    bytes.pop();
-                }
-                fields.push(String::from_utf8_lossy(&bytes).into_owned());
-            }
-            if eof {
-                break;
-            }
-            commits.push(parse_commit(fields));
+        let mut batch = read_commits(&mut self.reader).await?;
+        if batch.ended {
+            self.finish().await?;
         }
-        if eof {
-            let code = self.child.wait().await?;
-            let stderr = match self.stderr.take() {
-                Some(task) => String::from_utf8_lossy(&git::finish(task).await?).into_owned(),
-                None => String::new(),
-            };
-            let unborn = code.code() == Some(git::EXIT_FATAL)
-                && stderr.contains("does not have any commits yet");
-            if !code.success() && !unborn {
-                return Err(Error::git(stderr));
-            }
-        }
-        lanes(&mut commits, &mut self.lanes);
-        let next = if eof {
-            None
-        } else {
-            commits.last().map(|commit| commit.hash.clone())
-        };
+        lanes(&mut batch.commits, &mut self.lanes);
         let page = Page {
-            commits,
-            cursor: next,
+            cursor: batch.next_cursor(),
+            commits: batch.commits,
         };
         self.cursor = Cursor::after(cursor, &page);
         Ok(page)
     }
+}
+const UNBORN_MESSAGE: &str = "does not have any commits yet";
+type HistoryReader = tokio::io::BufReader<tokio::process::ChildStdout>;
+async fn next_field(reader: &mut HistoryReader, first: bool) -> Result<Option<String>> {
+    use tokio::io::AsyncBufReadExt;
+    let mut bytes = Vec::new();
+    let count = reader.read_until(git::NUL_BYTE, &mut bytes).await?;
+    let blank_record = first && bytes.iter().all(u8::is_ascii_whitespace);
+    let finished = count == 0 || blank_record;
+    if finished {
+        return Ok(None);
+    }
+    if bytes.last() == Some(&git::NUL_BYTE) {
+        bytes.pop();
+    }
+    Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
+}
+async fn read_commit(reader: &mut HistoryReader) -> Result<Option<Commit>> {
+    let mut fields = Vec::new();
+    for _ in 0..HISTORY_FIELDS {
+        let Some(field) = next_field(reader, fields.is_empty()).await? else {
+            return Ok(None);
+        };
+        fields.push(field);
+    }
+    Ok(Some(parse_commit(fields)))
+}
+struct CommitBatch {
+    commits: Vec<Commit>,
+    ended: bool,
+}
+impl CommitBatch {
+    fn next_cursor(&self) -> Option<String> {
+        if self.ended {
+            return None;
+        }
+        self.commits.last().map(|commit| commit.hash.clone())
+    }
+}
+async fn read_commits(reader: &mut HistoryReader) -> Result<CommitBatch> {
+    let mut commits = Vec::new();
+    while commits.len() < PAGE_SIZE {
+        let Some(commit) = read_commit(reader).await? else {
+            return Ok(CommitBatch {
+                commits,
+                ended: true,
+            });
+        };
+        commits.push(commit);
+    }
+    Ok(CommitBatch {
+        commits,
+        ended: false,
+    })
 }
 pub async fn page(repo: &Repo, cursor: &str, path: &str) -> Result<Page> {
     if !path.is_empty() {
@@ -191,23 +226,28 @@ pub async fn files(repo: &Repo, revision: &str) -> Result<CommitFiles> {
     }
     arguments.push(&sha);
     let output = git::text(&repo.root, &arguments).await?;
-    let mut files = CommitFiles::default();
+    Ok(parse_commit_files(&output))
+}
+const RAW_PREFIX: char = ':';
+const RAW_FIELD_SEPARATOR: char = ' ';
+fn parse_commit_files(output: &str) -> CommitFiles {
+    let mut statuses = BTreeMap::new();
     let mut fields = output.split(git::NUL);
     let mut counts = String::new();
     while let Some(field) = fields.next() {
-        if let Some(raw) = field.strip_prefix(':') {
-            let letter = raw.rsplit(' ').next().unwrap_or_default();
-            let path = fields.next().unwrap_or_default();
-            files
-                .statuses
-                .insert(path.to_owned(), letter.chars().take(1).collect());
-        } else {
+        let Some(raw) = field.strip_prefix(RAW_PREFIX) else {
             counts.push_str(field);
             counts.push(git::NUL);
-        }
+            continue;
+        };
+        let letter = raw.rsplit(RAW_FIELD_SEPARATOR).next().unwrap_or_default();
+        let path = fields.next().unwrap_or_default();
+        statuses.insert(path.to_owned(), letter.chars().take(1).collect());
     }
-    files.lines = numstat(&counts);
-    Ok(files)
+    CommitFiles {
+        statuses,
+        lines: numstat(&counts),
+    }
 }
 #[derive(Debug, Serialize)]
 pub struct CommitDetail {
@@ -266,11 +306,7 @@ pub async fn blame(repo: &Repo, path: &str) -> Result<Vec<Blame>> {
         None,
     )
     .await?;
-    if output.code == git::EXIT_FATAL
-        && ["no such ref", "no such path"]
-            .iter()
-            .any(|sign| output.message().contains(sign))
-    {
+    if blames_nothing(&output) {
         return Ok(Vec::new());
     }
     let mut result: Vec<Blame> = Vec::new();
@@ -285,6 +321,14 @@ pub async fn blame(repo: &Repo, path: &str) -> Result<Vec<Blame>> {
         result.push(header.entry(content, block));
     }
     Ok(result)
+}
+const MISSING_BLAME_TARGETS: [&str; 2] = ["no such ref", "no such path"];
+fn blames_nothing(output: &git::Output) -> bool {
+    let message = output.message();
+    let missing_target = MISSING_BLAME_TARGETS
+        .iter()
+        .any(|sign| message.contains(sign));
+    output.code == git::EXIT_FATAL && missing_target
 }
 #[derive(Default)]
 struct BlameHeader {

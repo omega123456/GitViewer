@@ -39,7 +39,12 @@ impl Release for Package {
         }
     }
     fn download<'a>(&'a self, progress: Progress<'a>) -> Task<'a, Vec<u8>> {
-        Box::pin(async move { self.0.download(progress, || {}).await.map_err(failure) })
+        Box::pin(async move {
+            self.0
+                .download(progress, download_finished)
+                .await
+                .map_err(failure)
+        })
     }
     fn install(&self, bytes: &[u8], restart: bool) -> Result<()> {
         self.0
@@ -48,6 +53,16 @@ impl Release for Package {
             .install(bytes)
             .map_err(failure)
     }
+}
+fn download_finished() {}
+fn has_text(value: &serde_json::Value) -> bool {
+    value.as_str().is_some_and(|text| !text.is_empty())
+}
+fn has_items(value: &serde_json::Value) -> bool {
+    value.as_array().is_some_and(|items| !items.is_empty())
+}
+fn updater_configured(updater: &serde_json::Value) -> bool {
+    has_text(&updater["pubkey"]) && has_items(&updater["endpoints"])
 }
 fn failure(error: tauri_plugin_updater::Error) -> Error {
     Error::new("update", error.to_string())
@@ -63,12 +78,7 @@ pub fn configure<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Configu
         });
     }
     let config = &app.config().plugins.0;
-    let configured = config.get("updater").is_some_and(|value| {
-        value["pubkey"].as_str().is_some_and(|key| !key.is_empty())
-            && value["endpoints"]
-                .as_array()
-                .is_some_and(|endpoints| !endpoints.is_empty())
-    });
+    let configured = config.get("updater").is_some_and(updater_configured);
     if !configured {
         return Ok(Configuration {
             availability: Availability::Unconfigured,

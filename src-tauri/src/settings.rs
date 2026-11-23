@@ -183,20 +183,35 @@ pub fn read(path: &Path) -> Settings {
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or_default()
 }
+const AUTO_FETCH_INTERVALS: [&str; 7] = ["30s", "1m", "5m", "10m", "15m", "30m", "off"];
+const THEMES: [&str; 3] = ["system", "light", "dark"];
+const DENSITIES: [&str; 2] = ["compact", "comfortable"];
+const DIFF_MODES: [&str; 2] = ["split", "unified"];
+const SMART_COMMIT_CHOICES: [&str; 3] = ["ask", "always", "never"];
+fn one_of(choices: &[&str], value: &str) -> bool {
+    choices.contains(&value)
+}
+fn valid_choices(settings: &Settings) -> bool {
+    let interval = UpdateInterval::parse(&settings.update_check_interval).is_ok();
+    let auto_fetch = one_of(&AUTO_FETCH_INTERVALS, &settings.auto_fetch_interval);
+    let theme = one_of(&THEMES, &settings.theme);
+    let density = one_of(&DENSITIES, &settings.density);
+    let diff_mode = one_of(&DIFF_MODES, &settings.diff_mode);
+    let smart_commit = one_of(&SMART_COMMIT_CHOICES, &settings.smart_commit);
+    let zoom = ZOOM_LEVELS.contains(&settings.zoom);
+    let file_tabs = (MIN_FILE_TABS..=MAX_FILE_TABS).contains(&settings.max_file_tabs);
+    let appearance = theme && density && diff_mode && zoom;
+    let behaviour = interval && auto_fetch && smart_commit && file_tabs;
+    appearance && behaviour
+}
+fn valid_endpoint(base_url: &str) -> bool {
+    base_url.is_empty() || endpoint_supported(base_url)
+}
 pub fn write(path: &Path, settings: Settings) -> Result<Settings> {
-    if UpdateInterval::parse(&settings.update_check_interval).is_err()
-        || !["30s", "1m", "5m", "10m", "15m", "30m", "off"]
-            .contains(&settings.auto_fetch_interval.as_str())
-        || !["system", "light", "dark"].contains(&settings.theme.as_str())
-        || !["compact", "comfortable"].contains(&settings.density.as_str())
-        || !["split", "unified"].contains(&settings.diff_mode.as_str())
-        || !["ask", "always", "never"].contains(&settings.smart_commit.as_str())
-        || !ZOOM_LEVELS.contains(&settings.zoom)
-        || !(MIN_FILE_TABS..=MAX_FILE_TABS).contains(&settings.max_file_tabs)
-    {
+    if !valid_choices(&settings) {
         return Err(Error::refused("Invalid settings"));
     }
-    if !settings.ai.base_url.is_empty() && !endpoint_supported(&settings.ai.base_url) {
+    if !valid_endpoint(&settings.ai.base_url) {
         return Err(Error::refused("Invalid endpoint"));
     }
     if let Some(parent) = path.parent() {

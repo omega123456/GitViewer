@@ -105,10 +105,9 @@ impl From<tauri_plugin_opener::Error> for Error {
 impl From<reqwest::Error> for Error {
     fn from(error: reqwest::Error) -> Self {
         if error.is_timeout() {
-            Self::new("network", "The endpoint did not answer in time")
-        } else {
-            Self::new("network", "The endpoint could not be reached")
+            return Self::new("network", "The endpoint did not answer in time");
         }
+        Self::new("network", "The endpoint could not be reached")
     }
 }
 

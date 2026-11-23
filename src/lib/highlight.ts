@@ -1,4 +1,4 @@
-import type { Reply, Request, Token } from './highlight.worker';
+import type { FailedReply, Reply, Request, Token } from './highlight.worker';
 import type { MarkRange } from './types';
 export type { Token };
 export type Receive = (start: number, lines: Token[][], done: boolean) => void;
@@ -15,20 +15,29 @@ export function terminate() {
   pending.clear();
   failed.forEach((job) => job.receive(0, plain(job.lines), true));
 }
+function isFailure(reply: Reply): reply is FailedReply {
+  return 'failed' in reply;
+}
+function deliver(reply: Reply) {
+  const job = pending.get(reply.id);
+  if (!job) return;
+  if (isFailure(reply)) {
+    pending.delete(reply.id);
+    job.receive(0, plain(job.lines), true);
+    return;
+  }
+  if (reply.done) pending.delete(reply.id);
+  job.receive(reply.start, reply.lines, reply.done);
+}
 function connect() {
   if (worker) return worker;
   const created = new Worker(
     new URL('./highlight.worker.ts', import.meta.url),
     { type: 'module' },
   );
-  created.addEventListener('message', (event: MessageEvent<Reply>) => {
-    const reply = event.data;
-    const job = pending.get(reply.id);
-    if (!job) return;
-    if ('failed' in reply || reply.done) pending.delete(reply.id);
-    if ('failed' in reply) job.receive(0, plain(job.lines), true);
-    else job.receive(reply.start, reply.lines, reply.done);
-  });
+  created.addEventListener('message', (event: MessageEvent<Reply>) =>
+    deliver(event.data),
+  );
   created.addEventListener('error', terminate);
   created.addEventListener('messageerror', terminate);
   worker = created;
@@ -71,6 +80,24 @@ export function highlight(content: string, path: string, dark: boolean) {
 
 type MarkFlag = 'changed' | 'found' | 'current';
 export type MarkedToken<T> = T & Partial<Record<MarkFlag, boolean>>;
+function firstMarkEndingAfter(
+  marks: MarkRange[],
+  from: number,
+  offset: number,
+) {
+  let mark = from;
+  while (mark < marks.length && marks[mark][1] <= offset) mark++;
+  return mark;
+}
+function segmentEnd(
+  range: MarkRange | undefined,
+  inside: boolean,
+  end: number,
+) {
+  if (!range) return end;
+  const boundary = inside ? range[1] : range[0];
+  return Math.min(end, boundary);
+}
 export function markedTokens<T extends { content: string }>(
   tokens: T[],
   marks: MarkRange[],
@@ -83,10 +110,10 @@ export function markedTokens<T extends { content: string }>(
     const end = start + token.content.length;
     let offset = start;
     while (offset < end) {
-      while (mark < marks.length && marks[mark][1] <= offset) mark++;
+      mark = firstMarkEndingAfter(marks, mark, offset);
       const range = marks[mark];
       const inside = range !== undefined && range[0] <= offset;
-      const stop = Math.min(end, range ? range[inside ? 1 : 0] : end);
+      const stop = segmentEnd(range, inside, end);
       result.push({
         ...token,
         content: token.content.slice(offset - start, stop - start),

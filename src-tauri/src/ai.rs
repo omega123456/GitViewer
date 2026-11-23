@@ -183,24 +183,38 @@ pub async fn models(endpoint: &Endpoint) -> Result<Vec<String>> {
     Ok(names)
 }
 
+fn patch_command(staged: bool) -> Vec<&'static str> {
+    if staged {
+        return vec!["diff", "--cached"];
+    }
+    vec!["diff-files", "-p"]
+}
 async fn patch(root: &Path, staged: bool) -> Result<String> {
-    let mut arguments = if staged {
-        vec!["diff", "--cached"]
-    } else {
-        vec!["diff-files", "-p"]
-    };
+    let mut arguments = patch_command(staged);
     arguments.extend(git::PINNED_DIFF_FLAGS);
     arguments.extend(git::DIFF_PREFIXES);
     git::text(root, &arguments).await
 }
 
-pub async fn material(root: &Path) -> Result<Material> {
+struct Changes {
+    source: Source,
+    patch: String,
+}
+async fn changes(root: &Path) -> Result<Changes> {
     let staged = patch(root, true).await?;
-    let (source, patch) = if staged.trim().is_empty() {
-        (Source::WorkingTree, patch(root, false).await?)
-    } else {
-        (Source::Index, staged)
-    };
+    if !staged.trim().is_empty() {
+        return Ok(Changes {
+            source: Source::Index,
+            patch: staged,
+        });
+    }
+    Ok(Changes {
+        source: Source::WorkingTree,
+        patch: patch(root, false).await?,
+    })
+}
+pub async fn material(root: &Path) -> Result<Material> {
+    let Changes { source, patch } = changes(root).await?;
     if patch.trim().is_empty() {
         return Err(Error::refused("There are no changes to describe"));
     }
@@ -266,12 +280,28 @@ fn outlined(line: &str) -> bool {
         return false;
     };
     let text = content.trim_start_matches(' ');
-    char_count(content) - char_count(text) <= OUTLINE_INDENT
-        && !text.starts_with('\t')
-        && text
-            .trim()
-            .chars()
-            .any(|symbol| !matches!(symbol, ')' | '}' | ']' | ';' | ','))
+    let shallow = char_count(content) - char_count(text) <= OUTLINE_INDENT;
+    let tab_indented = text.starts_with('\t');
+    shallow && !tab_indented && !closes_scope_only(text)
+}
+fn is_closing_symbol(symbol: char) -> bool {
+    matches!(symbol, ')' | '}' | ']' | ';' | ',')
+}
+fn closes_scope_only(text: &str) -> bool {
+    text.trim().chars().all(is_closing_symbol)
+}
+fn fitting_lines(lines: &[&str], room: usize) -> usize {
+    let mut remaining = room;
+    let mut fitting = 0;
+    for line in lines {
+        let size = char_count(line);
+        if size > remaining {
+            break;
+        }
+        remaining -= size;
+        fitting += 1;
+    }
+    fitting
 }
 
 fn stub(section: &str) -> String {
@@ -316,18 +346,9 @@ fn shrink(section: &str, cap: usize) -> String {
         .map(|line| char_count(line))
         .sum();
     let total_changed = lines.iter().filter(|line| changed(line)).count();
-    let mut room =
+    let room =
         cap.saturating_sub(char_count(header) + char_count(&marker(total_changed)) + outline);
-    let head = lines
-        .iter()
-        .take_while(|line| {
-            let fits = char_count(line) <= room;
-            if fits {
-                room -= char_count(line);
-            }
-            fits
-        })
-        .count();
+    let head = fitting_lines(&lines, room);
     let rest = &lines[head..];
     let omitted = rest.iter().filter(|line| changed(line)).count();
     let text = [header]

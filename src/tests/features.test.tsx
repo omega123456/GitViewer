@@ -15,7 +15,7 @@ import { useSelection, selectionOf, allChangesOf } from '../stores/selection';
 import { useDiffView } from '../stores/diff-view';
 import { useSettingsNav } from '../stores/settings-nav';
 import { initials } from '../components/shared/Avatar';
-import { checkout } from '../components/shell/BranchPopover';
+import { checkout } from '../lib/checkout';
 import { track } from '../stores/activity';
 import {
   mockCommand,

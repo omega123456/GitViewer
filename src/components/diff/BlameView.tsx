@@ -7,7 +7,7 @@ import {
   useLayoutField,
   blameWidthBounds,
 } from '../../stores/layout';
-import type { Selection } from '../../lib/types';
+import type { Blame, Selection } from '../../lib/types';
 import { clickable, dynamic, focus, gutterCell } from '../shared/styles';
 import { VirtualList, type VirtualListHandle } from '../shared/VirtualList';
 import { ErrorState } from '../states/Errors';
@@ -18,6 +18,90 @@ import { shortHash } from '../../lib/git';
 import { boundsOf } from '../../lib/geometry';
 import { useOpenFile } from '../../lib/open-file';
 const MIN_CONTENT_WIDTH_BESIDE_BLAME = 320;
+const BLAME_ROW_HEIGHT = 26;
+function BlameRow({
+  line,
+  index,
+  found,
+  onOpenCommit,
+}: {
+  line: Blame;
+  index: number;
+  found: Found | undefined;
+  onOpenCommit: (hash: string) => void;
+}) {
+  return (
+    <div
+      key={line.line}
+      className={`flex w-max min-w-full ${line.block ? 'border-t border-line dark:border-line-dark' : ''}`}
+    >
+      <div className="sticky left-0 z-10 flex w-blame shrink-0 items-center gap-2 overflow-hidden bg-surface pl-2 font-sans text-label text-muted dark:bg-surface-dark dark:text-muted-dark">
+        {line.block && (
+          <>
+            <button
+              type="button"
+              className={`w-14 shrink-0 rounded text-left font-mono text-label text-accent hover:underline dark:text-accent-dark ${clickable} ${focus}`}
+              title={line.hash}
+              onClick={() => onOpenCommit(line.hash)}
+            >
+              {shortHash(line.hash)}
+            </button>
+            <span className="w-26 shrink-0 truncate text-ink dark:text-ink-dark">
+              {line.author}
+            </span>
+            <span
+              className="w-21 shrink-0 truncate tabular-nums"
+              title={format(fromUnixTime(line.timestamp), 'PPpp')}
+            >
+              {relativeTime(line.timestamp)}
+            </span>
+            <span className="min-w-0 flex-1 truncate" title={line.subject}>
+              {line.subject}
+            </span>
+          </>
+        )}
+      </div>
+      <span className="w-1 shrink-0" />
+      <span className={gutterCell}>{line.line}</span>
+      <code className="px-2 whitespace-pre select-text">
+        {findTokens([{ content: line.content }], found, index).map(
+          (token, position) => (
+            <span key={position} className={findClass(token)}>
+              {token.content}
+            </span>
+          ),
+        )}
+      </code>
+    </div>
+  );
+}
+function BlameResizeHandle({
+  repo,
+  blameWidth,
+}: {
+  repo: string;
+  blameWidth: number;
+}) {
+  return (
+    <ResizeHandle
+      label="Resize blame annotations"
+      orientation="horizontal"
+      bounds={blameWidthBounds}
+      value={blameWidth}
+      className="absolute inset-y-0 left-blame z-20 w-1 cursor-col-resize bg-line hover:bg-accent focus-visible:bg-accent dark:bg-line-dark"
+      measure={(event) => {
+        const pane = boundsOf(event.currentTarget.parentElement);
+        return Math.min(
+          event.clientX - pane.left,
+          pane.width - MIN_CONTENT_WIDTH_BESIDE_BLAME,
+        );
+      }}
+      onChange={(width) =>
+        useLayout.getState().update(repo, { blameWidth: width })
+      }
+    />
+  );
+}
 export function BlameView({
   repo,
   selection,
@@ -32,13 +116,19 @@ export function BlameView({
   const query = useBackend('blame', { repo: repo, path: selection.path });
   const blameWidth = useLayoutField(repo, 'blameWidth');
   const openFile = useOpenFile(repo);
-  return query.error ? (
-    <ErrorState
-      title="Could not load blame"
-      error={query.error}
-      retry={() => void query.refetch()}
-    />
-  ) : (
+  if (query.error)
+    return (
+      <ErrorState
+        title="Could not load blame"
+        error={query.error}
+        retry={() => void query.refetch()}
+      />
+    );
+  const openCommit = (hash: string) => {
+    useLayout.getState().update(repo, { mode: 'history' });
+    openFile({ path: selection.path, source: 'commit', revision: hash });
+  };
+  return (
     <div
       className="relative flex min-h-0 flex-1 flex-col font-mono text-diff"
       style={dynamic({ '--blame-width': `${blameWidth}px` })}
@@ -46,81 +136,19 @@ export function BlameView({
       <VirtualList
         ref={list}
         label="Blame lines"
-        height={26}
+        height={BLAME_ROW_HEIGHT}
         items={query.data ?? []}
         render={(line, index) => (
-          <div
-            key={line.line}
-            className={`flex w-max min-w-full ${line.block ? 'border-t border-line dark:border-line-dark' : ''}`}
-          >
-            <div className="sticky left-0 z-10 flex w-blame shrink-0 items-center gap-2 overflow-hidden bg-surface pl-2 font-sans text-label text-muted dark:bg-surface-dark dark:text-muted-dark">
-              {line.block && (
-                <>
-                  <button
-                    type="button"
-                    className={`w-14 shrink-0 rounded text-left font-mono text-label text-accent hover:underline dark:text-accent-dark ${clickable} ${focus}`}
-                    title={line.hash}
-                    onClick={() => {
-                      useLayout.getState().update(repo, { mode: 'history' });
-                      openFile({
-                        path: selection.path,
-                        source: 'commit',
-                        revision: line.hash,
-                      });
-                    }}
-                  >
-                    {shortHash(line.hash)}
-                  </button>
-                  <span className="w-26 shrink-0 truncate text-ink dark:text-ink-dark">
-                    {line.author}
-                  </span>
-                  <span
-                    className="w-21 shrink-0 truncate tabular-nums"
-                    title={format(fromUnixTime(line.timestamp), 'PPpp')}
-                  >
-                    {relativeTime(line.timestamp)}
-                  </span>
-                  <span
-                    className="min-w-0 flex-1 truncate"
-                    title={line.subject}
-                  >
-                    {line.subject}
-                  </span>
-                </>
-              )}
-            </div>
-            <span className="w-1 shrink-0" />
-            <span className={gutterCell}>{line.line}</span>
-            <code className="px-2 whitespace-pre select-text">
-              {findTokens([{ content: line.content }], found, index).map(
-                (token, position) => (
-                  <span key={position} className={findClass(token)}>
-                    {token.content}
-                  </span>
-                ),
-              )}
-            </code>
-          </div>
+          <BlameRow
+            line={line}
+            index={index}
+            found={found}
+            onOpenCommit={openCommit}
+          />
         )}
       />
       {Boolean(query.data?.length) && (
-        <ResizeHandle
-          label="Resize blame annotations"
-          orientation="horizontal"
-          bounds={blameWidthBounds}
-          value={blameWidth}
-          className="absolute inset-y-0 left-blame z-20 w-1 cursor-col-resize bg-line hover:bg-accent focus-visible:bg-accent dark:bg-line-dark"
-          measure={(event) => {
-            const pane = boundsOf(event.currentTarget.parentElement);
-            return Math.min(
-              event.clientX - pane.left,
-              pane.width - MIN_CONTENT_WIDTH_BESIDE_BLAME,
-            );
-          }}
-          onChange={(width) =>
-            useLayout.getState().update(repo, { blameWidth: width })
-          }
-        />
+        <BlameResizeHandle repo={repo} blameWidth={blameWidth} />
       )}
       {query.data?.length === 0 && (
         <State title="No blame available">This file is not in HEAD.</State>

@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode, type RefObject } from 'react';
 import {
   Columns2,
   Layers,
@@ -40,41 +40,25 @@ const modeStages: Record<ImageMode, (stage: ModeStage) => ReactNode> = {
   swipe: ({ view, image }) => <SwipeCompare view={view} image={image} />,
   'onion skin': ({ view, image }) => <OnionSkin view={view} image={image} />,
 };
-export function ImageDiff({
-  repo,
-  view = repo,
-  selection,
-  diff,
-  version = 0,
-}: {
-  repo: string;
-  view?: string;
-  selection: Selection;
-  diff: Diff;
-  version?: number;
-}) {
-  const { mode, zoom } = useTabImageView(view);
-  const update = useImageViews((state) => state.update);
-  const [imageError, setImageError] = useState(false);
-  const stage = useRef<HTMLDivElement>(null);
-  const current = () =>
-    zoom ||
-    stage.current?.querySelector('img')?.clientWidth ||
-    FALLBACK_IMAGE_WIDTH;
-  const zoomOut = () =>
-    update(view, { zoom: Math.max(MINIMUM_ZOOM_WIDTH, current() - ZOOM_STEP) });
-  const zoomIn = () => update(view, { zoom: current() + ZOOM_STEP });
-  const fit = () => update(view, { zoom: 0 });
-  const shortcuts: Action[] = [
+interface ImageActions {
+  cycleMode: () => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  fit: () => void;
+}
+function imageShortcuts({
+  cycleMode,
+  zoomIn,
+  zoomOut,
+  fit,
+}: ImageActions): Action[] {
+  return [
     {
       id: 'image-mode',
       icon: <Layers className="size-3.5" />,
       label: 'Cycle image comparison mode',
       key: 'Mod+Alt+i',
-      run: () =>
-        update(view, {
-          mode: order[stepIndex(order.indexOf(mode), 1, order.length)],
-        }),
+      run: cycleMode,
     },
     {
       id: 'image-zoom-in',
@@ -98,46 +82,127 @@ export function ImageDiff({
       run: fit,
     },
   ];
-  useActions(scopeKey(repo, 'image'), view === repo ? shortcuts : []);
-  const dimensions = { old: diff.oldDimensions, new: diff.newDimensions };
-  const image = (side: 'old' | 'new') =>
-    (side === 'old' ? diff.oldSize : diff.newSize) > 0 ? (
-      <img
-        draggable={false}
-        alt={side === 'old' ? 'Before' : 'After'}
-        width={dimensions[side]?.width}
-        height={dimensions[side]?.height}
-        src={imageUrl({
-          repo: repo,
-          selection: selection,
-          side: side,
-          version: version,
-        })}
-        onError={() => setImageError(true)}
-        className={`max-h-full object-contain ${zoom ? 'w-image max-w-none shrink-0' : 'max-w-full'}`}
-        style={dynamic({ '--image-width': `${zoom}px` })}
-      />
-    ) : (
+}
+function ImageSide({
+  repo,
+  selection,
+  diff,
+  version,
+  side,
+  zoom,
+  onError,
+}: {
+  repo: string;
+  selection: Selection;
+  diff: Diff;
+  version: number;
+  side: 'old' | 'new';
+  zoom: number;
+  onError: () => void;
+}) {
+  const size = side === 'old' ? diff.oldSize : diff.newSize;
+  if (size <= 0)
+    return (
       <span className="text-xs text-muted">
         {side === 'old' ? 'No previous image' : 'Image deleted'}
       </span>
     );
+  const dimension = side === 'old' ? diff.oldDimensions : diff.newDimensions;
+  return (
+    <img
+      draggable={false}
+      alt={side === 'old' ? 'Before' : 'After'}
+      width={dimension?.width}
+      height={dimension?.height}
+      src={imageUrl({
+        repo: repo,
+        selection: selection,
+        side: side,
+        version: version,
+      })}
+      onError={onError}
+      className={`max-h-full object-contain ${zoom ? 'w-image max-w-none shrink-0' : 'max-w-full'}`}
+      style={dynamic({ '--image-width': `${zoom}px` })}
+    />
+  );
+}
+function useImageControls(
+  view: string,
+  stage: RefObject<HTMLDivElement | null>,
+) {
+  const { mode, zoom } = useTabImageView(view);
+  const update = useImageViews((state) => state.update);
+  const current = () =>
+    zoom ||
+    stage.current?.querySelector('img')?.clientWidth ||
+    FALLBACK_IMAGE_WIDTH;
+  const zoomOut = () =>
+    update(view, { zoom: Math.max(MINIMUM_ZOOM_WIDTH, current() - ZOOM_STEP) });
+  const zoomIn = () => update(view, { zoom: current() + ZOOM_STEP });
+  const fit = () => update(view, { zoom: 0 });
+  const cycleMode = () =>
+    update(view, {
+      mode: order[stepIndex(order.indexOf(mode), 1, order.length)],
+    });
+  const setMode = (next: ImageMode) => update(view, { mode: next });
+  return { mode, zoom, zoomIn, zoomOut, fit, cycleMode, setMode };
+}
+function ImageModeBar({
+  mode,
+  onChange,
+}: {
+  mode: ImageMode;
+  onChange: (mode: ImageMode) => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-b border-line bg-sub px-3 py-2 dark:border-line-dark dark:bg-sub-dark">
+      <ViewSwitch
+        label="Image comparison mode"
+        value={mode}
+        options={order}
+        icons={{
+          'side by side': <Columns2 className="size-4" />,
+          swipe: <MoveHorizontal className="size-4" />,
+          'onion skin': <Layers className="size-4" />,
+        }}
+        onChange={onChange}
+      />
+    </div>
+  );
+}
+export function ImageDiff({
+  repo,
+  view = repo,
+  selection,
+  diff,
+  version = 0,
+}: {
+  repo: string;
+  view?: string;
+  selection: Selection;
+  diff: Diff;
+  version?: number;
+}) {
+  const [imageError, setImageError] = useState(false);
+  const stage = useRef<HTMLDivElement>(null);
+  const controls = useImageControls(view, stage);
+  const shortcuts = imageShortcuts(controls);
+  useActions(scopeKey(repo, 'image'), view === repo ? shortcuts : []);
+  const image = (side: 'old' | 'new') => (
+    <ImageSide
+      repo={repo}
+      selection={selection}
+      diff={diff}
+      version={version}
+      side={side}
+      zoom={controls.zoom}
+      onError={() => setImageError(true)}
+    />
+  );
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <ImageMeta diff={diff} />
-      <div className="flex shrink-0 items-center gap-2 border-b border-line bg-sub px-3 py-2 dark:border-line-dark dark:bg-sub-dark">
-        <ViewSwitch
-          label="Image comparison mode"
-          value={mode}
-          options={order}
-          icons={{
-            'side by side': <Columns2 className="size-4" />,
-            swipe: <MoveHorizontal className="size-4" />,
-            'onion skin': <Layers className="size-4" />,
-          }}
-          onChange={(next) => update(view, { mode: next })}
-        />
-      </div>
+      <ImageModeBar mode={controls.mode} onChange={controls.setMode} />
       {imageError && (
         <ErrorRow
           label="Image could not be decoded. Open it in the system application."
@@ -148,10 +213,14 @@ export function ImageDiff({
         ref={stage}
         className="relative flex min-h-0 flex-1 items-center justify-center overflow-auto bg-checker p-6 dark:bg-checker-dark"
       >
-        {modeStages[mode]({ diff, view, image })}
-        <ZoomControls zoomIn={zoomIn} zoomOut={zoomOut} fit={fit} />
+        {modeStages[controls.mode]({ diff, view, image })}
+        <ZoomControls
+          zoomIn={controls.zoomIn}
+          zoomOut={controls.zoomOut}
+          fit={controls.fit}
+        />
       </div>
-      {mode === 'onion skin' && <BlendSlider view={view} />}
+      {controls.mode === 'onion skin' && <BlendSlider view={view} />}
     </div>
   );
 }

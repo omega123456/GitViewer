@@ -93,11 +93,12 @@ export function useRevealInTree<T>({
       items[index].setFocused();
       instance.updateDomFocus();
       useReveal.getState().finish(repo, target);
-    } else if (opening.current !== target) {
-      opening.current = target;
-      void open(target.path).then((found) => {
-        if (!found) useReveal.getState().finish(repo, target);
-      });
+      return;
     }
+    if (opening.current === target) return;
+    opening.current = target;
+    void open(target.path).then((found) => {
+      if (!found) useReveal.getState().finish(repo, target);
+    });
   }, [repo, target, items, instance, scroll, open]);
 }

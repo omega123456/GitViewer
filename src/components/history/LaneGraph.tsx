@@ -34,6 +34,88 @@ export function laneCount(commits: Commit[]) {
 export function graphWidth(lanes: number) {
   return laneCentre(Math.min(lanes, visibleLanes) - 1) + LANE_MARGIN;
 }
+function segmentPath({
+  from,
+  to,
+  commitLane,
+  centre,
+}: {
+  from: number;
+  to: number;
+  commitLane: number;
+  centre: number;
+}) {
+  const start =
+    from === commitLane
+      ? `M ${centre} ${middle}`
+      : `M ${laneCentre(from)} 0 L ${laneCentre(from)} ${middle}`;
+  return `${start} L ${laneCentre(to)} ${rowHeight}`;
+}
+function LaneFadeDefs({ id, width }: { id: string; width: number }) {
+  return (
+    <defs>
+      <linearGradient id={`${id}fade`}>
+        <stop offset={(width - fade) / width} stopColor="white" />
+        <stop offset={1} stopColor="white" stopOpacity={0} />
+      </linearGradient>
+      <mask id={`${id}mask`}>
+        <rect width={width} height={rowHeight} fill={`url(#${id}fade)`} />
+      </mask>
+    </defs>
+  );
+}
+function CommitNode({
+  commit,
+  width,
+  centre,
+  head,
+}: {
+  commit: Commit;
+  width: number;
+  centre: number;
+  head: boolean;
+}) {
+  const colour = laneColours[commit.color];
+  if (commit.lane >= visibleLanes)
+    return (
+      <path
+        d={`M ${width - ARROW_BASE_INSET} ${middle - ARROW_HALF_HEIGHT} L ${width - ARROW_TIP_INSET} ${middle} L ${width - ARROW_BASE_INSET} ${middle + ARROW_HALF_HEIGHT} Z`}
+        className={colour.fill}
+      />
+    );
+  const mergeDot = commit.parents.length > 1 && !head;
+  return (
+    <>
+      {head && (
+        <circle
+          cx={centre}
+          cy={middle}
+          r={HEAD_RING_RADIUS}
+          strokeWidth={LINE_WIDTH}
+          opacity={HEAD_RING_OPACITY}
+          fill="none"
+          className={colour.stroke}
+        />
+      )}
+      {mergeDot ? (
+        <circle
+          cx={centre}
+          cy={middle}
+          r={MERGE_DOT_RADIUS}
+          strokeWidth={LINE_WIDTH}
+          className={`fill-sub dark:fill-sub-dark ${colour.stroke}`}
+        />
+      ) : (
+        <circle
+          cx={centre}
+          cy={middle}
+          r={head ? HEAD_DOT_RADIUS : DOT_RADIUS}
+          className={colour.fill}
+        />
+      )}
+    </>
+  );
+}
 export function LaneGraph({
   commit,
   lanes,
@@ -47,7 +129,6 @@ export function LaneGraph({
   const width = graphWidth(lanes);
   const overflow = lanes > visibleLanes;
   const centre = laneCentre(commit.lane);
-  const merge = commit.parents.length > 1;
   return (
     <svg
       height={rowHeight}
@@ -55,17 +136,7 @@ export function LaneGraph({
       aria-label={`Lane ${commit.lane + 1}`}
       role="img"
     >
-      {overflow && (
-        <defs>
-          <linearGradient id={`${id}fade`}>
-            <stop offset={(width - fade) / width} stopColor="white" />
-            <stop offset={1} stopColor="white" stopOpacity={0} />
-          </linearGradient>
-          <mask id={`${id}mask`}>
-            <rect width={width} height={rowHeight} fill={`url(#${id}fade)`} />
-          </mask>
-        </defs>
-      )}
+      {overflow && <LaneFadeDefs id={id} width={width} />}
       <g mask={overflow ? `url(#${id}mask)` : undefined}>
         {commit.entered && (
           <path
@@ -78,49 +149,19 @@ export function LaneGraph({
         {commit.segments.map((segment, index) => (
           <path
             key={index}
-            d={`${segment.from === commit.lane ? `M ${centre} ${middle}` : `M ${laneCentre(segment.from)} 0 L ${laneCentre(segment.from)} ${middle}`} L ${laneCentre(segment.to)} ${rowHeight}`}
+            d={segmentPath({
+              from: segment.from,
+              to: segment.to,
+              commitLane: commit.lane,
+              centre: centre,
+            })}
             className={laneColours[segment.color].stroke}
             strokeWidth={LINE_WIDTH}
             fill="none"
           />
         ))}
       </g>
-      {commit.lane >= visibleLanes ? (
-        <path
-          d={`M ${width - ARROW_BASE_INSET} ${middle - ARROW_HALF_HEIGHT} L ${width - ARROW_TIP_INSET} ${middle} L ${width - ARROW_BASE_INSET} ${middle + ARROW_HALF_HEIGHT} Z`}
-          className={laneColours[commit.color].fill}
-        />
-      ) : (
-        <>
-          {head && (
-            <circle
-              cx={centre}
-              cy={middle}
-              r={HEAD_RING_RADIUS}
-              strokeWidth={LINE_WIDTH}
-              opacity={HEAD_RING_OPACITY}
-              fill="none"
-              className={laneColours[commit.color].stroke}
-            />
-          )}
-          {merge && !head ? (
-            <circle
-              cx={centre}
-              cy={middle}
-              r={MERGE_DOT_RADIUS}
-              strokeWidth={LINE_WIDTH}
-              className={`fill-sub dark:fill-sub-dark ${laneColours[commit.color].stroke}`}
-            />
-          ) : (
-            <circle
-              cx={centre}
-              cy={middle}
-              r={head ? HEAD_DOT_RADIUS : DOT_RADIUS}
-              className={laneColours[commit.color].fill}
-            />
-          )}
-        </>
-      )}
+      <CommitNode commit={commit} width={width} centre={centre} head={head} />
     </svg>
   );
 }

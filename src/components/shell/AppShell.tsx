@@ -15,26 +15,56 @@ import { CommandPalette } from './CommandPalette';
 import { RepoTabStrip } from './RepoTabStrip';
 import { RepositoryView } from './RepositoryView';
 import { Toaster } from './Toaster';
-export function AppShell({
-  settings,
-  version,
-}: {
+interface ShellProps {
   settings: SettingsResponse;
   version: string;
-}) {
-  const tabs = useTabs((state) => state.tabs);
-  const active = useTabs((state) => state.active);
-  const view = useActiveView();
-  const shownTab = useActiveTab();
-  const multiple = (shownTab?.members.length ?? 0) > 1;
-  const project = shownTab?.name;
-  const dark = useDark();
-  const compact = useCompact();
+}
+function useWindowTitle(project?: string) {
   useEffect(() => {
     getCurrentWindow()
       .setTitle(project ? `${project} — GitViewer` : 'GitViewer')
       .catch(reportAppError);
   }, [project]);
+}
+function visibility(shown: boolean) {
+  return shown ? 'visible' : 'hidden';
+}
+function TabViews({ settings, version }: ShellProps) {
+  const tabs = useTabs((state) => state.tabs);
+  const active = useTabs((state) => state.active);
+  if (tabs.length === 0) return <FirstRun />;
+  return tabs.map((tab) => (
+    <Activity key={tab.id} mode={visibility(active === tab.id)}>
+      {tab.members.map((member) => (
+        <Activity key={member} mode={visibility(tab.view === member)}>
+          <div className="flex min-h-0 flex-1 flex-col">
+            <RepositoryView
+              repo={member}
+              settings={settings}
+              version={version}
+            />
+          </div>
+        </Activity>
+      ))}
+    </Activity>
+  ));
+}
+function WorktreeAnnouncement() {
+  const view = useActiveView();
+  const shownTab = useActiveTab();
+  const multiple = (shownTab?.members.length ?? 0) > 1;
+  return (
+    <span className="sr-only" aria-live="polite">
+      {multiple ? `Switched to worktree ${folderName(view)}` : ''}
+    </span>
+  );
+}
+export function AppShell({ settings, version }: ShellProps) {
+  const view = useActiveView();
+  const shownTab = useActiveTab();
+  const dark = useDark();
+  const compact = useCompact();
+  useWindowTitle(shownTab?.name);
   const every = fetchIntervals[settings.autoFetchInterval].every;
   useEffect(() => scheduleAutoFetch(every), [every]);
   return (
@@ -46,36 +76,10 @@ export function AppShell({
       <RepoTabStrip />
       <div className="flex min-h-0 flex-1 flex-col bg-surface dark:bg-surface-dark">
         <UpdateBanner />
-        {tabs.length === 0 ? (
-          <FirstRun />
-        ) : (
-          tabs.map((tab) => (
-            <Activity
-              key={tab.id}
-              mode={active === tab.id ? 'visible' : 'hidden'}
-            >
-              {tab.members.map((member) => (
-                <Activity
-                  key={member}
-                  mode={tab.view === member ? 'visible' : 'hidden'}
-                >
-                  <div className="flex min-h-0 flex-1 flex-col">
-                    <RepositoryView
-                      repo={member}
-                      settings={settings}
-                      version={version}
-                    />
-                  </div>
-                </Activity>
-              ))}
-            </Activity>
-          ))
-        )}
+        <TabViews settings={settings} version={version} />
       </div>
       <SettingsSurface settings={settings} />
-      <span className="sr-only" aria-live="polite">
-        {multiple ? `Switched to worktree ${folderName(view)}` : ''}
-      </span>
+      <WorktreeAnnouncement />
       <CommandPalette repo={view} />
       <Toaster />
     </main>

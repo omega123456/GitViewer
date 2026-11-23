@@ -64,6 +64,104 @@ function visible(
     current = current[step];
   return current?.getBoundingClientRect();
 }
+interface HeaderParts {
+  element: HTMLElement;
+  total: HTMLElement;
+  folder: HTMLElement | null;
+}
+interface HeaderMemory {
+  room: number;
+  spacing: number;
+}
+interface HeaderFit {
+  available: number;
+  required: number;
+}
+function isInteracting(element: HTMLElement) {
+  return element.matches(':hover, :focus-within');
+}
+interface Neighbours {
+  folds?: DOMRect;
+  after?: DOMRect;
+}
+function rememberGaps(
+  memory: HeaderMemory,
+  count: DOMRect,
+  neighbours: Neighbours,
+) {
+  const { folds, after } = neighbours;
+  const shown = Boolean(folds && folds.width > 0);
+  if (folds && shown) memory.room = folds.right - count.right;
+  if (after) memory.spacing = after.left - count.right;
+  return shown;
+}
+function headerFit(parts: HeaderParts, memory: HeaderMemory) {
+  const { element, total, folder } = parts;
+  if (isInteracting(element)) return undefined;
+  const box = element.getBoundingClientRect();
+  const first = visible(element.firstElementChild, 'nextElementSibling');
+  const last = visible(element.lastElementChild, 'previousElementSibling');
+  const before = visible(
+    total.previousElementSibling,
+    'previousElementSibling',
+  );
+  const after = visible(total.nextElementSibling, 'nextElementSibling');
+  if (!first || !last || !before) return undefined;
+  const count = total.getBoundingClientRect();
+  const shown = rememberGaps(memory, count, {
+    folds: folder?.getBoundingClientRect(),
+    after: after,
+  });
+  const hiddenFolds = shown ? memory.room : 0;
+  const required =
+    before.right -
+    first.left +
+    memory.spacing +
+    last.right -
+    count.left -
+    hiddenFolds;
+  const margin = first.left - box.left;
+  const fit: HeaderFit = {
+    available: box.width - margin - margin,
+    required: required,
+  };
+  return fit;
+}
+function stillTight(fit: HeaderFit, room: number, previouslyTight: boolean) {
+  const hysteresis = previouslyTight ? TIGHT_HYSTERESIS : 0;
+  return fit.available - fit.required < room + hysteresis;
+}
+interface HeaderContent {
+  title: string;
+  count: number;
+  lines?: Lines;
+}
+function useTightHeader(folding: boolean, content: HeaderContent) {
+  const header = useRef<HTMLHeadingElement>(null);
+  const counter = useRef<HTMLSpanElement>(null);
+  const folder = useRef<HTMLSpanElement>(null);
+  const memory = useRef<HeaderMemory>({ room: 0, spacing: 0 });
+  const [tight, setTight] = useState(false);
+  const { title, count, lines } = content;
+  useLayoutEffect(() => {
+    const element = header.current;
+    const total = counter.current;
+    if (!folding || !element || !total) return;
+    const measure = () => {
+      const parts = { element: element, total: total, folder: folder.current };
+      const fit = headerFit(parts, memory.current);
+      if (!fit) return;
+      setTight((previouslyTight) =>
+        stillTight(fit, memory.current.room, previouslyTight),
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [folding, lines, count, title]);
+  return { header: header, counter: counter, folder: folder, tight: tight };
+}
 export function GroupHeader({
   title,
   count,
@@ -77,54 +175,11 @@ export function GroupHeader({
   folds?: ReactNode;
   actions?: ReactNode;
 }) {
-  const header = useRef<HTMLHeadingElement>(null);
-  const counter = useRef<HTMLSpanElement>(null);
-  const folder = useRef<HTMLSpanElement>(null);
-  const room = useRef(0);
-  const spacing = useRef(0);
-  const [tight, setTight] = useState(false);
-  const folding = Boolean(folds);
-  useLayoutEffect(() => {
-    const element = header.current;
-    const total = counter.current;
-    if (!folding || !element || !total) return;
-    const measure = () => {
-      if (element.matches(':hover, :focus-within')) return;
-      const box = element.getBoundingClientRect();
-      const first = visible(element.firstElementChild, 'nextElementSibling');
-      const last = visible(element.lastElementChild, 'previousElementSibling');
-      const before = visible(
-        total.previousElementSibling,
-        'previousElementSibling',
-      );
-      const after = visible(total.nextElementSibling, 'nextElementSibling');
-      if (!first || !last || !before) return;
-      const count = total.getBoundingClientRect();
-      const folds = folder.current?.getBoundingClientRect();
-      const shown = Boolean(folds && folds.width > 0);
-      if (folds && shown) room.current = folds.right - count.right;
-      if (after) spacing.current = after.left - count.right;
-      const gap = spacing.current;
-      const required =
-        before.right -
-        first.left +
-        gap +
-        last.right -
-        count.left -
-        (shown ? room.current : 0);
-      const margin = first.left - box.left;
-      const available = box.width - margin - margin;
-      setTight(
-        (previouslyTight) =>
-          available - required <
-          room.current + (previouslyTight ? TIGHT_HYSTERESIS : 0),
-      );
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [folding, lines, count, title]);
+  const { header, counter, folder, tight } = useTightHeader(Boolean(folds), {
+    title,
+    count,
+    lines,
+  });
   return (
     <h3
       ref={header}

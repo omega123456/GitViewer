@@ -90,18 +90,14 @@ function abilitiesOf(entry: Entry | undefined): FileAbilities {
 function toggledHistory(mode: SidebarMode): SidebarMode {
   return mode === 'history' ? 'working' : 'history';
 }
-export function useRepositoryActions(context: RepositoryActionContext) {
-  const { repo, settings, status, mode, selection, disabled, plan } = context;
+function useRepositoryOperations(context: RepositoryActionContext) {
+  const { repo, status, mode, selection, disabled, plan } = context;
   const openFile = useOpenFile(repo);
   const limit = useFileTabLimit();
   const generating = isGenerating(useGeneration(repo));
   const fileTabs = useFileTabs(repo, mode);
   const entries = status?.entries ?? [];
   const selectedEntry = entries.find((entry) => entry.path === selection?.path);
-  const abilities = abilitiesOf(selectedEntry);
-  const workingDisabled = disabled || mode !== 'working';
-  const fileTabsCyclable = fileTabs.length > 1;
-  const detached = isDetached(status?.branch);
   const moveFile = (direction: number) => {
     const filter = useFilterStore.getState().text[repo] ?? '';
     const files = changedFiles(entries, filter);
@@ -122,24 +118,39 @@ export function useRepositoryActions(context: RepositoryActionContext) {
       action: action,
     });
   };
-  const discardSelected = async () => {
-    if (selection) await discardFile(repo, selection.path);
+  return {
+    context: context,
+    abilities: abilitiesOf(selectedEntry),
+    workingDisabled: disabled || mode !== 'working',
+    hasEntries: entries.length > 0,
+    detached: isDetached(status?.branch),
+    generating: generating,
+    fileTabsCyclable: fileTabs.length > 1,
+    moveFile: moveFile,
+    changeSelectedFile: changeSelectedFile,
+    discardSelected: async () => {
+      if (selection) await discardFile(repo, selection.path);
+    },
+    cycleFileTab: (direction: number) =>
+      useSelection.getState().cycleTab(repo, {
+        mode: mode,
+        direction: direction,
+        limit: limit,
+      }),
+    commit: (commitMode: CommitMode) =>
+      routeCommit({ repo: repo, mode: commitMode, plan: plan }),
   };
-  const cycleFileTab = (direction: number) =>
-    useSelection.getState().cycleTab(repo, {
-      mode: mode,
-      direction: direction,
-      limit: limit,
-    });
-  const commit = (commitMode: CommitMode) =>
-    routeCommit({ repo: repo, mode: commitMode, plan: plan });
-  const actions: Action[] = [
+}
+type RepositoryOperations = ReturnType<typeof useRepositoryOperations>;
+function fileActions(operations: RepositoryOperations): Action[] {
+  const { context, abilities, workingDisabled, hasEntries } = operations;
+  return [
     {
       id: 'refresh',
       icon: <RotateCw className="size-3.5" />,
       label: 'Refresh repository',
       key: 'Mod+r',
-      run: () => perform('refresh', { repo }),
+      run: () => perform('refresh', { repo: context.repo }),
     },
     {
       id: 'stage',
@@ -147,7 +158,7 @@ export function useRepositoryActions(context: RepositoryActionContext) {
       label: 'Stage selected file',
       key: 's',
       disabled: workingDisabled || !abilities.stage,
-      run: () => changeSelectedFile('stage'),
+      run: () => operations.changeSelectedFile('stage'),
     },
     {
       id: 'unstage',
@@ -155,7 +166,7 @@ export function useRepositoryActions(context: RepositoryActionContext) {
       label: 'Unstage selected file',
       key: 'u',
       disabled: workingDisabled || !abilities.unstage,
-      run: () => changeSelectedFile('unstage'),
+      run: () => operations.changeSelectedFile('unstage'),
     },
     {
       id: 'discard-file',
@@ -163,24 +174,31 @@ export function useRepositoryActions(context: RepositoryActionContext) {
       label: 'Discard selected file',
       key: 'Mod+Shift+d',
       disabled: workingDisabled || !abilities.discard,
-      run: discardSelected,
+      run: operations.discardSelected,
     },
     {
       id: 'next-file',
       icon: <ChevronRight className="size-3.5" />,
       label: 'Next changed file',
       key: 'Alt+ArrowRight',
-      disabled: !entries.length,
-      run: () => moveFile(NEXT),
+      disabled: !hasEntries,
+      run: () => operations.moveFile(NEXT),
     },
     {
       id: 'previous-file',
       icon: <ChevronLeft className="size-3.5" />,
       label: 'Previous changed file',
       key: 'Alt+ArrowLeft',
-      disabled: !entries.length,
-      run: () => moveFile(PREVIOUS),
+      disabled: !hasEntries,
+      run: () => operations.moveFile(PREVIOUS),
     },
+  ];
+}
+function commitActions(operations: RepositoryOperations): Action[] {
+  const { context, detached } = operations;
+  const { repo, disabled, plan } = context;
+  const uncommittable = disabled || !plan.committable;
+  return [
     {
       id: 'all',
       icon: <ListChecks className="size-3.5" />,
@@ -199,25 +217,31 @@ export function useRepositoryActions(context: RepositoryActionContext) {
       icon: <GitCommitHorizontal className="size-3.5" />,
       label: 'Commit changes',
       key: 'Mod+Enter',
-      disabled: disabled || !plan.committable,
-      run: () => commit('commit'),
+      disabled: uncommittable,
+      run: () => operations.commit('commit'),
     },
     {
       id: 'commit-push',
       icon: <Upload className="size-3.5" />,
       label: 'Commit and push changes',
       key: 'Mod+Shift+Enter',
-      disabled: disabled || !plan.committable || detached,
-      run: () => commit('commitPush'),
+      disabled: uncommittable || detached,
+      run: () => operations.commit('commitPush'),
     },
     {
       id: 'generate-message',
       icon: <Sparkles className="size-3.5" />,
       label: 'Generate commit message',
       key: 'Mod+Alt+g',
-      disabled: !aiConfigured(settings) || generating,
+      disabled: !aiConfigured(context.settings) || operations.generating,
       run: () => useGenerate.getState().generate(repo),
     },
+  ];
+}
+function syncActions(operations: RepositoryOperations): Action[] {
+  const { context, detached } = operations;
+  const { repo, disabled, mode } = context;
+  return [
     {
       id: 'fetch',
       icon: <RefreshCw className="size-3.5" />,
@@ -265,15 +289,23 @@ export function useRepositoryActions(context: RepositoryActionContext) {
       disabled: disabled,
       run: context.startStash,
     },
+  ];
+}
+function closeSelectedTab(context: RepositoryActionContext) {
+  const { repo, mode, selection } = context;
+  if (selection)
+    useSelection.getState().closeTab(repo, mode, tabKey(selection));
+}
+function tabActions(operations: RepositoryOperations): Action[] {
+  const { context, fileTabsCyclable } = operations;
+  return [
     {
       id: 'close-file-tab',
       icon: <X className="size-3.5" />,
       label: 'Close file tab',
       key: 'Mod+w',
-      disabled: !selection?.path,
-      run: () =>
-        selection &&
-        useSelection.getState().closeTab(repo, mode, tabKey(selection)),
+      disabled: !context.selection?.path,
+      run: () => closeSelectedTab(context),
     },
     {
       id: 'next-file-tab',
@@ -281,7 +313,7 @@ export function useRepositoryActions(context: RepositoryActionContext) {
       label: 'Next file tab',
       key: 'Ctrl+Tab',
       disabled: !fileTabsCyclable,
-      run: () => cycleFileTab(NEXT),
+      run: () => operations.cycleFileTab(NEXT),
     },
     {
       id: 'previous-file-tab',
@@ -289,7 +321,7 @@ export function useRepositoryActions(context: RepositoryActionContext) {
       label: 'Previous file tab',
       key: 'Ctrl+Shift+Tab',
       disabled: !fileTabsCyclable,
-      run: () => cycleFileTab(PREVIOUS),
+      run: () => operations.cycleFileTab(PREVIOUS),
     },
     {
       id: 'next-tab',
@@ -306,6 +338,15 @@ export function useRepositoryActions(context: RepositoryActionContext) {
       run: () => useTabs.getState().cycle(PREVIOUS),
     },
   ];
-  useActions(scopeKey(repo, 'repository'), actions);
+}
+export function useRepositoryActions(context: RepositoryActionContext) {
+  const operations = useRepositoryOperations(context);
+  const actions: Action[] = [
+    ...fileActions(operations),
+    ...commitActions(operations),
+    ...syncActions(operations),
+    ...tabActions(operations),
+  ];
+  useActions(scopeKey(context.repo, 'repository'), actions);
   return actions;
 }

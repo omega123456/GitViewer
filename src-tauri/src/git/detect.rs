@@ -91,6 +91,14 @@ pub async fn binary_version(binary: &str) -> Option<String> {
     }
 }
 
+fn supported_or_rejected(
+    found: GitEnvironment,
+) -> std::result::Result<GitEnvironment, GitEnvironment> {
+    if found.supported {
+        return Ok(found);
+    }
+    Err(found)
+}
 pub struct Detector(tokio::sync::OnceCell<GitEnvironment>);
 impl Detector {
     pub const fn new() -> Self {
@@ -103,14 +111,7 @@ impl Detector {
     {
         let found = self
             .0
-            .get_or_try_init(|| async {
-                let found = with(probe).await;
-                if found.supported {
-                    Ok(found)
-                } else {
-                    Err(found)
-                }
-            })
+            .get_or_try_init(|| async { supported_or_rejected(with(probe).await) })
             .await;
         match found {
             Ok(found) => found.clone(),

@@ -49,6 +49,42 @@ export function findActionSet(commands: FindCommands): FindActionSet {
     },
   };
 }
+function MatchStepButtons({
+  hasMatches,
+  tint,
+  onPrevious,
+  onNext,
+}: {
+  hasMatches: boolean;
+  tint: string;
+  onPrevious: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <div className={`flex items-center gap-1 ${tint}`}>
+      <Button
+        variant="icon"
+        className="size-control"
+        title={`Previous match (${shortcutLabel(FIND_PREVIOUS_SHORTCUT)})`}
+        aria-label="Previous match"
+        disabled={!hasMatches}
+        onClick={onPrevious}
+      >
+        <ArrowUp className="size-4" />
+      </Button>
+      <Button
+        variant="icon"
+        className="size-control"
+        title={`Next match (${shortcutLabel(FIND_NEXT_SHORTCUT)})`}
+        aria-label="Next match"
+        disabled={!hasMatches}
+        onClick={onNext}
+      >
+        <ArrowDown className="size-4" />
+      </Button>
+    </div>
+  );
+}
 export function FindControls({
   inputRef,
   query,
@@ -91,28 +127,12 @@ export function FindControls({
       >
         {status}
       </span>
-      <div className={`flex items-center gap-1 ${tint}`}>
-        <Button
-          variant="icon"
-          className="size-control"
-          title={`Previous match (${shortcutLabel(FIND_PREVIOUS_SHORTCUT)})`}
-          aria-label="Previous match"
-          disabled={!hasMatches}
-          onClick={onPrevious}
-        >
-          <ArrowUp className="size-4" />
-        </Button>
-        <Button
-          variant="icon"
-          className="size-control"
-          title={`Next match (${shortcutLabel(FIND_NEXT_SHORTCUT)})`}
-          aria-label="Next match"
-          disabled={!hasMatches}
-          onClick={onNext}
-        >
-          <ArrowDown className="size-4" />
-        </Button>
-      </div>
+      <MatchStepButtons
+        hasMatches={hasMatches}
+        tint={tint}
+        onPrevious={onPrevious}
+        onNext={onNext}
+      />
       <Button
         variant="icon"
         className={`ml-auto size-control ${tint}`}

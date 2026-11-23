@@ -3,12 +3,13 @@ use crate::{
     error::{Error, Result},
     fs, git,
     lock::lock_recovering,
-    repo::Repository,
+    repo::{Paths, Repository},
     status::Entry,
 };
 use serde::Serialize;
 use std::{
     collections::{BTreeMap, HashMap},
+    path::PathBuf,
     time::SystemTime,
 };
 
@@ -43,15 +44,17 @@ pub fn numstat(text: &str) -> BTreeMap<String, Lines> {
         else {
             continue;
         };
-        let path = if path.is_empty() {
-            fields.next();
-            fields.next().unwrap_or_default()
-        } else {
-            path
-        };
+        let path = record_path(path, &mut fields);
         lines.insert(path.to_owned(), counts(added, deleted));
     }
     lines
+}
+fn record_path<'a>(path: &'a str, fields: &mut impl Iterator<Item = &'a str>) -> &'a str {
+    if !path.is_empty() {
+        return path;
+    }
+    fields.next();
+    fields.next().unwrap_or_default()
 }
 fn counts(added: &str, deleted: &str) -> Lines {
     Some([added.parse().ok()?, deleted.parse().ok()?])
@@ -83,40 +86,56 @@ pub async fn working(repo: &Repository) -> Result<Working> {
     })
 }
 
+struct CountableFile<'a> {
+    path: &'a String,
+    full: PathBuf,
+    size: u64,
+    modified: SystemTime,
+}
+fn countable_file<'a>(entry: &'a Entry, paths: &mut Paths<'_>) -> Option<CountableFile<'a>> {
+    let Entry::Untracked { path, .. } = entry else {
+        return None;
+    };
+    let full = paths.resolve(path).ok()?;
+    let metadata = std::fs::metadata(&full).ok()?;
+    let limit = u64::try_from(size_limit(false)).unwrap_or(u64::MAX);
+    let countable = metadata.is_file() && metadata.len() <= limit;
+    if !countable {
+        return None;
+    }
+    Some(CountableFile {
+        path,
+        full,
+        size: metadata.len(),
+        modified: metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+    })
+}
+fn file_lines(file: &CountableFile<'_>, cached: Option<CachedCount>) -> Option<Lines> {
+    let fresh = cached.filter(|cached| cached.matches(file.size, file.modified));
+    if let Some(cached) = fresh {
+        return Some(cached.lines);
+    }
+    std::fs::read(&file.full).ok().map(|bytes| count(&bytes))
+}
 fn untracked(repo: &Repository, entries: &[Entry]) -> BTreeMap<String, Lines> {
     let mut cache = lock_recovering(&repo.untracked_lines);
     let mut kept = HashMap::new();
     let mut paths = repo.paths();
     let mut counted = BTreeMap::new();
     for entry in entries {
-        let Entry::Untracked { path, .. } = entry else {
+        let Some(file) = countable_file(entry, &mut paths) else {
             continue;
         };
-        let Ok(full) = paths.resolve(path) else {
+        let Some(lines) = file_lines(&file, cache.remove(file.path)) else {
             continue;
-        };
-        let Ok(metadata) = std::fs::metadata(&full) else {
-            continue;
-        };
-        let limit = u64::try_from(size_limit(false)).unwrap_or(u64::MAX);
-        if !metadata.is_file() || metadata.len() > limit {
-            continue;
-        }
-        let modified = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
-        let lines = match cache.remove(path) {
-            Some(cached) if cached.matches(metadata.len(), modified) => cached.lines,
-            _ => match std::fs::read(&full) {
-                Ok(bytes) => count(&bytes),
-                Err(_) => continue,
-            },
         };
         let cached = CachedCount {
-            size: metadata.len(),
-            modified,
+            size: file.size,
+            modified: file.modified,
             lines,
         };
-        kept.insert(path.clone(), cached);
-        counted.insert(path.clone(), lines);
+        kept.insert(file.path.clone(), cached);
+        counted.insert(file.path.clone(), lines);
     }
     *cache = kept;
     counted

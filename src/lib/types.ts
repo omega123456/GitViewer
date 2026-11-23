@@ -1,284 +1,51 @@
-import type { TabLayout } from '../stores/layout';
-export interface GitError {
-  category: string;
-  message: string;
-}
-export interface Environment {
-  found: boolean;
-  supported: boolean;
-  version: string;
-  minimum: string;
-}
-interface EntryRecord {
-  path: string;
-  index: string;
-  worktree: string;
-}
-export type Entry =
-  | (EntryRecord & { kind: 'untracked' })
-  | (EntryRecord & { kind: 'ordinary' })
-  | (EntryRecord & { kind: 'renamed'; originalPath: string; score: string })
-  | (EntryRecord & {
-      kind: 'unmerged';
-      stage: string;
-      modes: string[];
-      hashes: string[];
-    });
-export interface Status {
-  branch: string;
-  oid: string;
-  upstream: string | null;
-  ahead: number | null;
-  behind: number | null;
-  entries: Entry[];
-  conflicted: boolean;
-  merging: string | null;
-  fetched: string | null;
-}
-export interface MergePreview {
-  outcome: 'upToDate' | 'fastForward' | 'commit' | 'conflict';
-  changed: number;
-  conflicts: string[];
-}
-export interface Repository {
-  id: string;
-  name: string;
-  root: string;
-  project: string;
-  status: Status;
-}
-export interface TreeEntry {
-  path: string;
-  name: string;
-  directory: boolean;
-  ignored: boolean;
-  status: string;
-}
-export type Source =
-  'staged' | 'unstaged' | 'file' | 'commit' | 'stash' | 'compare';
-export interface Selection {
-  path: string;
-  source: Source;
-  revision?: string;
-  base?: string;
-  blame?: boolean;
-  rendered?: boolean;
-  editing?: boolean;
-}
-export interface Opened {
-  text: string;
-  version: string;
-  bom: boolean;
-  crlf: boolean;
-}
-export type Written = { saved: string } | { conflict: Opened | null };
-export type LineTotals = [number, number];
-export type Lines = LineTotals | null;
-export type MarkRange = [number, number];
-export interface LineStats {
-  staged: Record<string, Lines>;
-  unstaged: Record<string, Lines>;
-}
-export interface CommitFiles {
-  statuses: Record<string, string>;
-  lines: Record<string, Lines>;
-}
-export interface ChangedFile {
-  path: string;
-  status: string;
-  additions: number;
-  deletions: number;
-}
-export interface Comparison {
-  base: string;
-  target: string;
-  files: ChangedFile[];
-}
-export interface UpdateSnapshot {
-  currentVersion: string;
-  availability: 'enabled' | 'development' | 'unconfigured';
-  available: {
-    version: string;
-    notes: string | null;
-    date: string | null;
-  } | null;
-  lastChecked: string | null;
-  phase:
-    | 'idle'
-    | 'checking'
-    | 'available'
-    | 'downloading'
-    | 'ready'
-    | 'saving'
-    | 'installing'
-    | 'error';
-  downloaded: number;
-  total: number | null;
-  error: string | null;
-  canQuitWithoutUpdating: boolean;
-}
-export interface AiSettings {
-  baseUrl: string;
-  model: string;
-  prompt: string;
-}
-export interface Settings {
-  theme: 'system' | 'light' | 'dark';
-  density: 'compact' | 'comfortable';
-  diffMode: 'split' | 'unified';
-  updateCheckInterval: '1h' | '5h' | '1d' | '7d' | 'off';
-  installUpdateOnQuit: boolean;
-  searchIgnoredFiles: boolean;
-  pullOnCheckout: boolean;
-  autoFetchInterval: '30s' | '1m' | '5m' | '10m' | '15m' | '30m' | 'off';
-  smartCommit: 'ask' | 'always' | 'never';
-  zoom: number;
-  maxFileTabs: number;
-  ai: AiSettings;
-}
-export interface SettingsResponse extends Settings {
-  keyStored: boolean;
-}
-export interface GeneratedMessage {
-  message: string;
-  source: 'index' | 'workingTree';
-  detail: 'patch' | 'compacted';
-}
-export interface DiffLine {
-  kind: string;
-  content: string;
-  old: number | null;
-  new: number | null;
-  noNewline: boolean;
-  marks: MarkRange[];
-}
-export interface Hunk {
-  header: string;
-  oldStart: number;
-  oldCount: number;
-  newStart: number;
-  newCount: number;
-  lines: DiffLine[];
-}
-export interface Diff {
-  path: string;
-  source: Source;
-  oldMode: string | null;
-  newMode: string | null;
-  binary: boolean;
-  tooLarge: boolean;
-  hunks: Hunk[];
-  patches: string[];
-  content: string | null;
-  added: boolean;
-  image: boolean;
-  oldSize: number;
-  newSize: number;
-  oldDimensions: Dimensions | null;
-  newDimensions: Dimensions | null;
-}
-export type StackSource =
-  'unstaged' | 'staged' | 'commit' | 'stash' | 'compare';
-export interface DiffStack {
-  files: Record<string, Diff>;
-  truncated: boolean;
-}
-export interface Dimensions {
-  width: number;
-  height: number;
-}
-export interface Commit {
-  hash: string;
-  parents: string[];
-  author: string;
-  timestamp: number;
-  subject: string;
-  refs: string;
-  lane: number;
-  color: number;
-  entered: boolean;
-  segments: { from: number; to: number; color: number }[];
-}
-export interface Page {
-  commits: Commit[];
-  cursor: string | null;
-}
-export interface Branch {
-  name: string;
-  remote: boolean;
-  current: boolean;
-  default: boolean;
-  upstream: string;
-  gone: boolean;
-  worktree?: string;
-}
-export interface Pruned {
-  deleted: string[];
-  kept: string[];
-}
-export interface Worktree {
-  id: string;
-  name: string;
-  main: boolean;
-  bare: boolean;
-  branch: string;
-  oid: string;
-  detached: boolean;
-  locked: string | null;
-  prunable: boolean;
-  missing: boolean;
-}
-export type WorktreeMode = 'detached' | 'new' | 'existing';
-export interface WorktreeTarget {
-  path: string;
-  free: boolean;
-  label: string;
-}
-export interface WorktreeSummary {
-  ahead: number;
-  orphans: number;
-  submodules: boolean;
-}
-export interface Applied {
-  base: string;
-  tree: string;
-  files: number;
-  conflicts: number;
-}
-export interface Stash {
-  hash: string;
-  selector: string;
-  message: string;
-  timestamp: number;
-}
-export interface CommitDetail {
-  hash: string;
-  author: string;
-  timestamp: number;
-  subject: string;
-  body: string;
-}
-export interface Blame {
-  hash: string;
-  author: string;
-  timestamp: number;
-  subject: string;
-  line: number;
-  content: string;
-  block: boolean;
-}
+import type {
+  Environment,
+  Status,
+  MergePreview,
+  Repository,
+  TreeEntry,
+  Source,
+} from './model/repository';
+import type {
+  Opened,
+  Written,
+  LineStats,
+  CommitFiles,
+  Comparison,
+  Diff,
+  StackSource,
+  DiffStack,
+  Blame,
+} from './model/diff';
+import type {
+  Page,
+  Branch,
+  Pruned,
+  Stash,
+  CommitDetail,
+} from './model/history';
+import type {
+  Worktree,
+  WorktreeMode,
+  WorktreeTarget,
+  WorktreeSummary,
+  Applied,
+} from './model/worktree';
+import type {
+  UpdateSnapshot,
+  Settings,
+  SettingsResponse,
+  GeneratedMessage,
+  Session,
+} from './model/settings';
+export type * from './model/repository';
+export type * from './model/diff';
+export type * from './model/history';
+export type * from './model/worktree';
+export type * from './model/settings';
 type RepoArgs = { repo: string };
 type FileArgs = RepoArgs & { path: string };
 type Command<A, R> = { args: A; result: R };
-export interface Session {
-  tabs: {
-    path: string;
-    message: string;
-    layout?: TabLayout | null;
-    shown?: boolean;
-  }[];
-  active: string;
-}
 export interface Commands {
   update_get: Command<Record<string, never>, UpdateSnapshot>;
   update_check: Command<Record<string, never>, UpdateSnapshot>;

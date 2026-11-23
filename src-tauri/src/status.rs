@@ -253,31 +253,41 @@ pub fn parse(bytes: &[u8]) -> Result<Status> {
         .map_err(|_| Error::new("unsupported", "A repository path is not valid UTF-8"))?;
     let mut records = git::nul_fields(text);
     while let Some(record) = records.next() {
-        if let Some(header) = record.strip_prefix("# ") {
-            if let Some(value) = header.strip_prefix("branch.head ") {
-                status.branch = value.into();
-            }
-            if let Some(value) = header.strip_prefix("branch.oid ") {
-                status.oid = value.into();
-            }
-            if let Some(value) = header.strip_prefix("branch.upstream ") {
-                status.upstream = Some(value.into());
-            }
-            if let Some(value) = header.strip_prefix("branch.ab ") {
-                status.divergence = Divergence::parse(value);
-            }
+        if let Some(header) = record.strip_prefix(HEADER_PREFIX) {
+            status.apply_header(header);
             continue;
         }
-        let entry = match RecordKind::of(record)? {
+        let kind = RecordKind::of(record)?;
+        if kind == RecordKind::Unmerged {
+            status.conflicted = true;
+        }
+        let entry = match kind {
             RecordKind::Untracked => untracked_entry(record),
             RecordKind::Ordinary => ordinary_entry(record)?,
             RecordKind::Renamed => renamed_entry(record, records.next())?,
-            RecordKind::Unmerged => {
-                status.conflicted = true;
-                unmerged_entry(record)?
-            }
+            RecordKind::Unmerged => unmerged_entry(record)?,
         };
         status.entries.push(entry);
     }
     Ok(status)
+}
+const HEADER_PREFIX: &str = "# ";
+impl Status {
+    fn apply_header(&mut self, header: &str) {
+        if let Some(value) = header.strip_prefix("branch.head ") {
+            self.branch = value.into();
+            return;
+        }
+        if let Some(value) = header.strip_prefix("branch.oid ") {
+            self.oid = value.into();
+            return;
+        }
+        if let Some(value) = header.strip_prefix("branch.upstream ") {
+            self.upstream = Some(value.into());
+            return;
+        }
+        if let Some(value) = header.strip_prefix("branch.ab ") {
+            self.divergence = Divergence::parse(value);
+        }
+    }
 }

@@ -67,22 +67,19 @@ export default tseslint.config(
           selector: 'SwitchStatement',
           message: 'Branch on a key through a lookup table.',
         },
+        {
+          selector: 'IfStatement[alternate]',
+          message:
+            'Return early with a guard clause instead of an else branch.',
+        },
       ],
+      'no-nested-ternary': 'error',
+      'max-depth': ['error', 2],
+      'max-lines-per-function': ['error', 60],
+      'max-lines': ['error', 400],
+      complexity: ['error', 10],
       'object-shorthand': ['error', 'consistent'],
       'max-params': ['error', 3],
-    },
-  },
-  {
-    files: [
-      'src/*.{ts,tsx}',
-      'src/lib/**/*.{ts,tsx}',
-      'src/stores/**/*.{ts,tsx}',
-      'src/providers/**/*.{ts,tsx}',
-      'src/components/image/**/*.{ts,tsx}',
-      'src/components/states/**/*.{ts,tsx}',
-    ],
-    rules: {
-      complexity: ['error', 10],
     },
   },
   {

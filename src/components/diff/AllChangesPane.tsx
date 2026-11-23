@@ -1,379 +1,231 @@
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type Dispatch,
-  type RefObject,
-  type SetStateAction,
-} from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
-import { CheckCircle2, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
-import { useActions } from '../../lib/actions';
-import { useBackend } from '../../lib/query';
-import { splitPath } from '../../lib/paths';
-import type {
-  Comparison,
-  Diff,
-  DiffStack,
-  Selection,
-  Settings,
-  Status,
-} from '../../lib/types';
-import {
-  CompareError,
-  SameRefState,
-  useComparison,
-} from '../sidebar/CompareSection';
-import { groupEntries, treeOrder } from '../sidebar/nodes';
-import { useDeferredFilter } from '../../stores/filter';
-import { useSelection, type Stack } from '../../stores/selection';
+import { memo } from 'react';
+import type { Virtualizer } from '@tanstack/react-virtual';
+import { CheckCircle2, Loader2 } from 'lucide-react';
+import type { Selection, Settings, Status } from '../../lib/types';
+import { CompareError, SameRefState } from '../sidebar/CompareSection';
+import type { Stack } from '../../stores/selection';
 import { Spinner } from '../shared/Spinner';
 import { VirtualCanvas } from '../shared/VirtualCanvas';
 import {
   addedInk,
-  clickable,
   dynamic,
-  focus,
   focusInset,
-  removedInk,
   paneHeader,
+  removedInk,
 } from '../shared/styles';
 import { ErrorState } from '../states/Errors';
 import { State } from '../states/State';
-import { StatusBadge } from '../sidebar/StatusBadge';
-import { ImageDiff } from '../image/ImageDiff';
-import { DiffSourcePill } from './DiffSourcePill';
-import { DiffSurface, type DiffSurfaceHandle } from './DiffSurface';
-import { FindBar, findActions } from './FindBar';
-import {
-  foundByPath,
-  foundInRows,
-  lineKey,
-  useFind,
-  type LineFound,
-  type Located,
-} from './find';
-import { FullFileButton } from './DiffToolbar';
-import { canEdit } from './editable';
-import { useExpansion, type Openings } from './expansion';
-import {
-  ChangeCountBadges,
-  CopyPathButton,
-  EditButton,
-  OpenInSystemButton,
-} from './DiffFileActions';
-import { useDiffFile } from './useDiffFile';
-import {
-  DIFF_CONTEXT_LINES,
-  DIVIDER_ROW_HEIGHT,
-  LINE_ROW_HEIGHT,
-  diffRows,
-  rowHeight,
-} from './rows';
-import { viewStack } from './stack';
-import { useTokens } from './tokens';
+import { FindBar } from './FindBar';
+import type { LineFound, Located } from './find';
+import type { Openings } from './expansion';
 import { scrollPage } from './scroll';
-import { shortHash, scopeKey, UNTRACKED } from '../../lib/git';
-const settle = 150;
-const noOpenings: Openings = {};
-interface Batch {
-  data?: DiffStack;
-  error: Error | null;
-  settled: boolean;
-  version: number;
-}
-interface StackEntry {
-  selection: Selection;
-  badge?: string;
-}
-interface PaneContext {
-  repo: string;
-  batch: Batch;
-  settings: Settings;
-  disabled: boolean;
-  scroller: RefObject<HTMLDivElement | null>;
-  eager: RefObject<boolean>;
-  setClosed: Dispatch<SetStateAction<Record<string, boolean>>>;
-  setOpenings: Dispatch<SetStateAction<Record<string, Openings>>>;
-  onJumped: () => void;
-}
-interface GateRefs {
-  box: RefObject<HTMLDivElement | null>;
-  scroller: RefObject<HTMLDivElement | null>;
-  eager: RefObject<boolean>;
-}
-function note(data: Diff | undefined, error: Error | null) {
-  if (error) return error.message;
-  if (!data) return 'Loading…';
-  if (data.tooLarge) return 'File too large to diff. Select it to view anyway.';
-  if (data.binary) return 'Binary file.';
-  if (!data.image && data.content === null && data.hunks.length === 0)
-    return 'No content change.';
-  return null;
-}
-const FILE_HEADER_HEIGHT = 35;
-const FILE_NOTE_HEIGHT = 128;
-const FILE_OVERSCAN = 2;
-function estimate(data: Diff | undefined, open: boolean) {
-  const header = FILE_HEADER_HEIGHT;
-  if (!open) return header;
-  if (!data || data.image || note(data, null)) return header + FILE_NOTE_HEIGHT;
-  const lines =
-    data.content !== null
-      ? data.content.split('\n').length
-      : data.hunks.reduce((sum, hunk) => sum + hunk.lines.length, 0);
-  return (
-    header + lines * LINE_ROW_HEIGHT + data.hunks.length * DIVIDER_ROW_HEIGHT
-  );
-}
-function commitEntries(
-  commit: Selection | undefined,
-  statuses: Record<string, string>,
-): StackEntry[] {
-  if (!commit) return [];
-  return Object.entries(statuses).map(([path, badge]) => ({
-    selection: { ...commit, path },
-    badge: badge,
-  }));
-}
-function compareEntries(compared: Comparison | undefined): StackEntry[] {
-  if (!compared) return [];
-  return compared.files.map((file) => ({
-    selection: {
-      path: file.path,
-      source: 'compare' as const,
-      base: compared.base,
-      revision: compared.target,
-    },
-    badge: file.status,
-  }));
-}
-const titles = {
+import { shortHash } from '../../lib/git';
+import type { StackEntry } from './stack-entries';
+import { FileDiff, type PaneContext } from './StackFileDiff';
+import { useAllChangesController } from './useStackPane';
+const titles: Record<Stack, string> = {
   staged: 'Staged changes',
   unstaged: 'Changes',
   commit: 'Commit',
   compare: 'Branch comparison',
 };
-const labels = {
+const labels: Record<Stack, string> = {
   staged: 'All staged changes',
   unstaged: 'All changes',
   commit: 'All changes in commit',
   compare: 'All changes between branches',
 };
-export const AllChangesPane = memo(function AllChangesPane({
-  repo,
+function StackHeaderSummary({
+  stack,
+  listing,
+  count,
+  totals,
+}: {
+  stack: Stack;
+  listing: boolean;
+  count: number;
+  totals: { additions: number; deletions: number };
+}) {
+  if (stack === 'compare' && !listing)
+    return (
+      <span className="ml-auto shrink-0 font-mono text-badge text-muted">
+        {count} files · <span className={addedInk}>+{totals.additions}</span>{' '}
+        <span className={removedInk}>−{totals.deletions}</span>
+      </span>
+    );
+  if (listing) return <Spinner className="size-3.5 text-muted" />;
+  return <span className="font-mono text-badge text-muted">{count}</span>;
+}
+function StackHeader({
   stack,
   commit,
-  status,
-  settings,
-  disabled,
+  listing,
+  count,
+  compare,
 }: {
+  stack: Stack;
+  commit: Selection | undefined;
+  listing: boolean;
+  count: number;
+  compare: {
+    base: string;
+    target: string;
+    totals: { additions: number; deletions: number };
+  };
+}) {
+  const stashed = commit?.source === 'stash';
+  return (
+    <header className={paneHeader}>
+      <span className="font-semibold">{stashed ? 'Stash' : titles[stack]}</span>
+      {commit?.revision && (
+        <span className="font-mono text-badge text-muted">
+          {shortHash(commit.revision)}
+        </span>
+      )}
+      {stack === 'compare' && (
+        <span className="truncate font-mono text-badge">
+          {compare.base}{' '}
+          <span className="text-faint dark:text-faint-dark">→</span>{' '}
+          {compare.target}
+        </span>
+      )}
+      <StackHeaderSummary
+        stack={stack}
+        listing={listing}
+        count={count}
+        totals={compare.totals}
+      />
+    </header>
+  );
+}
+interface StackListProps {
+  virtual: Virtualizer<HTMLDivElement, Element>;
+  ordered: StackEntry[];
+  pane: PaneContext;
+  closed: Record<string, boolean>;
+  openings: Record<string, Openings>;
+  located: Map<string, LineFound>;
+  jump: Located | undefined;
+}
+function StackFileList({ list }: { list: StackListProps }) {
+  return (
+    <VirtualCanvas height={list.virtual.getTotalSize()}>
+      {list.virtual.getVirtualItems().map((item) => {
+        const entry = list.ordered[item.index];
+        const path = entry.selection.path;
+        return (
+          <div
+            key={item.key}
+            ref={list.virtual.measureElement}
+            data-index={item.index}
+            className="absolute top-row left-0 w-full"
+            style={dynamic({ '--row-offset': `${item.start}px` })}
+          >
+            <FileDiff
+              pane={list.pane}
+              entry={entry}
+              start={item.start}
+              closed={Boolean(list.closed[path])}
+              opening={list.openings[path]}
+              found={list.located.get(path)}
+              jump={list.jump?.path === path ? list.jump : undefined}
+            />
+          </div>
+        );
+      })}
+    </VirtualCanvas>
+  );
+}
+function StackBody({
+  repo,
+  stack,
+  state,
+  list,
+}: {
+  repo: string;
+  stack: Stack;
+  state: {
+    sameComparison: boolean;
+    error: Error | null;
+    mergeBase: boolean;
+    listing: boolean;
+    empty: boolean;
+    onRetryFiles: () => void;
+  };
+  list: StackListProps;
+}) {
+  if (stack === 'compare' && state.sameComparison) return <SameRefState />;
+  if (state.error && stack === 'compare')
+    return (
+      <CompareError
+        repo={repo}
+        message={state.error.message}
+        mergeBase={state.mergeBase}
+      />
+    );
+  if (state.error)
+    return (
+      <ErrorState
+        title="Could not list the changes"
+        error={state.error}
+        retry={state.onRetryFiles}
+      />
+    );
+  if (state.listing)
+    return (
+      <State icon={Loader2} title="Loading changes">
+        Reading the changed files.
+      </State>
+    );
+  if (state.empty)
+    return (
+      <State icon={CheckCircle2} title="Nothing here">
+        This group is empty.
+      </State>
+    );
+  return <StackFileList list={list} />;
+}
+interface AllChangesPaneProps {
   repo: string;
   stack: Stack;
   commit?: Selection;
   status: Status;
   settings: Settings;
   disabled: boolean;
-}) {
-  const filter = useDeferredFilter(repo);
-  const stashed = commit?.source === 'stash';
-  const files = useBackend(
-    'commit_files',
-    { repo: repo, revision: commit?.revision ?? '', source: commit?.source },
-    stack === 'commit',
-  );
-  const comparison = useComparison(repo, status, stack === 'compare');
-  const compared = comparison.data;
-  const entries = useMemo(
-    () =>
-      stack === 'commit'
-        ? commitEntries(commit, files.data?.statuses ?? {})
-        : stack === 'compare'
-          ? compareEntries(compared)
-          : groupEntries(status, stack, filter).map((entry) => ({
-              selection: {
-                path: entry.path,
-                source:
-                  stack === 'staged'
-                    ? ('staged' as const)
-                    : entry.index === UNTRACKED
-                      ? ('file' as const)
-                      : ('unstaged' as const),
-              },
-              badge: stack === 'staged' ? entry.index : entry.worktree,
-            })),
-    [stack, files.data, commit, compared, status, filter],
-  );
-  const ordered = useMemo(() => {
-    const byPath = new Map(
-      entries.map((entry) => [entry.selection.path, entry]),
-    );
-    return treeOrder([...byPath.keys()]).flatMap(
-      (path) => byPath.get(path) ?? [],
-    );
-  }, [entries]);
-  const listing =
-    stack === 'commit'
-      ? files.isPending
-      : stack === 'compare' && !compared && comparison.files.isPending;
-  const error = stack === 'compare' ? comparison.error : files.error;
-  const totals = (compared?.files ?? []).reduce(
-    (sum, file) => ({
-      additions: sum.additions + file.additions,
-      deletions: sum.deletions + file.deletions,
-    }),
-    { additions: 0, deletions: 0 },
-  );
-  const stackArgs = viewStack({
+}
+export const AllChangesPane = memo(function AllChangesPane(
+  props: AllChangesPaneProps,
+) {
+  const { repo, stack, commit } = props;
+  const controller = useAllChangesController({
     repo: repo,
     stack: stack,
     commit: commit,
-    compared: compared,
+    status: props.status,
+    settings: props.settings,
+    disabled: props.disabled,
   });
-  const stacked = useBackend(
-    'diff_stack',
-    stackArgs ?? { repo: repo, source: 'unstaged' },
-    Boolean(stackArgs),
-  );
-  const settled = stacked.isSuccess && !stacked.isFetching;
-  const batch = useMemo<Batch>(
-    () => ({
-      data: stacked.data,
-      error: stacked.error,
-      settled: settled,
-      version: stacked.dataUpdatedAt,
-    }),
-    [stacked.data, stacked.error, settled, stacked.dataUpdatedAt],
-  );
-  const [closed, setClosed] = useState<Record<string, boolean>>({});
-  const [openings, setOpenings] = useState<Record<string, Openings>>({});
-  const scroller = useRef<HTMLDivElement>(null);
-  const eager = useRef(true);
-  const itemKey = useCallback(
-    (index: number) => ordered[index].selection.path,
-    [ordered],
-  );
-  const virtual = useVirtualizer({
-    count: ordered.length,
-    getItemKey: itemKey,
-    getScrollElement: () => scroller.current,
-    initialOffset: () => scroller.current?.scrollTop ?? 0,
-    estimateSize: (index) =>
-      estimate(
-        batch.data?.files[ordered[index].selection.path],
-        !closed[ordered[index].selection.path],
-      ),
-    overscan: FILE_OVERSCAN,
-  });
-  const searchable = useMemo(
-    () =>
-      ordered.flatMap(({ selection }): Located[] => {
-        const data = batch.data?.files[selection.path];
-        return data
-          ? diffRows(data, false).flatMap(({ right }) =>
-              right
-                ? [
-                    {
-                      path: selection.path,
-                      key: lineKey(right),
-                      content: right.content,
-                    },
-                  ]
-                : [],
-            )
-          : [];
-      }),
-    [ordered, batch.data],
-  );
-  const texts = useCallback(
-    () => searchable.map((line) => line.content),
-    [searchable],
-  );
-  const [jump, setJump] = useState<Located>();
-  const clearJump = useCallback(() => setJump(undefined), []);
-  const pane = useMemo<PaneContext>(
-    () => ({
-      repo: repo,
-      batch: batch,
-      settings: settings,
-      disabled: disabled,
-      scroller: scroller,
-      eager: eager,
-      setClosed: setClosed,
-      setOpenings: setOpenings,
-      onJumped: clearJump,
-    }),
-    [repo, batch, settings, disabled, clearJump],
-  );
-  const find = useFind(texts, (index) => {
-    const line = searchable[index];
-    const position = ordered.findIndex(
-      (entry) => entry.selection.path === line.path,
-    );
-    setClosed((all) => (all[line.path] ? { ...all, [line.path]: false } : all));
-    setJump({ ...line });
-    const range = virtual.range;
-    if (!range || position < range.startIndex || position > range.endIndex)
-      virtual.scrollToOffset(
-        virtual.getOffsetForIndex(position, 'start')?.[0] ?? 0,
-      );
-  });
-  const located = useMemo(
-    () => foundByPath(find.found, searchable),
-    [find.found, searchable],
-  );
-  useActions(scopeKey(repo, 'diff'), findActions(find, false));
-  const laidOut = (virtual.scrollRect?.height ?? 0) > 0;
-  useEffect(() => {
-    if (laidOut && ordered.length) eager.current = false;
-  });
+  const label =
+    commit?.source === 'stash' ? 'All changes in stash' : labels[stack];
   return (
-    <section
-      className="flex h-full min-w-0 flex-col"
-      aria-label={stashed ? 'All changes in stash' : labels[stack]}
-    >
-      <header className={paneHeader}>
-        <span className="font-semibold">
-          {stashed ? 'Stash' : titles[stack]}
-        </span>
-        {commit?.revision && (
-          <span className="font-mono text-badge text-muted">
-            {shortHash(commit.revision)}
-          </span>
-        )}
-        {stack === 'compare' && (
-          <span className="truncate font-mono text-badge">
-            {comparison.base}{' '}
-            <span className="text-faint dark:text-faint-dark">→</span>{' '}
-            {comparison.target}
-          </span>
-        )}
-        {stack === 'compare' && !listing ? (
-          <span className="ml-auto shrink-0 font-mono text-badge text-muted">
-            {entries.length} files ·{' '}
-            <span className={addedInk}>+{totals.additions}</span>{' '}
-            <span className={removedInk}>−{totals.deletions}</span>
-          </span>
-        ) : listing ? (
-          <Spinner className="size-3.5 text-muted" />
-        ) : (
-          <span className="font-mono text-badge text-muted">
-            {entries.length}
-          </span>
-        )}
-      </header>
-      {find.open && (
+    <section className="flex h-full min-w-0 flex-col" aria-label={label}>
+      <StackHeader
+        stack={stack}
+        commit={commit}
+        listing={controller.listing}
+        count={controller.count}
+        compare={controller.compare}
+      />
+      {controller.find.open && (
         <FindBar
-          find={find}
-          onClose={() => scroller.current?.focus({ preventScroll: true })}
+          find={controller.find}
+          onClose={() =>
+            controller.scroller.current?.focus({ preventScroll: true })
+          }
         />
       )}
       <div
-        ref={scroller}
+        ref={controller.scroller}
         tabIndex={-1}
         role="region"
         aria-label="Stacked diff content"
@@ -381,271 +233,14 @@ export const AllChangesPane = memo(function AllChangesPane({
         className={`relative min-h-0 flex-1 overflow-y-auto ${focusInset}`}
       >
         <div>
-          {stack === 'compare' && comparison.same ? (
-            <SameRefState />
-          ) : error && stack === 'compare' ? (
-            <CompareError
-              repo={repo}
-              message={error.message}
-              mergeBase={comparison.mergeBase}
-            />
-          ) : error ? (
-            <ErrorState
-              title="Could not list the changes"
-              error={error}
-              retry={() => void files.refetch()}
-            />
-          ) : listing ? (
-            <State icon={Loader2} title="Loading changes">
-              Reading the changed files.
-            </State>
-          ) : entries.length === 0 ? (
-            <State icon={CheckCircle2} title="Nothing here">
-              This group is empty.
-            </State>
-          ) : (
-            <VirtualCanvas height={virtual.getTotalSize()}>
-              {virtual.getVirtualItems().map((item) => {
-                const entry = ordered[item.index];
-                const path = entry.selection.path;
-                return (
-                  <div
-                    key={item.key}
-                    ref={virtual.measureElement}
-                    data-index={item.index}
-                    className="absolute top-row left-0 w-full"
-                    style={dynamic({ '--row-offset': `${item.start}px` })}
-                  >
-                    <FileDiff
-                      pane={pane}
-                      entry={entry}
-                      start={item.start}
-                      closed={Boolean(closed[path])}
-                      opening={openings[path]}
-                      found={located.get(path)}
-                      jump={jump?.path === path ? jump : undefined}
-                    />
-                  </div>
-                );
-              })}
-            </VirtualCanvas>
-          )}
+          <StackBody
+            repo={repo}
+            stack={stack}
+            state={controller.bodyState}
+            list={controller.bodyList}
+          />
         </div>
       </div>
     </section>
-  );
-});
-function useGate(refs: GateRefs, report: (visible: boolean) => void) {
-  const { box, scroller, eager } = refs;
-  const latest = useRef(report);
-  useEffect(() => {
-    latest.current = report;
-  });
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let immediate = eager.current;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries[entries.length - 1].isIntersecting;
-        clearTimeout(timer);
-        if (immediate) latest.current(visible);
-        else timer = setTimeout(() => latest.current(visible), settle);
-        immediate = false;
-      },
-      { root: scroller.current, rootMargin: '400px' },
-    );
-    const element = box.current;
-    if (element) observer.observe(element);
-    return () => {
-      clearTimeout(timer);
-      observer.disconnect();
-    };
-  }, [box, scroller, eager]);
-}
-const FileDiff = memo(function FileDiff({
-  pane,
-  entry: { selection, badge },
-  start,
-  closed,
-  opening,
-  found,
-  jump,
-}: {
-  pane: PaneContext;
-  entry: StackEntry;
-  start: number;
-  closed: boolean;
-  opening?: Openings;
-  found?: LineFound;
-  jump?: Located;
-}) {
-  const {
-    repo,
-    batch,
-    settings,
-    disabled,
-    scroller,
-    eager,
-    setClosed,
-    setOpenings,
-    onJumped,
-  } = pane;
-  const path = selection.path;
-  const open = !closed;
-  const box = useRef<HTMLDivElement>(null);
-  const body = useRef<HTMLDivElement>(null);
-  const [near, setNear] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  const [inner, setInner] = useState(0);
-  useGate({ box: box, scroller: scroller, eager: eager }, (visible) => {
-    setNear(visible);
-    if (visible) setMounted(true);
-  });
-  const stacked = batch.data?.files[path];
-  const missing = batch.settled && !stacked;
-  const fallback = useBackend(
-    'diff',
-    { repo: repo, ...selection, context: DIFF_CONTEXT_LINES },
-    missing && near,
-  );
-  const data = stacked ?? (missing ? fallback.data : undefined);
-  const error = stacked
-    ? null
-    : (batch.error ?? (missing ? fallback.error : null));
-  const version = stacked ? batch.version : fallback.dataUpdatedAt;
-  const setOpening = useCallback(
-    (action: SetStateAction<Openings>) =>
-      setOpenings((all) => ({
-        ...all,
-        [path]:
-          typeof action === 'function'
-            ? action(all[path] ?? noOpenings)
-            : action,
-      })),
-    [path, setOpenings],
-  );
-  const target = { repo: repo, selection: selection, data: data };
-  const expansion = useExpansion(target, {
-    openings: opening ?? noOpenings,
-    setOpenings: setOpening,
-  });
-  const tokens = useTokens(target, near);
-  const { split, rows, counts, hunkAction } = useDiffFile({
-    repo: repo,
-    selection: selection,
-    data: data,
-    reveal: expansion.reveal,
-    defaultMode: settings.diffMode,
-  });
-  const message = note(data, error);
-  const surface = open && !message && mounted;
-  const handle = useRef<DiffSurfaceHandle>(null);
-  const marked = useMemo(() => foundInRows(rows, found), [rows, found]);
-  useEffect(() => {
-    if (!jump || !surface) return;
-    handle.current?.scrollToRow(
-      rows.findIndex((row) =>
-        [row.left, row.right].some(
-          (line) => line && lineKey(line) === jump.key,
-        ),
-      ),
-      'center',
-    );
-    onJumped();
-  }, [jump, surface, rows, onJumped]);
-  useLayoutEffect(() => {
-    setInner(body.current?.offsetTop ?? 0);
-  }, [surface]);
-  const { directory, name } = splitPath(selection.path);
-  const reserved = rows.reduce((sum, row) => sum + rowHeight(row), 0);
-  return (
-    <div ref={box} className="border-b border-line dark:border-line-dark">
-      <div className="sticky top-0 z-10 flex h-8.5 items-center gap-1 bg-sub pr-3 dark:bg-sub-dark">
-        <button
-          type="button"
-          aria-expanded={open}
-          onClick={() => setClosed((all) => ({ ...all, [path]: !all[path] }))}
-          className={`flex h-full min-w-0 flex-1 items-center gap-2 pl-3 text-sm ${clickable} ${focus}`}
-        >
-          {open ? (
-            <ChevronDown className="size-3.5 shrink-0 text-muted" />
-          ) : (
-            <ChevronRight className="size-3.5 shrink-0 text-muted" />
-          )}
-          <span className="truncate" title={selection.path}>
-            <span className="text-muted">{directory}</span>
-            <span className="font-semibold">{name}</span>
-          </span>
-          <DiffSourcePill selection={selection} />
-          <ChangeCountBadges counts={counts} />
-          {badge && <StatusBadge status={badge} />}
-        </button>
-        {open && expansion.available && (
-          <FullFileButton full={expansion.full} toggle={expansion.toggleFull} />
-        )}
-        <CopyPathButton path={selection.path} />
-        <OpenInSystemButton repo={repo} path={selection.path} />
-        {canEdit(selection.source, badge, data) && (
-          <EditButton
-            title="Edit this file"
-            label="Edit"
-            onClick={() =>
-              useSelection
-                .getState()
-                .select(
-                  repo,
-                  { ...selection, editing: true },
-                  settings.maxFileTabs,
-                )
-            }
-          />
-        )}
-      </div>
-      {open &&
-        (message || !data ? (
-          <p
-            className={`px-3 py-2 text-xs text-muted ${data ? '' : 'min-h-32'}`}
-          >
-            {message}
-          </p>
-        ) : !mounted && !data.image ? (
-          <p
-            className="h-virtual px-3 py-2 text-xs text-muted"
-            style={dynamic({ '--virtual-height': `${reserved}px` })}
-          >
-            Loading…
-          </p>
-        ) : (
-          <div ref={body}>
-            {data.image ? (
-              <div className="flex flex-col">
-                <ImageDiff
-                  repo={repo}
-                  view={scopeKey(repo, selection.path)}
-                  selection={selection}
-                  diff={data}
-                  version={version}
-                />
-              </div>
-            ) : (
-              <DiffSurface
-                ref={handle}
-                found={marked}
-                rows={rows}
-                diff={data}
-                display={{ split: split, wrap: false, whitespace: false }}
-                tokens={tokens}
-                controls={{
-                  source: selection.source,
-                  disabled: disabled,
-                  act: hunkAction,
-                }}
-                embedding={{ scroller: scroller, margin: start + inner }}
-                expansion={expansion}
-              />
-            )}
-          </div>
-        ))}
-    </div>
   );
 });

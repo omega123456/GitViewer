@@ -2,64 +2,41 @@
     clippy::min_ident_chars,
     clippy::as_conversions,
     clippy::too_many_arguments,
-    clippy::type_complexity
+    clippy::type_complexity,
+    clippy::cognitive_complexity,
+    clippy::excessive_nesting,
+    clippy::too_many_lines
 )]
 
 use tauri::Manager;
 
-#[deny(clippy::cognitive_complexity)]
 pub mod actions;
-#[deny(clippy::cognitive_complexity)]
 pub mod ai;
-#[deny(clippy::cognitive_complexity)]
 pub mod app;
-#[deny(clippy::cognitive_complexity)]
 pub mod blob;
-#[deny(clippy::cognitive_complexity)]
 pub mod branch;
 pub mod diff;
-#[deny(clippy::cognitive_complexity)]
 pub mod edit;
-#[deny(clippy::cognitive_complexity)]
 pub mod error;
-#[deny(clippy::cognitive_complexity)]
 pub mod fs;
-#[deny(clippy::cognitive_complexity)]
 pub mod git;
-#[deny(clippy::cognitive_complexity)]
 pub mod graph;
-#[deny(clippy::cognitive_complexity)]
 pub mod history;
-#[deny(clippy::cognitive_complexity)]
 pub mod ipc;
-#[deny(clippy::cognitive_complexity)]
 pub mod lifecycle;
-#[deny(clippy::cognitive_complexity)]
 pub mod lines;
-#[deny(clippy::cognitive_complexity)]
 pub mod lock;
-#[deny(clippy::cognitive_complexity)]
 pub mod logging;
-#[deny(clippy::cognitive_complexity)]
 pub mod media;
-#[deny(clippy::cognitive_complexity)]
 pub mod repo;
-#[deny(clippy::cognitive_complexity)]
 pub mod session;
-#[deny(clippy::cognitive_complexity)]
 pub mod settings;
-#[deny(clippy::cognitive_complexity)]
 pub mod stash;
-#[deny(clippy::cognitive_complexity)]
 pub mod status;
-#[deny(clippy::cognitive_complexity)]
 pub mod tree;
 pub mod updater;
-#[deny(clippy::cognitive_complexity)]
 pub mod variant;
-#[deny(clippy::cognitive_complexity)]
 pub mod watch;
-#[deny(clippy::cognitive_complexity)]
 pub mod worktree;
 
 pub fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
@@ -75,55 +52,82 @@ pub fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         .invoke_handler(tauri::generate_handler![ipc::execute])
         .register_asynchronous_uri_scheme_protocol("gitblob", |context, request, responder| {
             let app = context.app_handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let response = blob::serve(&app, request.uri().to_string()).await;
-                let response = match response {
-                    Ok(blob) => tauri::http::Response::builder()
-                        .header("Content-Type", blob.mime)
-                        .header("Access-Control-Allow-Origin", "*")
-                        .header("Cache-Control", "no-store")
-                        .body(blob.bytes),
-                    Err(error) => tauri::http::Response::builder()
-                        .status(tauri::http::StatusCode::BAD_REQUEST)
-                        .body(error.message.into_bytes()),
-                };
-                if let Ok(response) = response {
-                    responder.respond(response);
-                }
-            });
+            let uri = request.uri().to_string();
+            tauri::async_runtime::spawn(respond_with_blob(app, uri, responder));
         })
+}
+
+async fn respond_with_blob<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    uri: String,
+    responder: tauri::UriSchemeResponder,
+) {
+    let served = blob::serve(&app, uri).await;
+    if let Ok(response) = blob_response(served) {
+        responder.respond(response);
+    }
+}
+
+fn blob_response(
+    served: error::Result<blob::Blob>,
+) -> tauri::http::Result<tauri::http::Response<Vec<u8>>> {
+    match served {
+        Ok(blob) => tauri::http::Response::builder()
+            .header("Content-Type", blob.mime)
+            .header("Access-Control-Allow-Origin", "*")
+            .header("Cache-Control", "no-store")
+            .body(blob.bytes),
+        Err(error) => tauri::http::Response::builder()
+            .status(tauri::http::StatusCode::BAD_REQUEST)
+            .body(error.message.into_bytes()),
+    }
+}
+
+fn on_window_event<R: tauri::Runtime>(window: &tauri::Window<R>, event: &tauri::WindowEvent) {
+    let geometry_changed = matches!(
+        event,
+        tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_)
+    );
+    if geometry_changed {
+        lifecycle::capture(window);
+    }
+    let tauri::WindowEvent::CloseRequested { api, .. } = event else {
+        return;
+    };
+    if !lifecycle::request_close(window.app_handle()) {
+        api.prevent_close();
+    }
+}
+
+fn exit_requested<R: tauri::Runtime>(app: &tauri::AppHandle<R>, event: &tauri::RunEvent) {
+    let tauri::RunEvent::ExitRequested { api, .. } = event else {
+        return;
+    };
+    if !lifecycle::request_close(app) {
+        api.prevent_exit();
+    }
+}
+
+fn exiting<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    lifecycle::flush(app);
+    tracing::info!("GitViewer closing");
+    if let Some(guard) = app.try_state::<logging::Guard>() {
+        guard.flush();
+    }
+}
+
+fn on_run_event<R: tauri::Runtime>(app: &tauri::AppHandle<R>, event: tauri::RunEvent) {
+    exit_requested(app, &event);
+    if matches!(event, tauri::RunEvent::Exit) {
+        exiting(app);
+    }
 }
 
 pub fn run() {
     configure(tauri::Builder::default())
         .setup(lifecycle::setup)
-        .on_window_event(|window, event| {
-            if matches!(
-                event,
-                tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_)
-            ) {
-                lifecycle::capture(window);
-            }
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if !lifecycle::request_close(window.app_handle()) {
-                    api.prevent_close();
-                }
-            }
-        })
+        .on_window_event(on_window_event)
         .build(tauri::generate_context!())
         .expect("GitViewer failed to start")
-        .run(|app, event| {
-            if let tauri::RunEvent::ExitRequested { api, .. } = &event {
-                if !lifecycle::request_close(app) {
-                    api.prevent_exit();
-                }
-            }
-            if matches!(event, tauri::RunEvent::Exit) {
-                lifecycle::flush(app);
-                tracing::info!("GitViewer closing");
-                if let Some(guard) = app.try_state::<logging::Guard>() {
-                    guard.flush();
-                }
-            }
-        });
+        .run(on_run_event);
 }

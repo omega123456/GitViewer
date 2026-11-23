@@ -44,6 +44,47 @@ function StepButton({
 export function BlankGapRow() {
   return <div className={row} />;
 }
+function closesGap(direction: Direction, hidden: number | null) {
+  return direction === 'all' || (hidden !== null && hidden <= step);
+}
+function GapStepControls({
+  gap,
+  loading,
+  stepped,
+  onPress,
+}: {
+  gap: ShownGap;
+  loading: boolean;
+  stepped: boolean;
+  onPress: (direction: Direction) => (event: MouseEvent) => void;
+}) {
+  const { kind, hunk } = gap;
+  const above = kind === 'end' ? hunk + 1 : hunk;
+  const below = hunk + 1;
+  return (
+    <div className="flex w-11 shrink-0 border-r border-line bg-gutter dark:border-line-dark dark:bg-gutter-dark">
+      {loading && (
+        <span className="grid flex-1 place-items-center text-accent dark:text-accent-dark">
+          <Spinner className="size-3.5" />
+        </span>
+      )}
+      {stepped && kind !== 'top' && (
+        <StepButton
+          label={`Show ${step} more lines below hunk ${above}`}
+          icon={<ArrowDownFromLine className="size-3.5" />}
+          onClick={onPress('down')}
+        />
+      )}
+      {stepped && kind !== 'end' && (
+        <StepButton
+          label={`Show ${step} more lines above hunk ${below}`}
+          icon={<ArrowUpFromLine className="size-3.5" />}
+          onClick={onPress('up')}
+        />
+      )}
+    </div>
+  );
+}
 export function GapRow({
   gap,
   expansion,
@@ -51,48 +92,30 @@ export function GapRow({
   gap: ShownGap;
   expansion: Expansion;
 }) {
-  const { hidden, kind, hunk } = gap;
-  const above = kind === 'end' ? hunk + 1 : hunk;
-  const below = hunk + 1;
+  const { hidden, hunk } = gap;
   const busy = expansion.loading || expansion.tooLarge;
   const stepped = !busy && (hidden === null || hidden > step);
   const press = (direction: Direction) => (event: MouseEvent) => {
     const root = event.currentTarget.closest('[data-diff]');
     expansion.expand(gap, direction);
-    if (direction === 'all' || (hidden !== null && hidden <= step))
-      requestAnimationFrame(() =>
-        root
-          ?.querySelector<HTMLElement>(`[data-hunk="${hunk}"]`)
-          ?.focus({ preventScroll: true }),
-      );
+    if (!closesGap(direction, hidden)) return;
+    requestAnimationFrame(() =>
+      root
+        ?.querySelector<HTMLElement>(`[data-hunk="${hunk}"]`)
+        ?.focus({ preventScroll: true }),
+    );
   };
-  const label = gapLabel(gap, expansion);
   return (
     <div className={row}>
       <div className="sticky left-0 flex">
-        <div className="flex w-11 shrink-0 border-r border-line bg-gutter dark:border-line-dark dark:bg-gutter-dark">
-          {expansion.loading && (
-            <span className="grid flex-1 place-items-center text-accent dark:text-accent-dark">
-              <Spinner className="size-3.5" />
-            </span>
-          )}
-          {stepped && kind !== 'top' && (
-            <StepButton
-              label={`Show ${step} more lines below hunk ${above}`}
-              icon={<ArrowDownFromLine className="size-3.5" />}
-              onClick={press('down')}
-            />
-          )}
-          {stepped && kind !== 'end' && (
-            <StepButton
-              label={`Show ${step} more lines above hunk ${below}`}
-              icon={<ArrowUpFromLine className="size-3.5" />}
-              onClick={press('up')}
-            />
-          )}
-        </div>
+        <GapStepControls
+          gap={gap}
+          loading={expansion.loading}
+          stepped={stepped}
+          onPress={press}
+        />
         <div className="flex items-center gap-2 px-2.5 whitespace-nowrap">
-          <span>{label}</span>
+          <span>{gapLabel(gap, expansion)}</span>
           {!busy && (
             <button
               type="button"

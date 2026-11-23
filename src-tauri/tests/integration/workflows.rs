@@ -68,6 +68,67 @@ pub(super) async fn base(dir: &TempDir, repo: &Repository) {
         .unwrap();
     actions::commit(repo, "Initial").await.unwrap();
 }
+pub(super) struct Polling {
+    pub(super) limit: Duration,
+    pub(super) period: Duration,
+}
+pub(super) async fn poll_until(
+    polling: Polling,
+    mut finished: impl FnMut() -> bool,
+    mut nudge: impl FnMut(),
+) {
+    tokio::time::timeout(polling.limit, async {
+        let mut interval = tokio::time::interval(polling.period);
+        while !finished() {
+            interval.tick().await;
+            nudge();
+        }
+    })
+    .await
+    .unwrap();
+}
+pub(super) fn no_nudge() {}
+struct FileText {
+    source: DiffSource,
+    revision: String,
+    base: String,
+    side: Side,
+}
+async fn file_text(repo: &Repo, request: FileText) -> Option<String> {
+    diff::text(
+        repo,
+        DiffRef {
+            path: "file.txt",
+            source: request.source,
+            revision: &request.revision,
+            base: &request.base,
+        },
+        request.side,
+    )
+    .await
+    .unwrap()
+}
+fn write_empty_files(folder: &std::path::Path, count: usize) {
+    for file in 0..count {
+        std::fs::write(folder.join(format!("{file}.txt")), "").unwrap();
+    }
+}
+fn write_numbered_files(root: &std::path::Path, count: usize) {
+    for number in 0..count {
+        std::fs::write(
+            root.join(format!("f{count}-{number}.txt")),
+            format!("{number}\n"),
+        )
+        .unwrap();
+    }
+}
+fn index_after<'a>(action: &str, changed: &'a str, original: &'a str) -> &'a str {
+    if action == "stage" {
+        return changed;
+    }
+    original
+}
+
 #[tokio::test]
 async fn staging_commit_lazy_tree_and_plain_reads() {
     let (dir, handle) = fixture().await;
@@ -568,15 +629,15 @@ async fn watcher_invalidates_without_mutating_status() {
     })
     .unwrap();
     std::fs::write(dir.path().join("new.txt"), "new").unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(4), async {
-        let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
-        while hits.load(Ordering::SeqCst) == 0 {
-            interval.tick().await;
-            std::fs::write(dir.path().join("new.txt"), "new").unwrap();
-        }
-    })
-    .await
-    .unwrap();
+    poll_until(
+        Polling {
+            limit: Duration::from_secs(4),
+            period: Duration::from_millis(500),
+        },
+        || hits.load(Ordering::SeqCst) != 0,
+        || std::fs::write(dir.path().join("new.txt"), "new").unwrap(),
+    )
+    .await;
     let repo = handle.clone();
     assert_eq!(repo.snapshot().await.unwrap().entries.len(), 1);
 }
@@ -627,15 +688,15 @@ async fn ignored_only_batches_refresh_file_listings_without_a_status_read() {
     let captured = changes.clone();
     watch::start(&handle, move |change| captured.lock().unwrap().push(change)).unwrap();
     watch::start(&handle, |_| panic!("a second watcher must not start")).unwrap();
-    tokio::time::timeout(Duration::from_secs(4), async {
-        let mut interval = tokio::time::interval(Duration::from_millis(500));
-        while !changes.lock().unwrap().contains(&Change::Files) {
-            interval.tick().await;
-            std::fs::write(&ignored, "generated").unwrap();
-        }
-    })
-    .await
-    .unwrap();
+    poll_until(
+        Polling {
+            limit: Duration::from_secs(4),
+            period: Duration::from_millis(500),
+        },
+        || changes.lock().unwrap().contains(&Change::Files),
+        || std::fs::write(&ignored, "generated").unwrap(),
+    )
+    .await;
     assert!(!handle.stale.load(Ordering::SeqCst));
 }
 #[tokio::test]
@@ -1436,9 +1497,7 @@ async fn fifty_thousand_files_are_read_only_when_their_directory_is_expanded() {
     for directory in 0..100 {
         let folder = dir.path().join("generated").join(directory.to_string());
         std::fs::create_dir(&folder).unwrap();
-        for file in 0..500 {
-            std::fs::write(folder.join(format!("{file}.txt")), "").unwrap();
-        }
+        write_empty_files(&folder, 500);
     }
     let repo = handle.clone();
     assert_eq!(repo.directory_reads.load(Ordering::SeqCst), 0);
@@ -1644,21 +1703,15 @@ async fn file_text_reads_the_new_side_of_every_source_within_the_limits() {
         .unwrap();
     std::fs::write(dir.path().join("file.txt"), "working\n").unwrap();
     let text = |source: DiffSource, revision: String, base: String| {
-        let repo = &repo;
-        async move {
-            diff::text(
-                repo,
-                DiffRef {
-                    path: "file.txt",
-                    source,
-                    revision: &revision,
-                    base: &base,
-                },
-                Side::New,
-            )
-            .await
-            .unwrap()
-        }
+        file_text(
+            &repo,
+            FileText {
+                source,
+                revision,
+                base,
+                side: Side::New,
+            },
+        )
     };
     assert_eq!(
         text(DiffSource::Unstaged, String::new(), String::new())
@@ -1719,21 +1772,15 @@ async fn file_text_reads_the_old_side_of_every_source() {
         .unwrap();
     std::fs::write(dir.path().join("file.txt"), "working\n").unwrap();
     let text = |source: DiffSource, revision: String, base: String| {
-        let repo = &repo;
-        async move {
-            diff::text(
-                repo,
-                DiffRef {
-                    path: "file.txt",
-                    source,
-                    revision: &revision,
-                    base: &base,
-                },
-                Side::Old,
-            )
-            .await
-            .unwrap()
-        }
+        file_text(
+            &repo,
+            FileText {
+                source,
+                revision,
+                base,
+                side: Side::Old,
+            },
+        )
     };
     assert_eq!(
         text(DiffSource::Unstaged, String::new(), String::new())
@@ -1862,7 +1909,7 @@ async fn crlf_hunks_preserve_exact_bytes_without_git_normalization() {
         .unwrap();
         assert_eq!(
             command(dir.path(), &["show", ":file.txt"]).await,
-            if action == "stage" { changed } else { original }
+            index_after(action, changed, original)
         );
     }
     assert_eq!(
@@ -2352,63 +2399,88 @@ async fn ai_maps_a_timeout_and_an_unreachable_endpoint_to_the_network_category()
 
 #[tokio::test]
 async fn stash_conflicts_preserve_clean_files_local_changes_and_the_stash() {
-    for staged in [false, true] {
-        for smart in [false, true] {
-            let (dir, handle) = fixture().await;
-            base(&dir, &handle).await;
-            let repo = handle.clone();
-            record(
-                &dir,
-                &repo,
-                Recorded {
-                    path: "clean.txt",
-                    body: "base\n",
-                    message: "clean base",
-                },
-            )
-            .await;
-            std::fs::write(dir.path().join("file.txt"), "stashed\n").unwrap();
-            std::fs::write(dir.path().join("clean.txt"), "clean stash\n").unwrap();
-            if staged {
-                command(dir.path(), &["add", "."]).await;
-            }
-            let hash = stash::save(&repo, "conflicting").await.unwrap();
-            record(
-                &dir,
-                &repo,
-                Recorded {
-                    path: "file.txt",
-                    body: "upstream\n",
-                    message: "upstream",
-                },
-            )
-            .await;
-            if smart {
-                std::fs::write(dir.path().join("local.txt"), "local\n").unwrap();
-                command(dir.path(), &["add", "local.txt"]).await;
-            }
-            stash::apply(&repo, &hash, stash::ApplyOptions { pop: true, smart })
-                .await
-                .unwrap();
-            let status = repo.refresh().await.unwrap();
-            assert!(status.conflicted);
-            assert!(status.merging.is_none());
-            let conflict = std::fs::read_to_string(dir.path().join("file.txt")).unwrap();
-            assert!(conflict.contains("<<<<<<<"));
-            assert!(conflict.contains("stashed"));
-            assert!(conflict.contains("upstream"));
-            assert_eq!(
-                std::fs::read_to_string(dir.path().join("clean.txt")).unwrap(),
-                "clean stash\n"
-            );
-            assert_eq!(stash::list(&repo).await.unwrap()[0].hash, hash);
-            if smart {
-                assert_eq!(
-                    command(dir.path(), &["show", ":local.txt"]).await,
-                    "local\n"
-                );
-            }
-        }
+    for case in STASH_CONFLICT_CASES {
+        stash_conflict_case(case).await;
+    }
+}
+#[derive(Clone, Copy)]
+struct StashConflictCase {
+    staged: bool,
+    smart: bool,
+}
+const STASH_CONFLICT_CASES: [StashConflictCase; 4] = [
+    StashConflictCase {
+        staged: false,
+        smart: false,
+    },
+    StashConflictCase {
+        staged: false,
+        smart: true,
+    },
+    StashConflictCase {
+        staged: true,
+        smart: false,
+    },
+    StashConflictCase {
+        staged: true,
+        smart: true,
+    },
+];
+async fn stash_conflict_case(case: StashConflictCase) {
+    let StashConflictCase { staged, smart } = case;
+    let (dir, handle) = fixture().await;
+    base(&dir, &handle).await;
+    let repo = handle.clone();
+    record(
+        &dir,
+        &repo,
+        Recorded {
+            path: "clean.txt",
+            body: "base\n",
+            message: "clean base",
+        },
+    )
+    .await;
+    std::fs::write(dir.path().join("file.txt"), "stashed\n").unwrap();
+    std::fs::write(dir.path().join("clean.txt"), "clean stash\n").unwrap();
+    if staged {
+        command(dir.path(), &["add", "."]).await;
+    }
+    let hash = stash::save(&repo, "conflicting").await.unwrap();
+    record(
+        &dir,
+        &repo,
+        Recorded {
+            path: "file.txt",
+            body: "upstream\n",
+            message: "upstream",
+        },
+    )
+    .await;
+    if smart {
+        std::fs::write(dir.path().join("local.txt"), "local\n").unwrap();
+        command(dir.path(), &["add", "local.txt"]).await;
+    }
+    stash::apply(&repo, &hash, stash::ApplyOptions { pop: true, smart })
+        .await
+        .unwrap();
+    let status = repo.refresh().await.unwrap();
+    assert!(status.conflicted);
+    assert!(status.merging.is_none());
+    let conflict = std::fs::read_to_string(dir.path().join("file.txt")).unwrap();
+    assert!(conflict.contains("<<<<<<<"));
+    assert!(conflict.contains("stashed"));
+    assert!(conflict.contains("upstream"));
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("clean.txt")).unwrap(),
+        "clean stash\n"
+    );
+    assert_eq!(stash::list(&repo).await.unwrap()[0].hash, hash);
+    if smart {
+        assert_eq!(
+            command(dir.path(), &["show", ":local.txt"]).await,
+            "local\n"
+        );
     }
 }
 
@@ -2848,9 +2920,11 @@ async fn stacks_omit_records_they_cannot_reproduce() {
         )
         .await
         .unwrap();
-        for path in ["file.txt", "sub", "new\nline.txt", "nested/"] {
-            assert!(!stack.files.contains_key(path), "{source:?} {path}");
-        }
+        let listed: Vec<&str> = ["file.txt", "sub", "new\nline.txt", "nested/"]
+            .into_iter()
+            .filter(|path| stack.files.contains_key(*path))
+            .collect();
+        assert!(listed.is_empty(), "{source:?} {listed:?}");
     }
     assert!(diff::read(
         &repo,
@@ -3266,9 +3340,7 @@ async fn stacks_and_single_file_reads_run_a_fixed_number_of_git_processes() {
     )
     .await;
     for count in [2, 5] {
-        for n in 0..count {
-            std::fs::write(root.join(format!("f{count}-{n}.txt")), format!("{n}\n")).unwrap();
-        }
+        write_numbered_files(root, count);
         command(root, &["add", "-A"]).await;
         command(root, &["commit", "-m", "Batch"]).await;
     }
@@ -3704,14 +3776,15 @@ async fn metadata_batches_notify_only_when_the_snapshot_changes() {
         std::fs::read(root.join(".git").join("index")).unwrap(),
         index
     );
-    tokio::time::timeout(Duration::from_secs(4), async {
-        let mut interval = tokio::time::interval(Duration::from_millis(100));
-        while launched(&trace, from, "status") == 0 {
-            interval.tick().await;
-        }
-    })
-    .await
-    .unwrap();
+    poll_until(
+        Polling {
+            limit: Duration::from_secs(4),
+            period: Duration::from_millis(100),
+        },
+        || launched(&trace, from, "status") != 0,
+        no_nudge,
+    )
+    .await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert!(changes.lock().unwrap().is_empty());
     assert_eq!(handle.snapshot().await.unwrap(), before);

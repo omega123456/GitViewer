@@ -27,6 +27,18 @@ export interface Expansion {
   expand: (gap: Gap, direction: Direction) => void;
   toggleFull: () => void;
 }
+function loadedLines(wanted: boolean, data: string | null | undefined) {
+  if (!wanted || typeof data !== 'string') return undefined;
+  return splitLines(data);
+}
+function isFullyExpanded(
+  lines: string[] | undefined,
+  list: Gap[],
+  reveal: Reveal,
+) {
+  if (lines === undefined || list.length === 0) return false;
+  return list.every((gap) => hidden(gap, reveal) === 0);
+}
 export function useExpansion(
   target: DiffTarget,
   controlled?: OpeningsControl,
@@ -49,22 +61,17 @@ export function useExpansion(
     wanted,
   );
   const lines = useMemo(
-    () =>
-      wanted && typeof text.data === 'string'
-        ? splitLines(text.data)
-        : undefined,
+    () => loadedLines(wanted, text.data),
     [wanted, text.data],
   );
   const reveal = useMemo(() => ({ lines, open }), [lines, open]);
-  const full =
-    lines !== undefined &&
-    list.length > 0 &&
-    list.every((gap) => hidden(gap, reveal) === 0);
+  const full = isFullyExpanded(lines, list, reveal);
+  const loading = wanted && text.isFetching && text.data === undefined;
   return {
     reveal: reveal,
     available: list.length > 0,
     full: full,
-    loading: wanted && text.isFetching && text.data === undefined,
+    loading: loading,
     tooLarge: wanted && text.data === null,
     expand: (gap, direction) => {
       if (text.isError) void text.refetch();

@@ -98,13 +98,16 @@ pub struct Applied {
 }
 
 fn reference(name: &str) -> Result<&str> {
-    if name.is_empty() || name.starts_with('-') {
+    let looks_like_option = name.starts_with('-');
+    if name.is_empty() || looks_like_option {
         return Err(Error::refused(format!("Invalid reference: {name}")));
     }
     Ok(name)
 }
 fn object(id: &str) -> Result<&str> {
-    if id.len() < MIN_OBJECT_ID_LENGTH || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+    let too_short = id.len() < MIN_OBJECT_ID_LENGTH;
+    let hexadecimal = id.bytes().all(|byte| byte.is_ascii_hexdigit());
+    if too_short || !hexadecimal {
         return Err(Error::refused(format!("Invalid object: {id}")));
     }
     Ok(id)
@@ -114,7 +117,17 @@ fn free(path: &Path) -> bool {
 }
 async fn remote(root: &Path, name: &str) -> Result<bool> {
     let local = git::ref_exists(root, &git::local_branch(name)).await?;
-    Ok(!local && git::ref_exists(root, &git::remote_branch(name)).await?)
+    if local {
+        return Ok(false);
+    }
+    git::ref_exists(root, &git::remote_branch(name)).await
+}
+async fn branch_label<'a>(repo: &Repo, mode: &str, name: &'a str) -> Result<&'a str> {
+    let existing_remote = mode == "existing" && remote(&repo.root, name).await?;
+    if existing_remote {
+        return Ok(git::without_remote(name));
+    }
+    Ok(name)
 }
 async fn label(repo: &Repo, mode: &str, name: &str) -> Result<String> {
     if name.is_empty() {
@@ -129,11 +142,7 @@ async fn label(repo: &Repo, mode: &str, name: &str) -> Result<String> {
                 .into(),
         );
     }
-    let branch = if mode == "existing" && remote(&repo.root, name).await? {
-        git::without_remote(name)
-    } else {
-        name
-    };
+    let branch = branch_label(repo, mode, name).await?;
     Ok(branch.replace('/', "-"))
 }
 pub struct Placement<'a> {
@@ -203,6 +212,24 @@ async fn count(root: &Path, arguments: &[&str]) -> Result<u32> {
         .parse()
         .unwrap_or_default())
 }
+async fn orphan_count(source: &Repo, detached: bool) -> Result<u32> {
+    if !detached {
+        return Ok(0);
+    }
+    count(
+        &source.root,
+        &[
+            "rev-list",
+            "--count",
+            git::HEAD,
+            "--not",
+            "--branches",
+            "--tags",
+            "--remotes",
+        ],
+    )
+    .await
+}
 pub async fn summary(source: &Repo, target: &str) -> Result<Summary> {
     let detached = source.snapshot().await?.branch == git::DETACHED_LABEL;
     Ok(Summary {
@@ -215,23 +242,7 @@ pub async fn summary(source: &Repo, target: &str) -> Result<Summary> {
             ],
         )
         .await?,
-        orphans: if detached {
-            count(
-                &source.root,
-                &[
-                    "rev-list",
-                    "--count",
-                    git::HEAD,
-                    "--not",
-                    "--branches",
-                    "--tags",
-                    "--remotes",
-                ],
-            )
-            .await?
-        } else {
-            0
-        },
+        orphans: orphan_count(source, detached).await?,
         submodules: source.root.join(".gitmodules").exists(),
     })
 }
@@ -335,10 +346,14 @@ async fn unstage(target: &Repo, paths: &HashSet<String>) -> Result<()> {
     .await?;
     Ok(())
 }
+async fn applied_cleanly_or_merged(target: &Repo, patch: &[u8]) -> Result<bool> {
+    if patched_cleanly(&target.root, &["--index"], patch).await? {
+        return Ok(true);
+    }
+    Ok(patched(&target.root, &["--3way"], patch).await?.succeeded())
+}
 async fn merged(target: &Repo, patch: &[u8], temporary: &str) -> Result<()> {
-    let applied = patched_cleanly(&target.root, &["--index"], patch).await?
-        || patched(&target.root, &["--3way"], patch).await?.succeeded();
-    if !applied {
+    if !applied_cleanly_or_merged(target, patch).await? {
         return Err(Error::refused("The worktree's changes conflict with main."));
     }
     for flags in [&["--index"][..], &[]] {

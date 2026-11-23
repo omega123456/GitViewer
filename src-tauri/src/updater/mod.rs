@@ -156,6 +156,11 @@ impl PendingRelease {
     }
 }
 type Pending = Option<PendingRelease>;
+fn same_release(available: Option<&Summary>, pending: &Pending) -> bool {
+    available
+        .zip(pending.as_ref())
+        .is_some_and(|(next, previous)| *next == previous.release.summary())
+}
 
 pub struct Configuration {
     pub availability: Availability,
@@ -242,45 +247,38 @@ impl Service {
         Ok(())
     }
     pub async fn check(&self) -> Result<()> {
-        let Some(backend) = self
-            .backend
-            .as_ref()
-            .filter(|_| self.get().availability == Availability::Enabled)
-        else {
+        let Some(backend) = self.backend.as_ref().filter(|_| self.enabled()) else {
             return Err(Error::refused("Updates are unavailable in this build"));
         };
         let Ok(mut pending) = self.pending.try_lock() else {
             return Ok(());
         };
-        if *lock_recovering(&self.intent) != Intent::Quit {
+        if !self.quitting_normally() {
             return Ok(());
         }
         self.change(|state| state.enter(Phase::Checking));
         let release = backend.check().await.map_err(|error| self.fail(error))?;
         let available = release.as_ref().map(|item| item.summary());
-        let unchanged = available
-            .as_ref()
-            .zip(pending.as_ref())
-            .is_some_and(|(next, previous)| *next == previous.release.summary());
-        if !unchanged {
+        if !same_release(available.as_ref(), &pending) {
             *pending = release.map(PendingRelease::new);
         }
         let ready = pending.as_ref().is_some_and(PendingRelease::is_downloaded);
         self.change(|state| state.checked(available, ready));
-        if pending.is_some() && lock_recovering(&self.settings).install_update_on_quit {
+        let downloads_now = pending.is_some() && self.installs_on_quit();
+        if downloads_now {
             self.download(&mut pending).await?;
         }
         Ok(())
     }
     pub async fn prepare_install(&self) -> Result<()> {
-        if self.get().availability != Availability::Enabled {
+        if !self.enabled() {
             return Err(Error::refused("Updates are unavailable in this build"));
         }
         let mut pending = self
             .pending
             .try_lock()
             .map_err(|_| Error::refused("An update operation is already running"))?;
-        if *lock_recovering(&self.intent) != Intent::Quit {
+        if !self.quitting_normally() {
             return Err(Error::refused("The application is already closing"));
         }
         self.download(&mut pending).await?;
@@ -302,8 +300,9 @@ impl Service {
     pub fn finish_close(&self) -> Result<bool> {
         let intent = *lock_recovering(&self.intent);
         let restart = intent == Intent::Restart;
-        let automatic = lock_recovering(&self.settings).install_update_on_quit;
-        if intent == Intent::Skip || (!restart && !automatic) {
+        let wanted = restart || self.installs_on_quit();
+        let declined = intent == Intent::Skip || !wanted;
+        if declined {
             return Ok(false);
         }
         let Ok(pending) = self.pending.try_lock() else {
@@ -324,35 +323,61 @@ impl Service {
         }
         Ok(restart)
     }
+    fn enabled(&self) -> bool {
+        self.get().availability == Availability::Enabled
+    }
+    fn scheduled_interval(&self) -> Option<std::time::Duration> {
+        interval(&lock_recovering(&self.settings).update_check_interval)
+    }
+    fn installs_on_quit(&self) -> bool {
+        lock_recovering(&self.settings).install_update_on_quit
+    }
+    fn quitting_normally(&self) -> bool {
+        *lock_recovering(&self.intent) == Intent::Quit
+    }
+    async fn automatic_check(&self) {
+        if let Err(error) = self.check().await {
+            tracing::warn!(%error, "Automatic update check failed");
+        }
+    }
+    async fn automatic_download(&self) {
+        let Ok(mut pending) = self.pending.try_lock() else {
+            return;
+        };
+        let awaiting = pending
+            .as_ref()
+            .is_some_and(|pending| !pending.is_downloaded());
+        let downloads_now = awaiting && self.quitting_normally();
+        if !downloads_now {
+            return;
+        }
+        if let Err(error) = self.download(&mut pending).await {
+            tracing::warn!(%error, "Automatic update download failed");
+        }
+    }
+    async fn tick(&self) {
+        if self.scheduled_interval().is_some() {
+            self.automatic_check().await;
+            return;
+        }
+        if self.installs_on_quit() {
+            self.automatic_download().await;
+        }
+    }
+    async fn wait(&self) {
+        let Some(delay) = self.scheduled_interval() else {
+            self.wake.notified().await;
+            return;
+        };
+        tokio::select! { _ = tokio::time::sleep(delay) => {}, _ = self.wake.notified() => {} }
+    }
     pub async fn run(self: Arc<Self>) {
-        if self.get().availability != Availability::Enabled {
+        if !self.enabled() {
             return;
         }
         loop {
-            if interval(&lock_recovering(&self.settings).update_check_interval).is_some() {
-                if let Err(error) = self.check().await {
-                    tracing::warn!(%error, "Automatic update check failed");
-                }
-            } else if lock_recovering(&self.settings).install_update_on_quit {
-                if let Ok(mut pending) = self.pending.try_lock() {
-                    if pending
-                        .as_ref()
-                        .is_some_and(|pending| !pending.is_downloaded())
-                        && *lock_recovering(&self.intent) == Intent::Quit
-                    {
-                        if let Err(error) = self.download(&mut pending).await {
-                            tracing::warn!(%error, "Automatic update download failed");
-                        }
-                    }
-                }
-            }
-            let delay = interval(&lock_recovering(&self.settings).update_check_interval);
-            match delay {
-                Some(delay) => {
-                    tokio::select! { _ = tokio::time::sleep(delay) => {}, _ = self.wake.notified() => {} }
-                }
-                None => self.wake.notified().await,
-            }
+            self.tick().await;
+            self.wait().await;
         }
     }
 }

@@ -1,225 +1,36 @@
-import { TextInput } from '../shared/TextInput';
-import { useEffect, useRef, useState } from 'react';
-import { useFormState } from '../../lib/form-state';
-import { flushSync } from 'react-dom';
-import { DropdownMenu, Popover } from 'radix-ui';
 import {
-  ArrowRightFromLine,
-  Eraser,
-  FolderPlus,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
+import { flushSync } from 'react-dom';
+import { Popover } from 'radix-ui';
+import {
+  ChevronDown,
   FolderGit2,
   FolderSymlink,
   GitBranch,
-  GitCompare,
-  GitMerge,
-  Lock,
-  MoreHorizontal,
-  Plus,
-  Search,
-  Trash2,
-  Check,
-  ChevronDown,
-  TriangleAlert,
 } from 'lucide-react';
-import { confirm } from '@tauri-apps/plugin-dialog';
 import { useActions } from '../../lib/actions';
-import {
-  attempt,
-  client,
-  freshStatus,
-  perform,
-  queryKey,
-  useBackend,
-  useStatuses,
-} from '../../lib/query';
-import { pull } from '../../lib/pull';
+import { useFormState } from '../../lib/form-state';
+import { useBackend, useStatuses } from '../../lib/query';
 import { switchWorktree } from '../../lib/repository';
-import { applyWorktree, deleteWorktree } from '../../lib/worktree';
-import { normalizeError } from '../../lib/ipc';
-import { overwrittenPaths } from '../../lib/failure';
+import { isDetached, shortHash, scopeKey } from '../../lib/git';
+import type { Status, Worktree } from '../../lib/types';
 import { runs, useCurrentActivity } from '../../stores/activity';
-import { ask } from '../../stores/decision';
 import { useErrors } from '../../stores/errors';
-import type {
-  Branch,
-  SettingsResponse,
-  Status,
-  Worktree,
-} from '../../lib/types';
 import { anchorOf, useProject, type Tab } from '../../stores/tabs';
 import { Button } from '../shared/Button';
-import { createThenSwitch, type CreateMode } from '../../lib/create';
-import { BaseBranchSelect, BranchNameField, CreateFooter } from './BranchForm';
-import { Decision } from '../shared/Decision';
-import { ErrorRetry } from '../states/Errors';
-import { Modal } from '../shared/Modal';
-import { Spinner } from '../shared/Spinner';
 import { BusyIcon } from '../shared/BusyIcon';
-import { VirtualList } from '../shared/VirtualList';
-import {
-  dynamic,
-  errorDot,
-  flyout,
-  menu,
-  menuItem,
-  menuSeparator,
-  mutedLabel,
-  quietIcon,
-  removedInk,
-  searchBox,
-  searchInput,
-} from '../shared/styles';
-import { openCompare } from '../sidebar/CompareSection';
-import { mergeBranch } from '../../lib/merge';
-import { pruneBranches } from '../../lib/prune';
+import { Decision } from '../shared/Decision';
+import { branchActions, worktreeActions } from './branch-actions';
+import { worktreeSet, type Statuses, type WorktreeSet } from './branch-rows';
+import { BranchList } from './BranchList';
+import { closedBranchForm, CreateBranchDialog } from './CreateBranchDialog';
 import { NewWorktree } from './NewWorktree';
-import { baseOrHead, branchRefs, nameProblem } from '../../lib/branch-name';
-import { isDetached, shortHash, scopeKey } from '../../lib/git';
-const WORKTREE_LABEL_GAP = 2;
-type Row =
-  | { kind: 'heading'; heading: string }
-  | { kind: 'worktree'; worktree: Worktree }
-  | { kind: 'branch'; branch: Branch };
-function headLabel(detached: boolean, oid: string, branch: string) {
-  return detached ? `${shortHash(oid)} detached` : branch;
-}
-function WorktreeIcon({ worktree }: { worktree: Worktree }) {
-  const Icon = worktree.main ? FolderGit2 : FolderSymlink;
-  return <Icon className="size-3 shrink-0 text-muted dark:text-muted-dark" />;
-}
-function Marker({
-  worktree,
-  status,
-  busy,
-}: {
-  worktree: Worktree;
-  status?: Status;
-  busy?: string;
-}) {
-  const running = Boolean(useCurrentActivity(worktree.id));
-  const failed = useErrors((state) =>
-    Boolean(state.scopes[worktree.id]?.length),
-  );
-  const count = status?.entries.length ?? 0;
-  if (busy) return busy;
-  if (running)
-    return (
-      <span role="img" aria-label="Git operation running">
-        <Spinner className="size-3 text-accent dark:text-accent-dark" />
-      </span>
-    );
-  if (worktree.missing)
-    return (
-      <>
-        missing
-        <TriangleAlert
-          role="img"
-          aria-label="Folder missing"
-          className="size-3"
-        />
-      </>
-    );
-  if (failed)
-    return <span role="img" aria-label="Errors waiting" className={errorDot} />;
-  if (count)
-    return (
-      <>
-        <span
-          role="img"
-          aria-label="Uncommitted changes"
-          className="size-2 rounded-full bg-modified dark:bg-modified-dark"
-        />
-        <span className="font-mono">{count}</span>
-      </>
-    );
-  if (worktree.locked !== null)
-    return (
-      <span title={worktree.locked || 'Locked'}>
-        <Lock role="img" aria-label="Locked" className="size-3" />
-      </span>
-    );
-  return null;
-}
-interface WorktreeMenuContext {
-  view: string;
-  project: Tab;
-  main?: Worktree;
-  onPick: () => void;
-}
-function WorktreeMenu({
-  worktree,
-  context,
-  changes,
-  disabled,
-}: {
-  worktree: Worktree;
-  context: WorktreeMenuContext;
-  changes: number;
-  disabled: boolean;
-}) {
-  const { view, project, main, onPick } = context;
-  const [open, setOpen] = useState(false);
-  const target = main?.id ?? '';
-  const summary = useBackend(
-    'worktree_summary',
-    { repo: worktree.id, target: target },
-    open && Boolean(main) && !worktree.missing,
-  ).data;
-  const own = useCurrentActivity(worktree.id);
-  const mainActivity = useCurrentActivity(target);
-  const busy = Boolean(own || mainActivity);
-  const empty = Boolean(summary && !summary.ahead && !changes);
-  return (
-    <DropdownMenu.Root modal={false} open={open} onOpenChange={setOpen}>
-      <DropdownMenu.Trigger asChild>
-        <Button aria-label={`Actions for ${worktree.name}`} disabled={disabled}>
-          <MoreHorizontal className="size-3 text-muted dark:text-muted-dark" />
-        </Button>
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          align="end"
-          sideOffset={4}
-          className={`w-60 ${menu}`}
-        >
-          {main && !worktree.missing && (
-            <>
-              <DropdownMenu.Item
-                disabled={busy || empty}
-                title={`Apply all changes to ${main.name} on ${main.branch}`}
-                className={menuItem}
-                onSelect={() => {
-                  onPick();
-                  void applyWorktree(view, worktree, target);
-                }}
-              >
-                <ArrowRightFromLine className="size-3" />
-                Apply to main checkout
-              </DropdownMenu.Item>
-              <DropdownMenu.Separator className={menuSeparator} />
-            </>
-          )}
-          <DropdownMenu.Item
-            disabled={busy}
-            className={`${menuItem} ${removedInk}`}
-            onSelect={() => {
-              onPick();
-              void deleteWorktree(project, worktree, changes);
-            }}
-          >
-            <Trash2 className="size-3" />
-            Delete worktree…
-          </DropdownMenu.Item>
-          {empty && (
-            <p className={`px-3.5 pb-1 pl-10.5 ${mutedLabel}`}>
-              No changes since it split from main
-            </p>
-          )}
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
-  );
-}
+
 const branchCommands = [
   'branch_switch',
   'smart_checkout',
@@ -232,59 +43,11 @@ const branchCommands = [
   'worktree_unapply',
   'worktree_remove',
 ] as const;
-export async function checkout(repo: string, name: string) {
-  try {
-    await attempt('branch_switch', { repo, name });
-    useErrors.getState().resolve(repo, 'branch_switch');
-  } catch (error) {
-    const failure = normalizeError(error);
-    const paths = overwrittenPaths(failure.message);
-    if (
-      failure.message.includes('would be overwritten') &&
-      (await ask(repo, {
-        slot: 'branch',
-        title: `Switch to ${name}?`,
-        body: paths.length
-          ? 'Your changes to these files would be overwritten:'
-          : 'Your local changes would be overwritten.',
-        paths: paths,
-        note: 'GitViewer stashes them, switches, and restores them. If they conflict, it returns to the original branch.',
-        confirm: 'Stash and switch',
-      }))
-    ) {
-      if ((await perform('smart_checkout', { repo, name })) === undefined)
-        return;
-    } else {
-      useErrors.getState().report(repo, failure, { command: 'branch_switch' });
-      return;
-    }
-  }
-  await pullOnCheckout(repo);
-}
-async function pullOnCheckout(repo: string) {
-  const settings = client.getQueryData<SettingsResponse>(
-    queryKey('settings_get', {}),
-  );
-  if (!settings?.pullOnCheckout) return;
-  const status = await freshStatus(repo);
-  if (status.upstream) await pull(repo);
-}
-interface BranchForm {
-  creating: boolean;
-  name: string;
-  base: string;
-}
-const closedBranchForm: BranchForm = { creating: false, name: '', base: '' };
-export function BranchPopover({
-  repo,
-  status,
-  disabled,
-}: {
-  repo: string;
-  status: Status;
-  disabled: boolean;
-}) {
-  const [open, setOpen] = useState(false);
+
+function useOutsideDismiss(
+  open: boolean,
+  setOpen: Dispatch<SetStateAction<boolean>>,
+) {
   const pressedInside = useRef(false);
   useEffect(() => {
     if (!open) return;
@@ -295,597 +58,239 @@ export function BranchPopover({
     };
     document.addEventListener('pointerdown', dismiss);
     return () => document.removeEventListener('pointerdown', dismiss);
-  }, [open]);
-  const markPressedInside = () => {
+  }, [open, setOpen]);
+  return () => {
     pressedInside.current = true;
   };
-  const project = useProject(repo);
-  const members = project?.members ?? [repo];
-  const anchor = project ? anchorOf(project) : repo;
-  const worktreeQuery = useBackend('worktrees', { repo: anchor });
-  const worktrees = worktreeQuery.data ?? [];
-  const linked = worktrees.length > 1;
-  const current = worktrees.find((worktree) => worktree.id === repo);
-  const statuses = useStatuses(members);
-  const othersFailed = useErrors((state) =>
-    members.some((member) => member !== repo && state.scopes[member]?.length),
-  );
-  const othersDirty = members.some(
-    (member) => member !== repo && statuses[member]?.entries.length,
-  );
-  const go = (worktree: Worktree) => {
-    flushSync(() => setOpen(false));
-    if (project) void switchWorktree(project, worktree.id);
-  };
-  const activity = useCurrentActivity(repo);
-  const switching = branchCommands.some((command) => runs(activity, command));
-  const checking = runs(activity, 'branch_gone');
-  const [filter, setFilter] = useState('');
-  const branchForm = useFormState(closedBranchForm);
-  const { creating, name, base } = branchForm.form;
-  const setCreating = (next: boolean) => branchForm.update({ creating: next });
-  const [creatingWorktree, setCreatingWorktree] = useState(false);
-  const main = worktrees.find((worktree) => worktree.main && !worktree.bare);
-  const changesIn = (id: string) => statuses[id]?.entries.length ?? 0;
-  const present = worktrees.filter(
-    (worktree) => !worktree.main && !worktree.missing && !worktree.bare,
-  );
-  const [mode, setMode] = useState<CreateMode>('switch');
-  const query = useBackend('branches', { repo }, open || creating);
-  const all = query.data ?? [];
-  const refs = branchRefs(all);
-  const tracked = all.some((branch) => !branch.remote && branch.upstream);
-  const chosenBase = baseOrHead(base, refs.head);
-  const problem = name ? nameProblem(name, all) : null;
-  const blocked = disabled || !name || Boolean(problem);
-  const branches =
-    query.data?.filter((branch) =>
-      branch.name.toLowerCase().includes(filter.toLowerCase()),
-    ) ?? [];
-  const longest = [
-    ...(query.data ?? []).map((branch) => branch.name.length),
-    ...worktrees.map(
-      (worktree) =>
-        worktree.name.length + worktree.branch.length + WORKTREE_LABEL_GAP,
-    ),
-  ].reduce((widest, length) => Math.max(widest, length), 0);
-  const shownWorktrees = linked
-    ? worktrees.filter((worktree) =>
-        `${worktree.name} ${worktree.branch}`
-          .toLowerCase()
-          .includes(filter.toLowerCase()),
-      )
-    : [];
-  const rows: Row[] = [
-    ...(shownWorktrees.length
-      ? [
-          { kind: 'heading' as const, heading: 'Worktrees' },
-          ...shownWorktrees.map((worktree) => ({
-            kind: 'worktree' as const,
-            worktree: worktree,
-          })),
-        ]
-      : []),
-    ...[false, true].flatMap((remote) => {
-      const group = branches.filter((branch) => branch.remote === remote);
-      return group.length
-        ? [
-            {
-              kind: 'heading' as const,
-              heading: remote ? 'Remote branches' : 'Local branches',
-            },
-            ...group.map((branch) => ({
-              kind: 'branch' as const,
-              branch: branch,
-            })),
-          ]
-        : [];
-    }),
-  ];
-  const holderOf = (branch: Branch) =>
-    branch.worktree && branch.worktree !== repo
-      ? worktrees.find((worktree) => worktree.id === branch.worktree)
-      : undefined;
-  const filterLabel = linked
-    ? 'Filter worktrees and branches'
-    : 'Filter branches';
-  useActions(scopeKey(repo, 'branches'), [
-    {
-      id: 'branches',
-      icon: <GitBranch className="size-3.5" />,
-      label: 'Switch branch',
-      key: 'Mod+b',
-      disabled: disabled,
-      run: () => setOpen(true),
-    },
-    {
-      id: 'new-branch',
-      icon: <Plus className="size-3.5" />,
-      label: 'Create branch',
-      key: 'Mod+Shift+b',
-      disabled: disabled,
-      run: () => setCreating(true),
-    },
-    {
-      id: 'merge-branch',
-      icon: <GitMerge className="size-3.5" />,
-      label: 'Merge a branch',
-      key: 'Mod+Alt+m',
-      disabled: disabled,
-      run: () => setOpen(true),
-    },
-    {
-      id: 'delete-branch',
-      icon: <Trash2 className="size-3.5" />,
-      label: 'Choose branch to delete',
-      key: 'Mod+Alt+x',
-      disabled: disabled,
-      run: () => setOpen(true),
-    },
-    {
-      id: 'prune-branches',
-      icon: <Eraser className="size-3.5" />,
-      label: 'Prune local branches',
-      key: '',
-      disabled: disabled,
-      run: () => void pruneBranches(repo, status.branch),
-    },
-    {
-      id: 'new-worktree',
-      icon: <FolderPlus className="size-3.5" />,
-      label: 'Create worktree…',
-      key: '',
-      disabled: disabled,
-      run: () => setCreatingWorktree(true),
-    },
-  ]);
-  useActions(
-    scopeKey(repo, 'worktrees'),
-    linked
-      ? [
-          {
-            id: 'worktrees',
-            icon: <FolderSymlink className="size-3.5" />,
-            label: 'Switch worktree…',
-            key: '',
-            run: () => setOpen(true),
-          },
-          ...worktrees
-            .filter(
-              (worktree) =>
-                worktree.id !== repo && !worktree.missing && !worktree.bare,
-            )
-            .map((worktree) => ({
-              id: `worktree:${worktree.id}`,
-              icon: <FolderSymlink className="size-3.5" />,
-              label: `Switch to worktree ${worktree.name}`,
-              key: '',
-              run: () => go(worktree),
-            })),
-          ...(main
-            ? present.map((worktree) => ({
-                id: `apply:${worktree.id}`,
-                icon: <ArrowRightFromLine className="size-3.5" />,
-                label: `Apply worktree ${worktree.name} to main`,
-                key: '',
-                run: () => void applyWorktree(repo, worktree, main.id),
-              }))
-            : []),
-          ...(project && current && present.includes(current)
-            ? [
-                {
-                  id: 'delete-worktree',
-                  icon: <Trash2 className="size-3.5" />,
-                  label: 'Delete worktree…',
-                  key: '',
-                  run: () =>
-                    void deleteWorktree(project, current, changesIn(repo)),
-                },
-              ]
-            : []),
-        ]
-      : [],
-  );
+}
+function branchLabel(status: Status) {
+  if (isDetached(status.branch)) return `${shortHash(status.oid)} · detached`;
+  return status.branch || 'Branch';
+}
+function CurrentWorktree({ worktrees }: { worktrees: WorktreeSet }) {
+  const { linked, current } = worktrees;
+  if (!linked || !current) return null;
+  const Icon = current.main ? FolderGit2 : FolderSymlink;
   return (
     <>
-      <Popover.Root open={open} onOpenChange={setOpen}>
-        <span
-          className="relative flex"
-          onPointerDownCapture={markPressedInside}
-        >
-          <Popover.Trigger asChild>
-            <Button aria-busy={switching} variant="standard" className="h-8">
-              {linked && current && (
-                <>
-                  {current.main ? (
-                    <FolderGit2 className="size-4 text-muted dark:text-muted-dark" />
-                  ) : (
-                    <FolderSymlink className="size-4 text-muted dark:text-muted-dark" />
-                  )}
-                  <span className="max-w-28 truncate">{current.name}</span>
-                  <span className="text-muted dark:text-muted-dark">/</span>
-                </>
-              )}
-              <BusyIcon busy={switching} icon={GitBranch} />
-              {isDetached(status.branch)
-                ? `${shortHash(status.oid)} · detached`
-                : status.branch || 'Branch'}
-              <ChevronDown className="size-3 text-muted dark:text-muted-dark" />
-            </Button>
-          </Popover.Trigger>
-          {linked && (othersFailed || othersDirty) && (
-            <span
-              role="img"
-              aria-label={
-                othersFailed
-                  ? 'Errors waiting in another worktree'
-                  : 'Another worktree has uncommitted changes'
-              }
-              className={`pointer-events-none absolute -top-0.5 -right-0.5 size-1.5 rounded-full ${othersFailed ? 'bg-error-ink dark:bg-error-ink-dark' : 'bg-modified dark:bg-modified-dark'}`}
-            />
-          )}
-          <Decision repo={repo} slot="branch" className="inset-0" />
-        </span>
-        <Popover.Portal>
-          <Popover.Content
-            onPointerDownCapture={markPressedInside}
-            align="start"
-            style={dynamic({
-              '--branches-name-width': `${longest}ch`,
-            })}
-            className={`z-30 flex h-96 w-branches flex-col p-2 ${flyout}`}
-          >
-            <label className={`mb-2 h-7 ${searchBox}`}>
-              <Search className="size-3.5 shrink-0 text-muted dark:text-muted-dark" />
-              <TextInput
-                aria-label={filterLabel}
-                className={searchInput}
-                placeholder={filterLabel}
-                value={filter}
-                onChange={(event) => setFilter(event.target.value)}
-              />
-            </label>
-            <ErrorRetry label="Could not load branches" query={query} />
-            <VirtualList
-              label="Branches"
-              items={rows}
-              height={30}
-              render={(row) => {
-                if (row.kind === 'heading')
-                  return (
-                    <div className="flex h-group items-center gap-2 px-2">
-                      <h3 className="flex-1 text-label font-semibold text-muted dark:text-muted-dark">
-                        {row.heading}
-                      </h3>
-                      {row.heading === 'Local branches' && tracked && (
-                        <Button
-                          title="Check the remote and delete local branches whose remote branch was deleted"
-                          aria-busy={checking}
-                          disabled={disabled || switching}
-                          className={`h-5 text-label ${quietIcon}`}
-                          onClick={() =>
-                            void pruneBranches(repo, status.branch)
-                          }
-                        >
-                          <BusyIcon
-                            busy={checking}
-                            icon={Eraser}
-                            className="size-3"
-                          />
-                          {checking ? 'Checking remote…' : 'Prune'}
-                        </Button>
-                      )}
-                    </div>
-                  );
-                if (row.kind === 'worktree') {
-                  const { worktree } = row;
-                  const status = statuses[worktree.id];
-                  const busy = runs(activity, 'worktree_remove', {
-                    worktree: worktree.id,
-                  })
-                    ? 'Deleting…'
-                    : runs(activity, 'worktree_apply', { source: worktree.id })
-                      ? 'Applying…'
-                      : undefined;
-                  return (
-                    <div className="flex h-section items-center">
-                      <Button
-                        title={worktree.id}
-                        disabled={
-                          worktree.id === repo ||
-                          worktree.missing ||
-                          worktree.bare ||
-                          Boolean(busy)
-                        }
-                        className="min-w-0 flex-1 justify-start"
-                        onClick={() => go(worktree)}
-                      >
-                        <Check
-                          className={`size-3 shrink-0 ${worktree.id === repo ? '' : 'opacity-0'}`}
-                        />
-                        <WorktreeIcon worktree={worktree} />
-                        <span className="truncate">{worktree.name}</span>
-                        <span className="truncate font-mono text-badge text-muted dark:text-muted-dark">
-                          {worktree.bare
-                            ? 'bare'
-                            : status
-                              ? headLabel(
-                                  isDetached(status.branch),
-                                  status.oid,
-                                  status.branch,
-                                )
-                              : headLabel(
-                                  worktree.detached,
-                                  worktree.oid,
-                                  worktree.branch,
-                                )}
-                        </span>
-                        <span
-                          className={`ml-auto flex shrink-0 items-center gap-1.5 ${mutedLabel}`}
-                        >
-                          <Marker
-                            worktree={worktree}
-                            status={status}
-                            busy={busy}
-                          />
-                        </span>
-                      </Button>
-                      {project &&
-                      (present.includes(worktree) ||
-                        (worktree.missing && !worktree.main)) ? (
-                        <WorktreeMenu
-                          worktree={worktree}
-                          context={{
-                            view: repo,
-                            project: project,
-                            main: main,
-                            onPick: () => setOpen(false),
-                          }}
-                          changes={changesIn(worktree.id)}
-                          disabled={Boolean(busy)}
-                        />
-                      ) : (
-                        <span aria-hidden className="w-7 shrink-0" />
-                      )}
-                    </div>
-                  );
-                }
-                const { branch } = row;
-                const holder = holderOf(branch);
-                return (
-                  <div className="flex h-section items-center">
-                    <Button
-                      disabled={
-                        disabled || branch.current || Boolean(holder?.missing)
-                      }
-                      className="min-w-0 flex-1 justify-start"
-                      onClick={() => {
-                        if (holder) go(holder);
-                        else {
-                          setOpen(false);
-                          void checkout(repo, branch.name);
-                        }
-                      }}
-                    >
-                      <Check
-                        className={`size-3 ${branch.current ? '' : 'opacity-0'}`}
-                      />
-                      <span className="truncate">{branch.name}</span>
-                      {branch.default && (
-                        <span className="shrink-0 rounded-full border border-line bg-sub px-1.5 text-badge text-muted dark:border-line-dark dark:bg-sub-dark dark:text-muted-dark">
-                          default
-                        </span>
-                      )}
-                      <span className="ml-auto flex items-center gap-1.5 text-label text-muted">
-                        {holder ? (
-                          <>
-                            in {holder.name}
-                            <WorktreeIcon worktree={holder} />
-                          </>
-                        ) : branch.remote ? (
-                          'remote'
-                        ) : branch.gone ? (
-                          <span className="text-merge-ink dark:text-merge-ink-dark">
-                            remote deleted
-                          </span>
-                        ) : (
-                          'local'
-                        )}
-                      </span>
-                    </Button>
-                    <Button
-                      title={`Compare with ${branch.name}`}
-                      disabled={branch.current}
-                      onClick={() => {
-                        setOpen(false);
-                        openCompare(repo, {
-                          compareBase: branch.name,
-                          compareTarget: status.branch,
-                        });
-                      }}
-                    >
-                      <GitCompare className="size-3 text-muted dark:text-muted-dark" />
-                    </Button>
-                    <DropdownMenu.Root modal={false}>
-                      <DropdownMenu.Trigger asChild>
-                        <Button aria-label={`Actions for ${branch.name}`}>
-                          <MoreHorizontal className="size-3 text-muted dark:text-muted-dark" />
-                        </Button>
-                      </DropdownMenu.Trigger>
-                      <DropdownMenu.Portal>
-                        <DropdownMenu.Content
-                          align="end"
-                          sideOffset={4}
-                          className={`w-60 ${menu}`}
-                        >
-                          <DropdownMenu.Item
-                            disabled={disabled || branch.current}
-                            className={menuItem}
-                            title={`Merge into ${status.branch}`}
-                            onSelect={() => {
-                              setOpen(false);
-                              void mergeBranch({
-                                repo: repo,
-                                name: branch.name,
-                                current: status.branch,
-                              });
-                            }}
-                          >
-                            <GitMerge className="size-3 shrink-0" />
-                            <span className="truncate">
-                              Merge into {status.branch}
-                            </span>
-                          </DropdownMenu.Item>
-                          <DropdownMenu.Item
-                            disabled={branch.current}
-                            className={menuItem}
-                            title={`Compare with ${status.branch}`}
-                            onSelect={() => {
-                              setOpen(false);
-                              openCompare(repo, {
-                                compareBase: branch.name,
-                                compareTarget: status.branch,
-                              });
-                            }}
-                          >
-                            <GitCompare className="size-3 shrink-0" />
-                            <span className="truncate">
-                              Compare with {status.branch}
-                            </span>
-                          </DropdownMenu.Item>
-                          <DropdownMenu.Separator className={menuSeparator} />
-                          <DropdownMenu.Item
-                            disabled={
-                              disabled ||
-                              branch.current ||
-                              branch.default ||
-                              Boolean(holder)
-                            }
-                            className={`${menuItem} ${removedInk}`}
-                            onSelect={() => {
-                              void confirm(
-                                `Delete ${branch.name}? Unmerged commits will be lost.`,
-                                { title: 'Delete branch', kind: 'warning' },
-                              ).then((approved) => {
-                                if (approved)
-                                  void perform('branch_delete', {
-                                    repo: repo,
-                                    name: branch.name,
-                                  });
-                              });
-                            }}
-                          >
-                            <Trash2 className="size-3 shrink-0" />
-                            Delete branch
-                          </DropdownMenu.Item>
-                          {holder && (
-                            <p className={`px-3.5 pb-1 pl-10.5 ${mutedLabel}`}>
-                              Checked out in {holder.name}
-                            </p>
-                          )}
-                        </DropdownMenu.Content>
-                      </DropdownMenu.Portal>
-                    </DropdownMenu.Root>
-                  </div>
-                );
-              }}
-            />
-            <div className="mt-2 flex gap-1.5 border-t border-line pt-2 dark:border-line-dark">
-              <Button
-                variant="standard"
-                disabled={disabled}
-                onClick={() => {
-                  setOpen(false);
-                  setCreating(true);
-                }}
-              >
-                <Plus className="size-3" />
-                New branch
-              </Button>
-              <Button
-                variant="standard"
-                disabled={disabled}
-                onClick={() => {
-                  setOpen(false);
-                  setCreatingWorktree(true);
-                }}
-              >
-                <FolderPlus className="size-3" />
-                New worktree
-              </Button>
-              {worktrees.some((worktree) => worktree.prunable) && (
-                <Button
-                  disabled={disabled}
-                  onClick={() =>
-                    void perform('worktree_prune', { repo: anchor })
-                  }
-                >
-                  <Eraser className="size-3" />
-                  Prune missing
-                </Button>
-              )}
-            </div>
-          </Popover.Content>
-        </Popover.Portal>
-      </Popover.Root>
-      <Modal
-        title="New branch"
-        focusId="new-branch-name"
-        open={creating}
-        onOpenChange={setCreating}
-        footer={
-          <CreateFooter
-            form="new-branch-form"
-            mode={mode}
-            disabled={blocked}
-            optionsLabel="Create options"
-            onMode={setMode}
-            onCancel={() => setCreating(false)}
-          />
-        }
-      >
-        <form
-          id="new-branch-form"
-          className="flex flex-col gap-4"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            if (blocked) return;
-            await createThenSwitch({
-              mode: mode,
-              create: () =>
-                perform('branch_create', {
-                  repo: repo,
-                  name: name,
-                  base: chosenBase,
-                  checkout: false,
-                }),
-              finish: branchForm.reset,
-              switchTo: () => checkout(repo, name),
-            });
+      <Icon className="size-4 text-muted dark:text-muted-dark" />
+      <span className="max-w-28 truncate">{current.name}</span>
+      <span className="text-muted dark:text-muted-dark">/</span>
+    </>
+  );
+}
+interface OtherWorktrees {
+  repo: string;
+  members: string[];
+  statuses: Statuses;
+}
+function useOthersState({ repo, members, statuses }: OtherWorktrees) {
+  const others = members.filter((member) => member !== repo);
+  const failed = useErrors((state) =>
+    others.some((member) => state.scopes[member]?.length),
+  );
+  const dirty = others.some((member) => statuses[member]?.entries.length);
+  return { failed: failed, dirty: dirty };
+}
+function OthersBadge({ others }: { others: OtherWorktrees }) {
+  const { failed, dirty } = useOthersState(others);
+  if (!failed && !dirty) return null;
+  return (
+    <span
+      role="img"
+      aria-label={
+        failed
+          ? 'Errors waiting in another worktree'
+          : 'Another worktree has uncommitted changes'
+      }
+      className={`pointer-events-none absolute -top-0.5 -right-0.5 size-1.5 rounded-full ${failed ? 'bg-error-ink dark:bg-error-ink-dark' : 'bg-modified dark:bg-modified-dark'}`}
+    />
+  );
+}
+function BranchTrigger({
+  status,
+  switching,
+  worktrees,
+  others,
+  onPressInside,
+}: {
+  status: Status;
+  switching: boolean;
+  worktrees: WorktreeSet;
+  others: OtherWorktrees;
+  onPressInside: () => void;
+}) {
+  return (
+    <span className="relative flex" onPointerDownCapture={onPressInside}>
+      <Popover.Trigger asChild>
+        <Button aria-busy={switching} variant="standard" className="h-8">
+          <CurrentWorktree worktrees={worktrees} />
+          <BusyIcon busy={switching} icon={GitBranch} />
+          {branchLabel(status)}
+          <ChevronDown className="size-3 text-muted dark:text-muted-dark" />
+        </Button>
+      </Popover.Trigger>
+      {worktrees.linked && <OthersBadge others={others} />}
+      <Decision repo={others.repo} slot="branch" className="inset-0" />
+    </span>
+  );
+}
+function useWorktrees(repo: string, project?: Tab) {
+  const anchor = project ? anchorOf(project) : repo;
+  const query = useBackend('worktrees', { repo: anchor });
+  return { anchor: anchor, worktrees: worktreeSet(query.data ?? [], repo) };
+}
+interface BranchPopoverProps {
+  repo: string;
+  status: Status;
+  disabled: boolean;
+}
+function useBranchState(repo: string) {
+  const [open, setOpen] = useState(false);
+  const markPressedInside = useOutsideDismiss(open, setOpen);
+  const project = useProject(repo);
+  const members = project?.members ?? [repo];
+  const located = useWorktrees(repo, project);
+  const activity = useCurrentActivity(repo);
+  const [filter, setFilter] = useState('');
+  const branchForm = useFormState(closedBranchForm);
+  const [creatingWorktree, setCreatingWorktree] = useState(false);
+  const listed = open || branchForm.form.creating;
+  return {
+    open: open,
+    setOpen: setOpen,
+    markPressedInside: markPressedInside,
+    project: project,
+    members: members,
+    anchor: located.anchor,
+    worktrees: located.worktrees,
+    statuses: useStatuses(members),
+    activity: activity,
+    switching: branchCommands.some((command) => runs(activity, command)),
+    filter: filter,
+    setFilter: setFilter,
+    branchForm: branchForm,
+    creatingWorktree: creatingWorktree,
+    setCreatingWorktree: setCreatingWorktree,
+    query: useBackend('branches', { repo }, listed),
+  };
+}
+type BranchState = ReturnType<typeof useBranchState>;
+function useBranchControls(state: BranchState) {
+  const close = () => state.setOpen(false);
+  return {
+    close: close,
+    openList: () => state.setOpen(true),
+    createBranch: () => state.branchForm.update({ creating: true }),
+    createWorktree: () => state.setCreatingWorktree(true),
+    go: (worktree: Worktree) => {
+      flushSync(close);
+      if (state.project) void switchWorktree(state.project, worktree.id);
+    },
+  };
+}
+type BranchControls = ReturnType<typeof useBranchControls>;
+function useBranchCommands(
+  props: BranchPopoverProps,
+  state: BranchState,
+  controls: BranchControls,
+) {
+  const { repo } = props;
+  useActions(
+    scopeKey(repo, 'branches'),
+    branchActions({
+      repo: repo,
+      branch: props.status.branch,
+      disabled: props.disabled,
+      openList: controls.openList,
+      createBranch: controls.createBranch,
+      createWorktree: controls.createWorktree,
+    }),
+  );
+  useActions(
+    scopeKey(repo, 'worktrees'),
+    worktreeActions({
+      repo: repo,
+      project: state.project,
+      worktrees: state.worktrees,
+      statuses: state.statuses,
+      openList: controls.openList,
+      go: controls.go,
+    }),
+  );
+}
+function BranchFlyout({
+  props,
+  state,
+  controls,
+}: {
+  props: BranchPopoverProps;
+  state: BranchState;
+  controls: BranchControls;
+}) {
+  return (
+    <Popover.Portal>
+      <BranchList
+        context={{
+          ...props,
+          project: state.project,
+          anchor: state.anchor,
+          worktrees: state.worktrees,
+          statuses: state.statuses,
+          activity: state.activity,
+          close: controls.close,
+          go: controls.go,
+        }}
+        query={state.query}
+        switching={state.switching}
+        filter={state.filter}
+        onFilter={state.setFilter}
+        onCreate={() => {
+          controls.close();
+          controls.createBranch();
+        }}
+        onCreateWorktree={() => {
+          controls.close();
+          controls.createWorktree();
+        }}
+        onPressInside={state.markPressedInside}
+      />
+    </Popover.Portal>
+  );
+}
+export function BranchPopover(props: BranchPopoverProps) {
+  const { repo, status, disabled } = props;
+  const state = useBranchState(repo);
+  const controls = useBranchControls(state);
+  useBranchCommands(props, state, controls);
+  return (
+    <>
+      <Popover.Root open={state.open} onOpenChange={state.setOpen}>
+        <BranchTrigger
+          status={status}
+          switching={state.switching}
+          worktrees={state.worktrees}
+          others={{
+            repo: repo,
+            members: state.members,
+            statuses: state.statuses,
           }}
-        >
-          <BranchNameField
-            id="new-branch-name"
-            hintId="new-branch-hint"
-            label="Name"
-            value={name}
-            problem={problem}
-            onChange={(next) => branchForm.update({ name: next })}
-          />
-          <BaseBranchSelect
-            label="Based on"
-            value={chosenBase}
-            refs={refs}
-            onChange={(next) => branchForm.update({ base: next })}
-          />
-        </form>
-      </Modal>
+          onPressInside={state.markPressedInside}
+        />
+        <BranchFlyout props={props} state={state} controls={controls} />
+      </Popover.Root>
+      <CreateBranchDialog
+        repo={repo}
+        disabled={disabled}
+        form={state.branchForm}
+        branches={state.query.data ?? []}
+      />
       <NewWorktree
         repo={repo}
-        project={project}
-        open={creatingWorktree}
+        project={state.project}
+        open={state.creatingWorktree}
         disabled={disabled}
-        onOpenChange={setCreatingWorktree}
+        onOpenChange={state.setCreatingWorktree}
       />
     </>
   );

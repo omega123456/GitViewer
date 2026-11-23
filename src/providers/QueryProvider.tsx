@@ -6,23 +6,24 @@ import { activeTab, activeView, anchorOf } from '../stores/tabs';
 function refresh(repo: string) {
   void perform('refresh', { repo }, { run: invoke });
 }
+function refreshActive() {
+  const tab = activeTab();
+  if (!tab) return;
+  const view = activeView();
+  refresh(view);
+  if (anchorOf(tab) !== view) refresh(anchorOf(tab));
+}
 export function QueryProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let disposed = false;
     let stop: (() => void) | undefined;
     void connectEvents()
       .then((cleanup) => {
-        if (disposed) cleanup();
-        else stop = cleanup;
+        if (disposed) return cleanup();
+        stop = cleanup;
       })
       .catch(reportAppError);
-    const focus = () => {
-      const tab = activeTab();
-      if (!tab) return;
-      const view = activeView();
-      refresh(view);
-      if (anchorOf(tab) !== view) refresh(anchorOf(tab));
-    };
+    const focus = () => refreshActive();
     window.addEventListener('focus', focus);
     return () => {
       disposed = true;

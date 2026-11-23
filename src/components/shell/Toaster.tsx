@@ -24,8 +24,11 @@ type ShownToasts = Map<number, ToastHandle>;
 function release(shown: ShownToasts, entry: ToastEntry) {
   const { scope, id } = entry;
   if (!shown.delete(id)) return;
-  if ('notice' in entry) useSuccesses.getState().dismiss(scope, id);
-  else useErrors.getState().dismiss(scope, id);
+  if ('notice' in entry) {
+    useSuccesses.getState().dismiss(scope, id);
+    return;
+  }
+  useErrors.getState().dismiss(scope, id);
 }
 function publish(
   shown: ShownToasts,
@@ -196,35 +199,37 @@ function FailureCard({
     </NoticeCard>
   );
 }
+function noticeTone(notice: Notice): Tone {
+  if (notice.warning) return 'caution';
+  if (notice.info) return 'info';
+  return 'success';
+}
+function noticeAction(scope: string, notice: Notice) {
+  const { restore, unapply, show } = notice;
+  if (restore)
+    return () => perform('stash_restore', { repo: scope, ...restore });
+  if (unapply) return () => unapplyWorktree(scope, unapply);
+  if (show) return () => showWorktree(show);
+  return null;
+}
+function NoticeGlyph({ notice }: { notice: Notice }) {
+  if (notice.pending) return <Spinner className="size-2.5" />;
+  if (notice.warning) return '!';
+  if (notice.info) return 'i';
+  return <Check className="size-2.5" strokeWidth={3} />;
+}
 function SuccessCard({ scope, initial }: { scope: string; initial: Notice }) {
   const notice =
     useSuccesses((state) =>
       state.scopes[scope]?.find((notice) => notice.id === initial.id),
     ) ?? initial;
   const dismiss = () => useSuccesses.getState().dismiss(scope, initial.id);
-  const { restore, unapply, show, info, warning, pending } = notice;
-  const tone: Tone = warning ? 'caution' : info ? 'info' : 'success';
-  const action = restore
-    ? () => perform('stash_restore', { repo: scope, ...restore })
-    : unapply
-      ? () => unapplyWorktree(scope, unapply)
-      : show
-        ? () => showWorktree(show)
-        : null;
+  const { show } = notice;
+  const action = noticeAction(scope, notice);
   return (
     <NoticeCard
-      tone={tone}
-      glyph={
-        pending ? (
-          <Spinner className="size-2.5" />
-        ) : warning ? (
-          '!'
-        ) : info ? (
-          'i'
-        ) : (
-          <Check className="size-2.5" strokeWidth={3} />
-        )
-      }
+      tone={noticeTone(notice)}
+      glyph={<NoticeGlyph notice={notice} />}
       heading={notice.title}
       text={notice.description || undefined}
       dismissLabel="Dismiss"

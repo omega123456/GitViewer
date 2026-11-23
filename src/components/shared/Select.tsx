@@ -11,6 +11,96 @@ import {
   standard,
   selectedRow,
 } from './styles';
+interface SelectGroup<T extends string> {
+  label: string;
+  options: T[];
+}
+interface OptionDisplay<T extends string> {
+  value: T;
+  badges: Partial<Record<T, string>>;
+  labels: Partial<Record<T, string>>;
+  mono?: boolean;
+}
+function monoClass(mono?: boolean) {
+  return mono ? 'font-mono text-diff' : '';
+}
+function SelectedValue<T extends string>({
+  display,
+}: {
+  display: OptionDisplay<T>;
+}) {
+  const { value, badges, labels, mono } = display;
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <span className={`truncate ${monoClass(mono)}`}>
+        {labels[value] ?? value}
+      </span>
+      {badges[value] && (
+        <span className="shrink-0 rounded-full bg-selected px-1.5 text-label font-semibold text-accent dark:bg-selected-dark dark:text-accent-dark">
+          {badges[value]}
+        </span>
+      )}
+    </span>
+  );
+}
+function SelectOption<T extends string>({
+  option,
+  display,
+}: {
+  option: T;
+  display: OptionDisplay<T>;
+}) {
+  const { value, badges, labels, mono } = display;
+  const chosen = option === value;
+  return (
+    <RadixSelect.Item
+      value={option}
+      className={`${selectItem} ${monoClass(mono)} ${chosen ? selectedRow : ''}`}
+    >
+      {chosen && <span className={pill} />}
+      <span className="min-w-0 truncate">
+        <RadixSelect.ItemText>{labels[option] ?? option}</RadixSelect.ItemText>
+      </span>
+      {badges[option] && (
+        <span className="ml-auto shrink-0 pl-3 font-sans text-label text-faint dark:text-faint-dark">
+          {badges[option]}
+        </span>
+      )}
+    </RadixSelect.Item>
+  );
+}
+function SelectOptions<T extends string>({
+  groups,
+  display,
+}: {
+  groups: SelectGroup<T>[];
+  display: OptionDisplay<T>;
+}) {
+  return (
+    <RadixSelect.Portal>
+      <RadixSelect.Content
+        position="popper"
+        sideOffset={4}
+        className={`z-50 max-h-select-height w-select-width overflow-hidden ${flyout}`}
+      >
+        <RadixSelect.Viewport className="py-0.5">
+          {groups.map((group) => (
+            <RadixSelect.Group key={group.label}>
+              {group.label && (
+                <RadixSelect.Label className="px-3.5 pt-1.5 pb-0.5 text-label font-semibold text-muted dark:text-muted-dark">
+                  {group.label}
+                </RadixSelect.Label>
+              )}
+              {group.options.map((option) => (
+                <SelectOption key={option} option={option} display={display} />
+              ))}
+            </RadixSelect.Group>
+          ))}
+        </RadixSelect.Viewport>
+      </RadixSelect.Content>
+    </RadixSelect.Portal>
+  );
+}
 export function Select<T extends string>({
   value,
   options = [],
@@ -26,7 +116,7 @@ export function Select<T extends string>({
 }: {
   value: T;
   options?: T[];
-  groups?: { label: string; options: T[] }[];
+  groups?: SelectGroup<T>[];
   badges?: Partial<Record<T, string>>;
   labels?: Partial<Record<T, string>>;
   icon?: ReactNode;
@@ -37,6 +127,7 @@ export function Select<T extends string>({
   onChange: (value: T) => void;
 }) {
   const choices = groups.flatMap((group) => group.options);
+  const display = { value: value, badges: badges, labels: labels, mono: mono };
   return (
     <RadixSelect.Root
       value={value || undefined}
@@ -49,59 +140,13 @@ export function Select<T extends string>({
       >
         {icon}
         <RadixSelect.Value placeholder={placeholder}>
-          <span className="flex min-w-0 items-center gap-2">
-            <span className={`truncate ${mono ? 'font-mono text-diff' : ''}`}>
-              {labels[value] ?? value}
-            </span>
-            {badges[value] && (
-              <span className="shrink-0 rounded-full bg-selected px-1.5 text-label font-semibold text-accent dark:bg-selected-dark dark:text-accent-dark">
-                {badges[value]}
-              </span>
-            )}
-          </span>
+          <SelectedValue display={display} />
         </RadixSelect.Value>
         <RadixSelect.Icon className="ml-auto shrink-0 text-muted dark:text-muted-dark">
           <ChevronDown className="size-3" />
         </RadixSelect.Icon>
       </RadixSelect.Trigger>
-      <RadixSelect.Portal>
-        <RadixSelect.Content
-          position="popper"
-          sideOffset={4}
-          className={`z-50 max-h-select-height w-select-width overflow-hidden ${flyout}`}
-        >
-          <RadixSelect.Viewport className="py-0.5">
-            {groups.map((group) => (
-              <RadixSelect.Group key={group.label}>
-                {group.label && (
-                  <RadixSelect.Label className="px-3.5 pt-1.5 pb-0.5 text-label font-semibold text-muted dark:text-muted-dark">
-                    {group.label}
-                  </RadixSelect.Label>
-                )}
-                {group.options.map((option) => (
-                  <RadixSelect.Item
-                    key={option}
-                    value={option}
-                    className={`${selectItem} ${mono ? 'font-mono text-diff' : ''} ${option === value ? selectedRow : ''}`}
-                  >
-                    {option === value && <span className={pill} />}
-                    <span className="min-w-0 truncate">
-                      <RadixSelect.ItemText>
-                        {labels[option] ?? option}
-                      </RadixSelect.ItemText>
-                    </span>
-                    {badges[option] && (
-                      <span className="ml-auto shrink-0 pl-3 font-sans text-label text-faint dark:text-faint-dark">
-                        {badges[option]}
-                      </span>
-                    )}
-                  </RadixSelect.Item>
-                ))}
-              </RadixSelect.Group>
-            ))}
-          </RadixSelect.Viewport>
-        </RadixSelect.Content>
-      </RadixSelect.Portal>
+      <SelectOptions groups={groups} display={display} />
     </RadixSelect.Root>
   );
 }

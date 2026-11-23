@@ -40,6 +40,19 @@ enum CloseState {
     Allowed,
 }
 
+fn decode_session(bytes: &[u8]) -> Session {
+    serde_json::from_slice(bytes).unwrap_or_else(|error| {
+        tracing::warn!(%error, "Unable to read saved session");
+        Session::default()
+    })
+}
+fn unreadable_session(error: &std::io::Error) -> Session {
+    if error.kind() != std::io::ErrorKind::NotFound {
+        tracing::warn!(%error, "Unable to load saved session");
+    }
+    Session::default()
+}
+
 #[derive(Default)]
 pub struct Store {
     state: Mutex<Session>,
@@ -51,16 +64,8 @@ pub struct Store {
 impl Store {
     pub fn load(path: PathBuf) -> Self {
         let state = match std::fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|error| {
-                tracing::warn!(%error, "Unable to read saved session");
-                Session::default()
-            }),
-            Err(error) => {
-                if error.kind() != std::io::ErrorKind::NotFound {
-                    tracing::warn!(%error, "Unable to load saved session");
-                }
-                Session::default()
-            }
+            Ok(bytes) => decode_session(&bytes),
+            Err(error) => unreadable_session(&error),
         };
         Self {
             state: Mutex::new(state),

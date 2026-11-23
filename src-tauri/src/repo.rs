@@ -53,7 +53,8 @@ pub struct Info {
 }
 impl Registry {
     pub async fn open(&self, path: &str) -> Result<Info> {
-        if !git::detect::environment().await.supported {
+        let supported = git::detect::environment().await.supported;
+        if !supported {
             return Err(Error::new(
                 "missing_git",
                 format!("Git {MINIMUM_GIT_VERSION} or newer is required"),
@@ -192,15 +193,10 @@ impl Repo {
         .await
         .and_then(|output| output.accept(&[git::EXIT_SUCCESS]))
         .and_then(|output| status::parse(&output.bytes));
-        let next = match read {
-            Ok(next) => Status {
-                fetched: last_fetch(&self.common_dir),
-                ..next
-            },
-            Err(error) => {
-                self.stale.store(true, Ordering::SeqCst);
-                return Err(error);
-            }
+        let parsed = read.inspect_err(|_| self.stale.store(true, Ordering::SeqCst))?;
+        let next = Status {
+            fetched: last_fetch(&self.common_dir),
+            ..parsed
         };
         let previous = std::mem::replace(status, Arc::new(next));
         let moved = (&previous.oid, &previous.branch) != (&status.oid, &status.branch);
@@ -208,27 +204,33 @@ impl Repo {
             self.history_stale.store(true, Ordering::SeqCst);
         }
         if status.conflicted {
-            let named = git::run(
-                &self.root,
-                &["name-rev", "--name-only", "--always", "MERGE_HEAD"],
-                None,
-            )
-            .await?
-            .accept(&[git::EXIT_SUCCESS, git::EXIT_FATAL])?;
-            let name = named.text().trim().to_owned();
-            if named.succeeded() && !name.is_empty() {
-                Arc::make_mut(status).merging = Some(
-                    name.strip_prefix("remotes/")
-                        .unwrap_or(name.as_str())
-                        .to_owned(),
-                );
-            }
+            let merging = self.merging_name().await?;
+            Arc::make_mut(status).merging = merging;
         }
         Ok(Reread {
             changed: previous != *status,
             moved,
             status: status.clone(),
         })
+    }
+    async fn merging_name(&self) -> Result<Option<String>> {
+        let named = git::run(
+            &self.root,
+            &["name-rev", "--name-only", "--always", "MERGE_HEAD"],
+            None,
+        )
+        .await?
+        .accept(&[git::EXIT_SUCCESS, git::EXIT_FATAL])?;
+        let name = named.text().trim().to_owned();
+        let has_name = named.succeeded() && !name.is_empty();
+        if !has_name {
+            return Ok(None);
+        }
+        Ok(Some(
+            name.strip_prefix(REMOTES_PREFIX)
+                .unwrap_or(name.as_str())
+                .to_owned(),
+        ))
     }
     pub async fn reread(&self) -> Result<Reread> {
         let mut status = self.status.lock().await;
@@ -255,12 +257,7 @@ impl Repo {
     }
     pub fn path(&self, relative: &str) -> Result<PathBuf> {
         let full = self.root.join(inside(relative)?);
-        let mut ancestor = full.as_path();
-        while !ancestor.exists() {
-            ancestor = ancestor
-                .parent()
-                .ok_or_else(|| Error::refused("Invalid path"))?;
-        }
+        let ancestor = existing_ancestor(&full)?;
         contained(&self.root, &std::fs::canonicalize(ancestor)?)?;
         Ok(full)
     }
@@ -271,29 +268,42 @@ impl Repo {
         }
     }
 }
+const REMOTES_PREFIX: &str = "remotes/";
+fn existing_ancestor(path: &Path) -> Result<&Path> {
+    let mut ancestor = path;
+    while !ancestor.exists() {
+        ancestor = ancestor
+            .parent()
+            .ok_or_else(|| Error::refused("Invalid path"))?;
+    }
+    Ok(ancestor)
+}
+fn leaves_tree(component: Component<'_>) -> bool {
+    !matches!(component, Component::Normal(_) | Component::CurDir)
+}
+fn names_git_directory(component: Component<'_>) -> bool {
+    component
+        .as_os_str()
+        .to_string_lossy()
+        .eq_ignore_ascii_case(git::DOT_GIT)
+}
+fn escapes_working_tree(path: &Path) -> bool {
+    let leaves = path.components().any(leaves_tree);
+    let enters_git = path.components().any(names_git_directory);
+    path.is_absolute() || leaves || enters_git
+}
 fn inside(relative: &str) -> Result<&Path> {
     let path = Path::new(relative);
-    if path.is_absolute()
-        || path
-            .components()
-            .any(|component| !matches!(component, Component::Normal(_) | Component::CurDir))
-        || path.components().any(|component| {
-            component
-                .as_os_str()
-                .to_string_lossy()
-                .eq_ignore_ascii_case(git::DOT_GIT)
-        })
-    {
+    if escapes_working_tree(path) {
         return Err(Error::refused("Path must stay within the working tree"));
     }
     Ok(path)
 }
 fn contained(root: &Path, resolved: &Path) -> Result<()> {
-    if resolved.starts_with(root) {
-        Ok(())
-    } else {
-        Err(Error::refused("Symlink points outside the repository"))
+    if !resolved.starts_with(root) {
+        return Err(Error::refused("Symlink points outside the repository"));
     }
+    Ok(())
 }
 pub struct Paths<'a> {
     repo: &'a Repo,
@@ -319,18 +329,12 @@ impl Paths<'_> {
         if linked {
             return self.repo.path(relative);
         }
-        let resolved = if full.exists() {
-            self.directory(parent)?.join(name)
-        } else {
-            let mut ancestor = parent;
-            while !ancestor.exists() {
-                ancestor = ancestor
-                    .parent()
-                    .ok_or_else(|| Error::refused("Invalid path"))?;
-            }
-            self.directory(ancestor)?
-        };
-        contained(&self.repo.root, &resolved)?;
+        if full.exists() {
+            contained(&self.repo.root, &self.directory(parent)?.join(name))?;
+            return Ok(full);
+        }
+        let ancestor = existing_ancestor(parent)?;
+        contained(&self.repo.root, &self.directory(ancestor)?)?;
         Ok(full)
     }
 }
@@ -359,7 +363,8 @@ pub async fn refresh_announced<R: Runtime>(app: &AppHandle<R>, id: &str) -> Resu
     let _write = repo.writes.lock().await;
     let reread = repo.reread().await;
     emit_status_changed(app, id)?;
-    if reread.as_ref().is_ok_and(|reread| reread.moved) {
+    let moved = reread.as_ref().is_ok_and(|reread| reread.moved);
+    if moved {
         emit_head_changed(app, id)?;
     }
     reread?;

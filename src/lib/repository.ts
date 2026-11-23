@@ -17,6 +17,12 @@ export function joinProject(repo: Repository) {
     useLayout.getState().update(repo.id, projectWidths(project.view));
   useTabs.getState().join(repo.project, folderName(repo.project), repo.id);
 }
+async function openPicked(path: string) {
+  const repo = await perform('repo_open', { path });
+  if (!repo) return;
+  seedStatus(repo);
+  useTabs.getState().open(repo.project, folderName(repo.project), repo.id);
+}
 export async function openRepository() {
   try {
     const path = await open({
@@ -24,15 +30,7 @@ export async function openRepository() {
       multiple: false,
       title: 'Open Git repository',
     });
-    if (typeof path === 'string') {
-      const repo = await perform('repo_open', { path });
-      if (repo) {
-        seedStatus(repo);
-        useTabs
-          .getState()
-          .open(repo.project, folderName(repo.project), repo.id);
-      }
-    }
+    if (typeof path === 'string') await openPicked(path);
   } catch (error) {
     reportAppError(error);
   }
@@ -55,22 +53,29 @@ export async function syncMembers(id: string, list: Worktree[]) {
   );
   const tab = tabById(id);
   if (!tab) return;
-  for (const worktree of present)
-    if (!tab.members.includes(worktree.id)) {
-      const repo = await perform('repo_open', { path: worktree.id });
-      if (repo) joinProject(repo);
-    }
-  for (const member of tab.members)
-    if (!present.some((worktree) => worktree.id === member)) {
-      await perform('repo_close', { repo: member });
-      useTabs.getState().leave(id, member);
-      const shown = tabById(id)?.view;
-      if (member === tab.view && shown)
-        announceInfo(shown, 'worktree-missing', {
-          title: `Worktree ${folderName(member)} is missing`,
-          description: `Showing ${folderName(shown)}`,
-        });
-    }
+  const joining = present.filter(
+    (worktree) => !tab.members.includes(worktree.id),
+  );
+  for (const worktree of joining) await joinWorktree(worktree.id);
+  const leaving = tab.members.filter(
+    (member) => !present.some((worktree) => worktree.id === member),
+  );
+  for (const member of leaving) await leaveWorktree(tab, member);
+}
+async function joinWorktree(path: string) {
+  const repo = await perform('repo_open', { path });
+  if (repo) joinProject(repo);
+}
+async function leaveWorktree(tab: Tab, member: string) {
+  await perform('repo_close', { repo: member });
+  useTabs.getState().leave(tab.id, member);
+  const shown = tabById(tab.id)?.view;
+  const wasShown = member === tab.view;
+  if (!wasShown || !shown) return;
+  announceInfo(shown, 'worktree-missing', {
+    title: `Worktree ${folderName(member)} is missing`,
+    description: `Showing ${folderName(shown)}`,
+  });
 }
 function unsavedWork(tab: Tab) {
   const { messages } = useTabs.getState();
@@ -82,17 +87,23 @@ function unsavedWork(tab: Tab) {
     names.length ? `unsaved edits to ${names.join(', ')}` : '',
   ].filter(Boolean);
 }
+async function confirmDiscarding(unsaved: string[]) {
+  if (!unsaved.length) return true;
+  return confirm(
+    `Close this repository and discard ${unsaved.join(' and ')}?`,
+    { title: 'Close repository' },
+  );
+}
+async function closeMembers(tab: Tab) {
+  for (const member of tab.members) {
+    const closed = await perform('repo_close', { repo: member });
+    if (closed === undefined) return false;
+  }
+  return true;
+}
 export async function closeRepository(tab: Tab) {
-  const unsaved = unsavedWork(tab);
-  if (
-    unsaved.length &&
-    !(await confirm(
-      `Close this repository and discard ${unsaved.join(' and ')}?`,
-      { title: 'Close repository' },
-    ))
-  )
-    return;
-  for (const member of tab.members)
-    if ((await perform('repo_close', { repo: member })) === undefined) return;
-  useTabs.getState().close(tab.id);
+  const approved = await confirmDiscarding(unsavedWork(tab));
+  if (!approved) return;
+  const closed = await closeMembers(tab);
+  if (closed) useTabs.getState().close(tab.id);
 }

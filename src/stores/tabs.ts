@@ -90,12 +90,17 @@ export function useActiveView() {
 export function useProject(repo: string) {
   return useTabs((state) => projectIn(state.tabs, repo));
 }
+function tabRank(tab: Tab, active: string, recent: string[]) {
+  if (tab.id === active) return Infinity;
+  const position = recent.indexOf(tab.id);
+  if (position >= 0) return position + 1;
+  return recent.length + 1;
+}
 export function recentTabs({ tabs, recent, active }: Tabs) {
-  const rank = (tab: Tab) =>
-    tab.id === active
-      ? Infinity
-      : recent.indexOf(tab.id) + 1 || recent.length + 1;
-  return [...tabs].sort((left, right) => rank(left) - rank(right));
+  return [...tabs].sort(
+    (left, right) =>
+      tabRank(left, active, recent) - tabRank(right, active, recent),
+  );
 }
 export function anchorOf(tab: Tab) {
   return tab.members.includes(tab.id) ? tab.id : (tab.members[0] ?? '');

@@ -116,11 +116,10 @@ impl Output {
         format!("{}{}", self.text(), self.stderr).trim().to_string()
     }
     pub fn accept(self, codes: &[i32]) -> Result<Self> {
-        if codes.contains(&self.code) {
-            Ok(self)
-        } else {
-            Err(Error::git(self.message()))
+        if !codes.contains(&self.code) {
+            return Err(Error::git(self.message()));
         }
+        Ok(self)
     }
 }
 
@@ -310,6 +309,29 @@ pub async fn ignored<'a>(
     .collect())
 }
 
+const PATHSPEC_COMMANDS: [&str; 8] = [
+    "diff",
+    "diff-files",
+    "add",
+    "rm",
+    "restore",
+    "log",
+    "blame",
+    "diff-tree",
+];
+#[cfg(all(feature = "test-utils", windows))]
+const NULL_DEVICE: &str = "NUL";
+#[cfg(all(feature = "test-utils", not(windows)))]
+const NULL_DEVICE: &str = "/dev/null";
+fn pathspec_flags(arguments: &[&str]) -> &'static [&'static str] {
+    let takes_pathspecs = arguments
+        .first()
+        .is_some_and(|argument| PATHSPEC_COMMANDS.contains(argument));
+    if takes_pathspecs {
+        return &["--literal-pathspecs"];
+    }
+    &[]
+}
 pub fn command(binary: &str, root: &Path, arguments: &[&str]) -> Command {
     let mut command = Command::new(binary);
     command
@@ -321,25 +343,7 @@ pub fn command(binary: &str, root: &Path, arguments: &[&str]) -> Command {
             "-c",
             "color.ui=false",
         ])
-        .args(
-            if arguments.first().is_some_and(|argument| {
-                [
-                    "diff",
-                    "diff-files",
-                    "add",
-                    "rm",
-                    "restore",
-                    "log",
-                    "blame",
-                    "diff-tree",
-                ]
-                .contains(argument)
-            }) {
-                vec!["--literal-pathspecs"]
-            } else {
-                Vec::new()
-            },
-        )
+        .args(pathspec_flags(arguments))
         .args(arguments)
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GCM_INTERACTIVE", "Never")
@@ -358,10 +362,9 @@ pub fn command(binary: &str, root: &Path, arguments: &[&str]) -> Command {
     }
     #[cfg(feature = "test-utils")]
     {
-        command.env("GIT_CONFIG_NOSYSTEM", "1").env(
-            "GIT_CONFIG_GLOBAL",
-            if cfg!(windows) { "NUL" } else { "/dev/null" },
-        );
+        command
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", NULL_DEVICE);
     }
     command
 }

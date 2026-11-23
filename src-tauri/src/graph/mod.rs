@@ -37,72 +37,109 @@ fn position(active: &[Lane], hash: &str) -> Option<usize> {
     active.iter().position(|lane| lane.hash == hash)
 }
 
+#[derive(Clone, Copy)]
+struct Placement {
+    lane: usize,
+    color: usize,
+}
+impl Placement {
+    fn color_toward(&self, parent_index: usize, target: &Lane) -> usize {
+        if parent_index == 0 {
+            return self.color;
+        }
+        target.color
+    }
+}
+
+fn open_lane(active: &mut Vec<Lane>, hash: &str) -> usize {
+    active.push(Lane {
+        hash: hash.to_owned(),
+        color: free_color(active),
+    });
+    active.len() - 1
+}
+fn continue_first_parent(active: &mut Vec<Lane>, parents: &[String], placement: Placement) {
+    let Some(first) = parents.first() else {
+        return;
+    };
+    let waiting = position(active, first);
+    let waits_on_the_left = waiting.is_some_and(|waiting| waiting < placement.lane);
+    if waits_on_the_left {
+        return;
+    }
+    if let Some(waiting) = waiting {
+        active.remove(waiting);
+    }
+    active.insert(
+        placement.lane,
+        Lane {
+            hash: first.clone(),
+            color: placement.color,
+        },
+    );
+}
+fn open_merge_parents(active: &mut Vec<Lane>, parents: &[String], lane: usize) {
+    for (offset, parent) in parents.iter().enumerate().skip(1) {
+        if position(active, parent).is_some() {
+            continue;
+        }
+        let color = free_color(active);
+        active.insert(
+            (lane + offset).min(active.len()),
+            Lane {
+                hash: parent.clone(),
+                color,
+            },
+        );
+    }
+}
+fn passing_segments(before: &[Lane], active: &[Lane], lane: usize) -> Vec<Segment> {
+    before
+        .iter()
+        .enumerate()
+        .filter(|(from, _)| *from != lane)
+        .filter_map(|(from, entry)| {
+            position(active, &entry.hash).map(|to| Segment {
+                from,
+                to,
+                color: entry.color,
+            })
+        })
+        .collect()
+}
+fn parent_segments(active: &[Lane], parents: &[String], placement: Placement) -> Vec<Segment> {
+    parents
+        .iter()
+        .enumerate()
+        .filter_map(|(index, parent)| {
+            position(active, parent).map(|to| Segment {
+                from: placement.lane,
+                to,
+                color: placement.color_toward(index, &active[to]),
+            })
+        })
+        .collect()
+}
+fn place(commit: &mut Commit, active: &mut Vec<Lane>) {
+    let found = position(active, &commit.hash);
+    let lane = found.unwrap_or_else(|| open_lane(active, &commit.hash));
+    let before = active.clone();
+    let placement = Placement {
+        lane,
+        color: before[lane].color,
+    };
+    active.remove(lane);
+    continue_first_parent(active, &commit.parents, placement);
+    open_merge_parents(active, &commit.parents, lane);
+    let mut segments = passing_segments(&before, active, lane);
+    segments.extend(parent_segments(active, &commit.parents, placement));
+    commit.lane = lane;
+    commit.color = placement.color;
+    commit.entered = found.is_some();
+    commit.segments = segments;
+}
 pub fn lanes(commits: &mut [Commit], active: &mut Vec<Lane>) {
     for commit in commits {
-        let found = position(active, &commit.hash);
-        let lane = found.unwrap_or_else(|| {
-            active.push(Lane {
-                hash: commit.hash.clone(),
-                color: free_color(active),
-            });
-            active.len() - 1
-        });
-        let before = active.clone();
-        let color = before[lane].color;
-        active.remove(lane);
-        if let Some(first) = commit.parents.first() {
-            match position(active, first) {
-                Some(waiting) if waiting < lane => {}
-                waiting => {
-                    if let Some(waiting) = waiting {
-                        active.remove(waiting);
-                    }
-                    active.insert(
-                        lane,
-                        Lane {
-                            hash: first.clone(),
-                            color,
-                        },
-                    );
-                }
-            }
-        }
-        for (offset, parent) in commit.parents.iter().enumerate().skip(1) {
-            if position(active, parent).is_none() {
-                let color = free_color(active);
-                active.insert(
-                    (lane + offset).min(active.len()),
-                    Lane {
-                        hash: parent.clone(),
-                        color,
-                    },
-                );
-            }
-        }
-        let mut segments = Vec::new();
-        for (from, entry) in before.iter().enumerate() {
-            if from != lane {
-                if let Some(to) = position(active, &entry.hash) {
-                    segments.push(Segment {
-                        from,
-                        to,
-                        color: entry.color,
-                    });
-                }
-            }
-        }
-        for (index, parent) in commit.parents.iter().enumerate() {
-            if let Some(to) = position(active, parent) {
-                segments.push(Segment {
-                    from: lane,
-                    to,
-                    color: if index == 0 { color } else { active[to].color },
-                });
-            }
-        }
-        commit.lane = lane;
-        commit.color = color;
-        commit.entered = found.is_some();
-        commit.segments = segments;
+        place(commit, active);
     }
 }

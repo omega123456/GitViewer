@@ -7,6 +7,17 @@ use tauri::{Emitter, Manager, Runtime};
 const CLOSE_TIMEOUT_SECONDS: i64 = 2;
 const AUTOSAVE_MINUTES: i64 = 5;
 
+fn is_transient<R: Runtime>(window: &tauri::Window<R>) -> bool {
+    let minimized = window.is_minimized().unwrap_or(false);
+    minimized || window.is_fullscreen().unwrap_or(false)
+}
+fn keep_maximized(store: &Store) {
+    let Some(mut geometry) = store.get().window else {
+        return;
+    };
+    geometry.maximized = true;
+    store.geometry(geometry);
+}
 pub fn capture<R: Runtime>(window: &tauri::Window<R>) {
     let Some(store) = window.try_state::<Store>() else {
         return;
@@ -14,36 +25,53 @@ pub fn capture<R: Runtime>(window: &tauri::Window<R>) {
     let Ok(maximized) = window.is_maximized() else {
         return;
     };
-    if window.is_minimized().unwrap_or(false) || window.is_fullscreen().unwrap_or(false) {
+    if is_transient(window) {
         return;
     }
     if maximized {
-        if let Some(mut geometry) = store.get().window {
-            geometry.maximized = true;
-            store.geometry(geometry);
-        }
-    } else if let (Ok(position), Ok(size)) = (window.outer_position(), window.inner_size()) {
-        store.geometry(Geometry {
-            left: position.x,
-            top: position.y,
-            width: size.width,
-            height: size.height,
-            maximized,
-        });
+        keep_maximized(&store);
+        return;
     }
+    let (Ok(position), Ok(size)) = (window.outer_position(), window.inner_size()) else {
+        return;
+    };
+    store.geometry(Geometry {
+        left: position.x,
+        top: position.y,
+        width: size.width,
+        height: size.height,
+        maximized,
+    });
 }
 
 pub fn flush<R: Runtime>(app: &tauri::AppHandle<R>) {
     if let Some(window) = main_window(app) {
         capture(&window.as_ref().window());
     }
-    if let Some(store) = app.try_state::<Store>() {
-        if let Err(error) = store.save() {
-            tracing::error!(%error, "Unable to save session");
-        }
+    let Some(store) = app.try_state::<Store>() else {
+        return;
+    };
+    if let Err(error) = store.save() {
+        tracing::error!(%error, "Unable to save session");
     }
 }
 
+fn report_unsaved<R: Runtime>(app: &tauri::AppHandle<R>, unsaved: Vec<String>) {
+    let reported = app.emit(
+        "session://unsaved-edits",
+        serde_json::json!({"paths":unsaved}),
+    );
+    if let Err(error) = reported {
+        tracing::warn!(%error, "Unable to report unsaved edits");
+    }
+}
+fn start_close<R: Runtime>(app: &tauri::AppHandle<R>) {
+    flush(app);
+    if let Err(error) = app.emit("session://save-requested", ()) {
+        tracing::warn!(%error, "Unable to request final session snapshot");
+    }
+    tauri::async_runtime::spawn(close_timeout(app.clone()));
+}
 pub fn request_close<R: Runtime>(app: &tauri::AppHandle<R>) -> bool {
     let Some(store) = app.try_state::<Store>() else {
         return true;
@@ -53,21 +81,11 @@ pub fn request_close<R: Runtime>(app: &tauri::AppHandle<R>) -> bool {
     }
     let unsaved = store.unsaved_paths();
     if !unsaved.is_empty() {
-        if let Err(error) = app.emit(
-            "session://unsaved-edits",
-            serde_json::json!({"paths":unsaved}),
-        ) {
-            tracing::warn!(%error, "Unable to report unsaved edits");
-        }
+        report_unsaved(app, unsaved);
         return false;
     }
     if store.begin_close() {
-        flush(app);
-        if let Err(error) = app.emit("session://save-requested", ()) {
-            tracing::warn!(%error, "Unable to request final session snapshot");
-        }
-        let app = app.clone();
-        tauri::async_runtime::spawn(close_timeout(app));
+        start_close(app);
     }
     false
 }
@@ -99,32 +117,29 @@ pub fn complete_close<R: Runtime>(app: &tauri::AppHandle<R>) -> crate::error::Re
     if !store.claim_close() {
         return Ok(());
     }
-    if let Err(error) = store.save() {
-        cancel_close(app);
-        return Err(error);
-    }
+    store.save().inspect_err(|_| cancel_close(app))?;
     if let Some(guard) = app.try_state::<crate::logging::Guard>() {
         guard.flush();
     }
-    let restart = match app
-        .try_state::<std::sync::Arc<crate::updater::Service>>()
-        .map(|service| service.finish_close())
-        .transpose()
-    {
-        Ok(restart) => restart.unwrap_or(false),
-        Err(error) => {
-            cancel_close(app);
-            return Err(error);
-        }
-    };
+    let restart = finish_update(app).inspect_err(|_| cancel_close(app))?;
     if store.allow_close() {
-        if restart {
-            restart_app(app);
-        } else {
-            exit(app);
-        }
+        leave(app, restart);
     }
     Ok(())
+}
+fn finish_update<R: Runtime>(app: &tauri::AppHandle<R>) -> crate::error::Result<bool> {
+    let restart = app
+        .try_state::<std::sync::Arc<crate::updater::Service>>()
+        .map(|service| service.finish_close())
+        .transpose()?;
+    Ok(restart.unwrap_or(false))
+}
+fn leave<R: Runtime>(app: &tauri::AppHandle<R>, restart: bool) {
+    if restart {
+        restart_app(app);
+        return;
+    }
+    exit(app);
 }
 
 pub fn quit<R: Runtime>(app: &tauri::AppHandle<R>) {
@@ -166,6 +181,68 @@ fn exit<R: Runtime>(app: &tauri::AppHandle<R>) {
     let _ = app;
 }
 
+#[cfg(not(feature = "test-utils"))]
+const MIN_WINDOW_WIDTH: u32 = 800;
+#[cfg(not(feature = "test-utils"))]
+const MIN_WINDOW_HEIGHT: u32 = 540;
+#[cfg(not(feature = "test-utils"))]
+const TITLE_BAR_HEIGHT: i64 = 40;
+
+#[cfg(not(feature = "test-utils"))]
+fn shows_title_bar(geometry: &Geometry, monitor: &tauri::Monitor) -> bool {
+    let origin = monitor.position();
+    let size = monitor.size();
+    let left = i64::from(geometry.left);
+    let top = i64::from(geometry.top);
+    let monitor_left = i64::from(origin.x);
+    let monitor_top = i64::from(origin.y);
+    let monitor_right = monitor_left + i64::from(size.width);
+    let monitor_bottom = monitor_top + i64::from(size.height);
+    let overlaps_horizontally =
+        left < monitor_right && left + i64::from(geometry.width) > monitor_left;
+    let title_bar_inside = top >= monitor_top && top + TITLE_BAR_HEIGHT < monitor_bottom;
+    overlaps_horizontally && title_bar_inside
+}
+#[cfg(not(feature = "test-utils"))]
+fn position_window<R: Runtime>(
+    window: &tauri::WebviewWindow<R>,
+    geometry: &Geometry,
+) -> tauri::Result<()> {
+    let monitors = window.available_monitors()?;
+    let visible = monitors
+        .iter()
+        .any(|monitor| shows_title_bar(geometry, monitor));
+    if !visible {
+        return window.center();
+    }
+    window.set_position(tauri::PhysicalPosition::new(geometry.left, geometry.top))
+}
+#[cfg(not(feature = "test-utils"))]
+fn restore_geometry<R: Runtime>(
+    window: &tauri::WebviewWindow<R>,
+    geometry: &Geometry,
+) -> tauri::Result<()> {
+    window.set_size(tauri::PhysicalSize::new(
+        geometry.width.max(MIN_WINDOW_WIDTH),
+        geometry.height.max(MIN_WINDOW_HEIGHT),
+    ))?;
+    position_window(window, geometry)?;
+    if geometry.maximized {
+        window.maximize()?;
+    }
+    Ok(())
+}
+#[cfg(not(feature = "test-utils"))]
+fn restore_window<R: Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
+    let Some(window) = main_window(app.handle()) else {
+        return Ok(());
+    };
+    if let Some(geometry) = app.state::<Store>().get().window {
+        restore_geometry(&window, &geometry)?;
+    }
+    window.show()
+}
+
 pub fn setup<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "test-utils")]
     {
@@ -174,9 +251,6 @@ pub fn setup<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), Box<dyn std::err
     }
     #[cfg(not(feature = "test-utils"))]
     {
-        const MIN_WINDOW_WIDTH: u32 = 800;
-        const MIN_WINDOW_HEIGHT: u32 = 540;
-        const TITLE_BAR_HEIGHT: i64 = 40;
         let guard = crate::logging::init(&app.path().app_log_dir()?)?;
         app.manage(guard);
         app.manage(Store::load(
@@ -184,34 +258,7 @@ pub fn setup<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), Box<dyn std::err
         ));
         let settings = crate::settings::read(&crate::settings::settings_path(app.handle())?);
         crate::settings::apply_window_settings(app.handle(), &settings)?;
-        if let Some(window) = main_window(app.handle()) {
-            if let Some(geometry) = app.state::<Store>().get().window {
-                window.set_size(tauri::PhysicalSize::new(
-                    geometry.width.max(MIN_WINDOW_WIDTH),
-                    geometry.height.max(MIN_WINDOW_HEIGHT),
-                ))?;
-                let monitors = window.available_monitors()?;
-                if monitors.iter().any(|monitor| {
-                    let origin = monitor.position();
-                    let size = monitor.size();
-                    i64::from(geometry.left) < i64::from(origin.x) + i64::from(size.width)
-                        && i64::from(geometry.left) + i64::from(geometry.width)
-                            > i64::from(origin.x)
-                        && i64::from(geometry.top) >= i64::from(origin.y)
-                        && i64::from(geometry.top) + TITLE_BAR_HEIGHT
-                            < i64::from(origin.y) + i64::from(size.height)
-                }) {
-                    window
-                        .set_position(tauri::PhysicalPosition::new(geometry.left, geometry.top))?;
-                } else {
-                    window.center()?;
-                }
-                if geometry.maximized {
-                    window.maximize()?;
-                }
-            }
-            window.show()?;
-        }
+        restore_window(app)?;
         tracing::info!(
             version = app.package_info().version.to_string(),
             "GitViewer started"

@@ -1,110 +1,138 @@
-import { RevisionTree } from '../sidebar/RevisionTree';
-import { revisionTree } from '../sidebar/reveal';
 import { memo, useEffect, useState } from 'react';
-import { elapsedTime } from '../../lib/time';
 import { Archive, Copy, CopyMinus, Trash2 } from 'lucide-react';
 import { useActions } from '../../lib/actions';
 import { useBackend } from '../../lib/query';
 import { applyStash, dropStash } from '../../lib/stash';
 import { useOpenFile } from '../../lib/open-file';
 import type { Action } from '../../lib/keyboard';
-import { runs, useCurrentActivity } from '../../stores/activity';
+import type { Selection, Stash } from '../../lib/types';
+import { useCurrentActivity, type Activity } from '../../stores/activity';
 import {
   useLayout,
   useLayoutField,
   sectionHeightBounds,
-  stashFilesHeightBounds,
 } from '../../stores/layout';
 import { useReveal } from '../../stores/reveal';
 import { useWorkingSelection } from '../../stores/selection';
-import { Button } from '../shared/Button';
-import { ViewAllButton } from '../shared/ViewAllButton';
 import { Decision } from '../shared/Decision';
 import { ErrorRetry } from '../states/Errors';
-import { GroupHeader, Section } from '../shared/Section';
-import { BusyIcon } from '../shared/BusyIcon';
-import {
-  dynamic,
-  pill,
-  pinnedSlot,
-  revealSlot,
-  rowTint,
-  selectedRow,
-  removedInk,
-} from '../shared/styles';
+import { Section } from '../shared/Section';
+import { dynamic } from '../shared/styles';
 import { VirtualList } from '../shared/VirtualList';
 import { SectionResizeHandle } from '../shell/ResizeHandle';
+import { revisionTree } from '../sidebar/reveal';
 import { scopeKey } from '../../lib/git';
-export const StashSection = memo(function StashSection({
+import { StashFilesPane, StashRow } from './StashRow';
+function stashActions({
   repo,
+  selected,
   disabled,
 }: {
   repo: string;
+  selected: string;
   disabled: boolean;
-}) {
-  const query = useBackend('stashes', { repo });
-  const stashOpen = useLayoutField(repo, 'stashOpen');
-  const stashHeight = useLayoutField(repo, 'stashHeight');
-  const stashFilesHeight = useLayoutField(repo, 'stashFilesHeight');
-  const selection = useWorkingSelection(repo);
-  const [selected, setSelected] = useState('');
-  const revealing = useReveal((state) => state.targets[repo]);
-  useEffect(() => {
-    if (
-      revealing &&
-      selection?.source === 'stash' &&
-      selection.revision &&
-      revealing.tree === revisionTree(selection)
-    )
-      setSelected(selection.revision);
-  }, [revealing, selection]);
-  const activity = useCurrentActivity(repo);
-  const files = useBackend(
-    'commit_files',
-    { repo: repo, revision: selected, source: 'stash' },
-    Boolean(selected),
-  );
-  const openFile = useOpenFile(repo);
-  const show = (path: string, revision: string) => {
-    useLayout.getState().update(repo, { mode: 'working' });
-    openFile({ path: path, source: 'stash', revision: revision });
-  };
-  const apply = (hash: string, pop: boolean) =>
-    applyStash({ repo: repo, hash: hash, pop: pop });
-  const drop = (hash: string) => dropStash(repo, hash);
-  const actions: Action[] = [
+}): Action[] {
+  return [
     {
       id: 'apply-stash',
       icon: <Copy className="size-3.5" />,
       label: 'Apply selected stash',
       key: 'Mod+Alt+a',
-      disabled:
-        disabled || !query.data?.some((stash) => stash.hash === selected),
-      run: () => apply(selected, false),
+      disabled: disabled,
+      run: () => applyStash({ repo: repo, hash: selected, pop: false }),
     },
     {
       id: 'pop-stash',
       icon: <CopyMinus className="size-3.5" />,
       label: 'Pop selected stash',
       key: 'Mod+Alt+p',
-      disabled:
-        disabled || !query.data?.some((stash) => stash.hash === selected),
-      run: () => apply(selected, true),
+      disabled: disabled,
+      run: () => applyStash({ repo: repo, hash: selected, pop: true }),
     },
     {
       id: 'drop-stash',
       icon: <Trash2 className="size-3.5" />,
       label: 'Drop selected stash',
       key: 'Mod+Alt+Backspace',
-      disabled:
-        disabled || !query.data?.some((stash) => stash.hash === selected),
-      run: () => drop(selected),
+      disabled: disabled,
+      run: () => dropStash(repo, selected),
     },
   ];
-  useActions(scopeKey(repo, 'stashes'), actions);
-  if (query.error)
-    return <ErrorRetry label="Could not load stashes" query={query} />;
-  if (!query.data?.length) return null;
+}
+function useStashReveal(
+  repo: string,
+  selection: Selection | undefined,
+  setSelected: (revision: string) => void,
+) {
+  const revealing = useReveal((state) => state.targets[repo]);
+  useEffect(() => {
+    if (!revealing || !selection) return;
+    const stashRevision =
+      selection.source === 'stash' ? selection.revision : undefined;
+    if (!stashRevision) return;
+    if (revealing.tree === revisionTree(selection)) setSelected(stashRevision);
+  }, [revealing, selection, setSelected]);
+}
+interface StashShellState {
+  selected: string;
+  selection: Selection | undefined;
+  disabled: boolean;
+  activity: Activity | undefined;
+  onSelectStash: (hash: string) => void;
+  onShowFile: (path: string) => void;
+}
+function StashListContent({
+  repo,
+  stashes,
+  state,
+}: {
+  repo: string;
+  stashes: Stash[];
+  state: StashShellState;
+}) {
+  return (
+    <>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <VirtualList
+          label="Stashes"
+          items={stashes}
+          render={(stash) => (
+            <StashRow
+              repo={repo}
+              stash={stash}
+              selected={state.selected === stash.hash}
+              disabled={state.disabled}
+              activity={state.activity}
+              onSelect={() => state.onSelectStash(stash.hash)}
+            />
+          )}
+        />
+      </div>
+      {state.selected && (
+        <StashFilesPane
+          repo={repo}
+          selected={state.selected}
+          selection={state.selection}
+          onShow={state.onShowFile}
+        />
+      )}
+    </>
+  );
+}
+function StashSectionShell({
+  repo,
+  stashes,
+  state,
+}: {
+  repo: string;
+  stashes: Stash[];
+  state: StashShellState;
+}) {
+  const stashOpen = useLayoutField(repo, 'stashOpen');
+  const stashHeight = useLayoutField(repo, 'stashHeight');
+  const containerClass = stashOpen
+    ? 'relative flex h-stash min-h-0 flex-col'
+    : 'relative flex flex-col';
   return (
     <>
       {stashOpen && (
@@ -118,11 +146,7 @@ export const StashSection = memo(function StashSection({
         />
       )}
       <div
-        className={
-          stashOpen
-            ? 'relative flex h-stash min-h-0 flex-col'
-            : 'relative flex flex-col'
-        }
+        className={containerClass}
         style={dynamic({ '--stash-height': `${stashHeight}%` })}
       >
         <Decision
@@ -132,158 +156,65 @@ export const StashSection = memo(function StashSection({
         />
         <Section
           title="Stashes"
-          count={query.data.length}
+          count={stashes.length}
           open={stashOpen}
           onOpenChange={(next) =>
             useLayout.getState().update(repo, { stashOpen: next })
           }
           icon={<Archive className="size-3" />}
         >
-          <div className="flex min-h-0 flex-1 flex-col">
-            <VirtualList
-              label="Stashes"
-              items={query.data}
-              render={(stash) => {
-                const applying = runs(activity, 'stash_apply', {
-                  hash: stash.hash,
-                  pop: false,
-                });
-                const popping = runs(activity, 'stash_apply', {
-                  hash: stash.hash,
-                  pop: true,
-                });
-                const dropping = runs(activity, 'stash_drop', {
-                  hash: stash.hash,
-                });
-                return (
-                  <div
-                    className={`group relative mx-1 flex items-center rounded ${rowTint} ${selected === stash.hash ? selectedRow : ''}`}
-                  >
-                    {selected === stash.hash && <span className={pill} />}
-                    <Button
-                      className="h-tree-comfortable w-full justify-start truncate text-left"
-                      onClick={() => {
-                        setSelected(stash.hash);
-                        show('', stash.hash);
-                      }}
-                    >
-                      <Archive className="size-3.75 shrink-0 text-muted dark:text-muted-dark" />
-                      <span className="min-w-0 flex-1 truncate">
-                        {stash.message}
-                      </span>
-                      <span className="shrink-0 font-mono text-badge text-muted dark:text-muted-dark">
-                        {elapsedTime(stash.timestamp)}
-                      </span>
-                    </Button>
-                    <div
-                      className={`${selected === stash.hash || applying || popping || dropping ? pinnedSlot : revealSlot} right-1`}
-                    >
-                      <Button
-                        variant="icon"
-                        className="size-6"
-                        aria-busy={applying}
-                        aria-label={`Apply ${stash.selector}`}
-                        title={`Apply ${stash.selector}`}
-                        disabled={disabled}
-                        onClick={() => void apply(stash.hash, false)}
-                      >
-                        <BusyIcon
-                          busy={applying}
-                          icon={Copy}
-                          className="size-3"
-                        />
-                      </Button>
-                      <Button
-                        variant="icon"
-                        className="size-6"
-                        aria-busy={popping}
-                        aria-label={`Pop ${stash.selector}`}
-                        title={`Pop ${stash.selector}`}
-                        disabled={disabled}
-                        onClick={() => void apply(stash.hash, true)}
-                      >
-                        <BusyIcon
-                          busy={popping}
-                          icon={CopyMinus}
-                          className="size-3"
-                        />
-                      </Button>
-                      <span className="w-1.5 shrink-0" />
-                      <Button
-                        variant="icon"
-                        className={`size-6 ${removedInk}`}
-                        aria-busy={dropping}
-                        aria-label={`Drop ${stash.selector}`}
-                        title={`Drop ${stash.selector}`}
-                        disabled={disabled}
-                        onClick={() => void drop(stash.hash)}
-                      >
-                        <BusyIcon
-                          busy={dropping}
-                          icon={Trash2}
-                          className="size-3"
-                        />
-                      </Button>
-                    </div>
-                  </div>
-                );
-              }}
-            />
-          </div>
-          {selected && (
-            <>
-              <SectionResizeHandle
-                label="Resize stash files"
-                bounds={stashFilesHeightBounds}
-                value={stashFilesHeight}
-                onChange={(next) =>
-                  useLayout.getState().update(repo, { stashFilesHeight: next })
-                }
-              />
-              <div
-                className="flex h-stash-files min-h-0 shrink-0 flex-col"
-                style={dynamic({
-                  '--stash-files-height': `${stashFilesHeight}%`,
-                })}
-              >
-                <GroupHeader
-                  title="Stash files"
-                  count={Object.keys(files.data?.statuses ?? {}).length}
-                  actions={
-                    <ViewAllButton
-                      repo={repo}
-                      stack="commit"
-                      label="All changes in stash"
-                      look="section"
-                    />
-                  }
-                />
-                <ErrorRetry
-                  label="Could not load the stash files"
-                  query={files}
-                />
-                {files.data && (
-                  <RevisionTree
-                    key={selected}
-                    repo={repo}
-                    tree={revisionTree({ source: 'stash', revision: selected })}
-                    label="Stash files"
-                    paths={Object.keys(files.data.statuses)}
-                    statuses={files.data.statuses}
-                    selectedPath={
-                      selection?.source === 'stash' &&
-                      selection.revision === selected
-                        ? selection.path
-                        : undefined
-                    }
-                    onSelect={(path) => show(path, selected)}
-                  />
-                )}
-              </div>
-            </>
-          )}
+          <StashListContent repo={repo} stashes={stashes} state={state} />
         </Section>
       </div>
     </>
+  );
+}
+export const StashSection = memo(function StashSection({
+  repo,
+  disabled,
+}: {
+  repo: string;
+  disabled: boolean;
+}) {
+  const query = useBackend('stashes', { repo });
+  const selection = useWorkingSelection(repo);
+  const [selected, setSelected] = useState('');
+  useStashReveal(repo, selection, setSelected);
+  const activity = useCurrentActivity(repo);
+  const openFile = useOpenFile(repo);
+  const show = (path: string, revision: string) => {
+    useLayout.getState().update(repo, { mode: 'working' });
+    openFile({ path: path, source: 'stash', revision: revision });
+  };
+  const hasSelectedStash = Boolean(
+    query.data?.some((stash) => stash.hash === selected),
+  );
+  useActions(
+    scopeKey(repo, 'stashes'),
+    stashActions({
+      repo: repo,
+      selected: selected,
+      disabled: disabled || !hasSelectedStash,
+    }),
+  );
+  if (query.error)
+    return <ErrorRetry label="Could not load stashes" query={query} />;
+  if (!query.data?.length) return null;
+  return (
+    <StashSectionShell
+      repo={repo}
+      stashes={query.data}
+      state={{
+        selected: selected,
+        selection: selection,
+        disabled: disabled,
+        activity: activity,
+        onSelectStash: (hash) => {
+          setSelected(hash);
+          show('', hash);
+        },
+        onShowFile: (path) => show(path, selected),
+      }}
+    />
   );
 });

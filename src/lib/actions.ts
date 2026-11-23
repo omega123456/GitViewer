@@ -27,12 +27,15 @@ function describeActions(actions: Action[]) {
     disabled,
   }));
 }
+function actionsSignature(actions: Action[]) {
+  return JSON.stringify(describeActions(actions));
+}
 export function useActions(scope: string, actions: Action[]) {
   const latest = useRef(actions);
   useEffect(() => {
     latest.current = actions;
   });
-  const signature = JSON.stringify(describeActions(actions));
+  const signature = actionsSignature(actions);
   useEffect(() => {
     const descriptions = describeActions(latest.current);
     useActionRegistry.getState().set(

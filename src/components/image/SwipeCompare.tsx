@@ -4,6 +4,42 @@ import { dynamic, focus } from '../shared/styles';
 import { boundsOf, FULL_PERCENT, percentOf } from '../../lib/geometry';
 import { handleKeyByTable } from '../../lib/keyboard';
 const MINIMUM_SWIPE_POSITION = 0.01;
+function SwipeDivider({
+  position,
+  onMove,
+}: {
+  position: number;
+  onMove: (value: number) => void;
+}) {
+  return (
+    <div
+      role="slider"
+      tabIndex={0}
+      aria-label="Swipe divider"
+      aria-valuemin={0}
+      aria-valuemax={FULL_PERCENT}
+      aria-valuenow={Math.round(position)}
+      onKeyDown={(event) =>
+        handleKeyByTable(event, {
+          ArrowLeft: () => onMove(position - 1),
+          ArrowRight: () => onMove(position + 1),
+        })
+      }
+      onPointerDown={(event) =>
+        event.currentTarget.setPointerCapture(event.pointerId)
+      }
+      onPointerMove={(event) => {
+        if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+        const bounds = boundsOf(event.currentTarget.parentElement);
+        onMove(percentOf(event.clientX - bounds.left, bounds.width));
+      }}
+      className={`absolute inset-y-0 left-swipe w-0.5 cursor-ew-resize bg-accent ${focus}`}
+      style={dynamic({ '--swipe-position': `${position}%` })}
+    >
+      <span className="absolute top-1/2 size-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-surface bg-accent shadow-md dark:border-surface-dark" />
+    </div>
+  );
+}
 export function SwipeCompare({
   view,
   image,
@@ -35,33 +71,7 @@ export function SwipeCompare({
           </div>
         </div>
       </div>
-      <div
-        role="slider"
-        tabIndex={0}
-        aria-label="Swipe divider"
-        aria-valuemin={0}
-        aria-valuemax={FULL_PERCENT}
-        aria-valuenow={Math.round(position)}
-        onKeyDown={(event) =>
-          handleKeyByTable(event, {
-            ArrowLeft: () => move(position - 1),
-            ArrowRight: () => move(position + 1),
-          })
-        }
-        onPointerDown={(event) =>
-          event.currentTarget.setPointerCapture(event.pointerId)
-        }
-        onPointerMove={(event) => {
-          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-            const bounds = boundsOf(event.currentTarget.parentElement);
-            move(percentOf(event.clientX - bounds.left, bounds.width));
-          }
-        }}
-        className={`absolute inset-y-0 left-swipe w-0.5 cursor-ew-resize bg-accent ${focus}`}
-        style={dynamic({ '--swipe-position': `${position}%` })}
-      >
-        <span className="absolute top-1/2 size-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-surface bg-accent shadow-md dark:border-surface-dark" />
-      </div>
+      <SwipeDivider position={position} onMove={move} />
       <span className="absolute right-2 bottom-2 rounded border border-line bg-surface px-1.5 font-mono text-badge text-muted dark:border-line-dark dark:bg-surface-dark">
         {Math.round(position)}%
       </span>

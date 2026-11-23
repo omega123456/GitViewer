@@ -31,7 +31,8 @@ fn current(path: &Path) -> Result<Option<Vec<u8>>> {
 }
 
 fn open(bytes: Vec<u8>) -> Option<Opened> {
-    if bytes.len() > diff::size_limit(false) || fs::is_binary(&bytes) {
+    let too_large = bytes.len() > diff::size_limit(false);
+    if too_large || fs::is_binary(&bytes) {
         return None;
     }
     let version = version(&bytes);
@@ -59,22 +60,30 @@ pub struct Save<'a> {
     pub expected: Option<&'a str>,
 }
 
+fn with_line_endings(content: &str, crlf: bool) -> String {
+    if crlf {
+        return content.replace('\n', "\r\n");
+    }
+    content.to_owned()
+}
+fn with_bom(body: String, bom: bool) -> String {
+    if bom {
+        return format!("{BOM}{body}");
+    }
+    body
+}
 pub fn write(repo: &Repo, path: &str, save: Save<'_>) -> Result<Written> {
     let Save { content, expected } = save;
     let full = repo.path(path)?;
     let existing = current(&full)?;
-    if existing.as_deref().map(version).as_deref() != expected {
+    let current_version = existing.as_deref().map(version);
+    if current_version.as_deref() != expected {
         return Ok(Written::Conflict(existing.and_then(open)));
     }
     let shape = existing.and_then(open);
     let bom = shape.as_ref().is_some_and(|opened| opened.bom);
     let crlf = shape.as_ref().is_some_and(|opened| opened.crlf);
-    let body = if crlf {
-        content.replace('\n', "\r\n")
-    } else {
-        content.to_owned()
-    };
-    let bytes = if bom { format!("{BOM}{body}") } else { body }.into_bytes();
+    let bytes = with_bom(with_line_endings(content, crlf), bom).into_bytes();
     std::fs::write(&full, &bytes)?;
     Ok(Written::Saved(version(&bytes)))
 }

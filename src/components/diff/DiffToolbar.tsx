@@ -55,6 +55,63 @@ function Divider() {
     <span className="mx-1.5 h-5 w-px shrink-0 bg-line dark:bg-line-dark" />
   );
 }
+function DisplayToggleGroup({
+  display,
+}: {
+  display: Record<DisplayOption, DisplayToggle>;
+}) {
+  const pressed = displayToggles
+    .filter(({ value }) => display[value].pressed)
+    .map(({ value }) => value);
+  const applyPressed = (next: string[]) => {
+    for (const { value } of displayToggles) {
+      const option = display[value];
+      if (next.includes(value) !== option.pressed) option.toggle();
+    }
+  };
+  return (
+    <ToggleGroup.Root
+      type="multiple"
+      aria-label="Diff display"
+      value={pressed}
+      onValueChange={applyPressed}
+      className="ml-auto inline-flex gap-1"
+    >
+      {displayToggles.map(({ value, title, icon: Icon }) => (
+        <ToggleGroup.Item
+          key={value}
+          value={value}
+          title={title}
+          className={toggle(display[value].pressed)}
+        >
+          <Icon className="size-3.5" />
+        </ToggleGroup.Item>
+      ))}
+    </ToggleGroup.Root>
+  );
+}
+function ChangeNavigation({ move }: { move: (direction: number) => void }) {
+  return (
+    <div className="flex items-center gap-1 text-muted dark:text-muted-dark">
+      <Button
+        variant="icon"
+        className="size-control"
+        title="Previous change"
+        onClick={() => move(-1)}
+      >
+        <ArrowUp className="size-3.5" />
+      </Button>
+      <Button
+        variant="icon"
+        className="size-control"
+        title="Next change"
+        onClick={() => move(1)}
+      >
+        <ArrowDown className="size-3.5" />
+      </Button>
+    </div>
+  );
+}
 export function DiffToolbar({
   mode,
   wrap,
@@ -78,15 +135,6 @@ export function DiffToolbar({
     whitespace: { pressed: whitespace, toggle: toggleWhitespace },
     wrap: { pressed: wrap, toggle: toggleWrap },
   };
-  const pressed = displayToggles
-    .filter(({ value }) => display[value].pressed)
-    .map(({ value }) => value);
-  const applyPressed = (next: string[]) => {
-    for (const { value } of displayToggles) {
-      const option = display[value];
-      if (next.includes(value) !== option.pressed) option.toggle();
-    }
-  };
   return (
     <div className="flex h-9.5 shrink-0 items-center gap-1 border-b border-line bg-surface px-2.5 dark:border-line-dark dark:bg-surface-dark">
       <ViewSwitch
@@ -99,43 +147,9 @@ export function DiffToolbar({
         }}
         onChange={useDiffView.getState().setMode}
       />
-      <ToggleGroup.Root
-        type="multiple"
-        aria-label="Diff display"
-        value={pressed}
-        onValueChange={applyPressed}
-        className="ml-auto inline-flex gap-1"
-      >
-        {displayToggles.map(({ value, title, icon: Icon }) => (
-          <ToggleGroup.Item
-            key={value}
-            value={value}
-            title={title}
-            className={toggle(display[value].pressed)}
-          >
-            <Icon className="size-3.5" />
-          </ToggleGroup.Item>
-        ))}
-      </ToggleGroup.Root>
+      <DisplayToggleGroup display={display} />
       <Divider />
-      <div className="flex items-center gap-1 text-muted dark:text-muted-dark">
-        <Button
-          variant="icon"
-          className="size-control"
-          title="Previous change"
-          onClick={() => move(-1)}
-        >
-          <ArrowUp className="size-3.5" />
-        </Button>
-        <Button
-          variant="icon"
-          className="size-control"
-          title="Next change"
-          onClick={() => move(1)}
-        >
-          <ArrowDown className="size-3.5" />
-        </Button>
-      </div>
+      <ChangeNavigation move={move} />
       {full !== undefined && (
         <>
           <Divider />

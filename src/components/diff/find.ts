@@ -104,11 +104,18 @@ export function findTokens<T extends { content: string }>(
   );
 }
 export function findClass(token: { found?: boolean; current?: boolean }) {
-  return token.current
-    ? 'bg-find-current dark:bg-find-current-dark'
-    : token.found
-      ? 'bg-find dark:bg-find-dark'
-      : '';
+  if (token.current) return 'bg-find-current dark:bg-find-current-dark';
+  if (token.found) return 'bg-find dark:bg-find-dark';
+  return '';
+}
+function buildFound(hits: Hit[], selected: number): Found {
+  const marks = new Map<number, MarkRange[]>();
+  for (const hit of hits) {
+    const line = marks.get(hit.index) ?? [];
+    line.push([hit.start, hit.end]);
+    marks.set(hit.index, line);
+  }
+  return { marks: marks, current: hits[selected] };
 }
 export function useFind(
   texts: () => string[],
@@ -132,16 +139,10 @@ export function useFind(
     reveal.current = false;
     if (hits[0]) latest.current(hits[0].index);
   }, [hits, searched, query]);
-  const found = useMemo((): Found | undefined => {
-    if (!open) return undefined;
-    const marks = new Map<number, MarkRange[]>();
-    for (const hit of hits) {
-      const line = marks.get(hit.index) ?? [];
-      line.push([hit.start, hit.end]);
-      marks.set(hit.index, line);
-    }
-    return { marks: marks, current: hits[selected] };
-  }, [open, hits, selected]);
+  const found = useMemo(
+    () => (open ? buildFound(hits, selected) : undefined),
+    [open, hits, selected],
+  );
   return {
     input: input,
     open: open,

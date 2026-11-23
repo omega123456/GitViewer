@@ -132,8 +132,10 @@ export function RepositorySignals({
     </span>
   );
 }
-function RepoTab({ tab, active }: { tab: Tab; active: boolean }) {
-  const signals = useTabSignals(tab);
+const activeTabClass = `z-10 border-tab-stroke bg-sub font-semibold text-ink dark:border-tab-stroke-dark dark:bg-sub-dark dark:text-ink-dark ${tabBar}`;
+const idleTabClass =
+  'border-transparent text-muted hover:bg-tab-hover hover:text-ink dark:text-muted-dark dark:hover:bg-tab-hover-dark dark:hover:text-ink-dark';
+function useMemberSync(tab: Tab, active: boolean) {
   const anchor = anchorOf(tab);
   const worktrees = useBackend(
     'worktrees',
@@ -143,11 +145,65 @@ function RepoTab({ tab, active }: { tab: Tab; active: boolean }) {
   useEffect(() => {
     if (worktrees.data) void syncMembers(tab.id, worktrees.data);
   }, [tab.id, worktrees.data]);
-  const { dirty, failed, branch } = signals;
+}
+function tabTitle(tab: Tab, branch?: string) {
+  if (tab.members.length <= 1) return undefined;
+  return `${tab.name} · worktree ${folderName(tab.view)} on ${branch}`;
+}
+interface TabSignals {
+  working: boolean;
+  failed: boolean;
+}
+function TabSignalIcons({ signals }: { signals: TabSignals }) {
+  if (signals.working)
+    return (
+      <span role="img" aria-label="Git operation running">
+        <Spinner className="size-3 text-accent dark:text-accent-dark" />
+      </span>
+    );
+  if (signals.failed)
+    return (
+      <span role="img" aria-label="Errors waiting" className={failedDot} />
+    );
+  return null;
+}
+function TabClose({
+  tab,
+  active,
+  dirty,
+}: {
+  tab: Tab;
+  active: boolean;
+  dirty: boolean;
+}) {
+  return (
+    <span className="relative grid size-control shrink-0 place-items-center">
+      {dirty && (
+        <span
+          role="img"
+          aria-label="Uncommitted changes"
+          className={`${dirtyDot} ${active ? 'hidden' : 'group-hover:opacity-0 group-focus-within:opacity-0'}`}
+        />
+      )}
+      <Button
+        variant="chrome"
+        aria-label={`Close ${tab.name}`}
+        className={`absolute inset-0 rounded hover:bg-hover dark:hover:bg-hover-dark ${active ? '' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`}
+        onClick={() => void closeRepository(tab)}
+      >
+        <X className="size-3.5" />
+      </Button>
+    </span>
+  );
+}
+function RepoTab({ tab, active }: { tab: Tab; active: boolean }) {
+  const signals = useTabSignals(tab);
+  useMemberSync(tab, active);
   const working = signals.working && !active;
+  const failed = signals.failed && !active;
   return (
     <div
-      className={`group relative flex h-tab w-44 min-w-0 shrink items-center rounded-t border-x border-t pr-1 first:rounded-tl-none first:border-l-transparent ${active ? `z-10 border-tab-stroke bg-sub font-semibold text-ink dark:border-tab-stroke-dark dark:bg-sub-dark dark:text-ink-dark ${tabBar}` : 'border-transparent text-muted hover:bg-tab-hover hover:text-ink dark:text-muted-dark dark:hover:bg-tab-hover-dark dark:hover:text-ink-dark'}`}
+      className={`group relative flex h-tab w-44 min-w-0 shrink items-center rounded-t border-x border-t pr-1 first:rounded-tl-none first:border-l-transparent ${active ? activeTabClass : idleTabClass}`}
     >
       <Button
         variant="chrome"
@@ -155,41 +211,14 @@ function RepoTab({ tab, active }: { tab: Tab; active: boolean }) {
         aria-selected={active}
         tabIndex={active ? 0 : -1}
         className="min-w-0 flex-1 justify-start gap-2 self-stretch rounded-tl pl-2.75"
-        title={
-          tab.members.length > 1
-            ? `${tab.name} · worktree ${folderName(tab.view)} on ${branch}`
-            : undefined
-        }
+        title={tabTitle(tab, signals.branch)}
         onClick={() => useTabs.getState().activate(tab.id)}
       >
         <FolderGit2 className="size-3.75 shrink-0" />
         <span className="truncate">{tab.name}</span>
-        {working && (
-          <span role="img" aria-label="Git operation running">
-            <Spinner className="size-3 text-accent dark:text-accent-dark" />
-          </span>
-        )}
-        {failed && !active && !working && (
-          <span role="img" aria-label="Errors waiting" className={failedDot} />
-        )}
+        <TabSignalIcons signals={{ working: working, failed: failed }} />
       </Button>
-      <span className="relative grid size-control shrink-0 place-items-center">
-        {dirty && (
-          <span
-            role="img"
-            aria-label="Uncommitted changes"
-            className={`${dirtyDot} ${active ? 'hidden' : 'group-hover:opacity-0 group-focus-within:opacity-0'}`}
-          />
-        )}
-        <Button
-          variant="chrome"
-          aria-label={`Close ${tab.name}`}
-          className={`absolute inset-0 rounded hover:bg-hover dark:hover:bg-hover-dark ${active ? '' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`}
-          onClick={() => void closeRepository(tab)}
-        >
-          <X className="size-3.5" />
-        </Button>
-      </span>
+      <TabClose tab={tab} active={active} dirty={signals.dirty} />
     </div>
   );
 }

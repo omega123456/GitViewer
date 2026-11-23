@@ -322,18 +322,20 @@ fn a_large_modify_heavy_diff_serializes_compactly() {
     assert!(parsed.patches.is_empty());
     assert!(serde_json::to_string(&parsed).unwrap().len() < 3_000_000);
 }
+async fn counted_probe(
+    probes: &std::sync::atomic::AtomicUsize,
+    reported: Option<&'static str>,
+) -> Option<String> {
+    probes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    tokio::task::yield_now().await;
+    reported.map(String::from)
+}
 #[tokio::test]
 async fn detection_caches_only_a_supported_environment() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let probes = AtomicUsize::new(0);
-    let probe = |reported: Option<&'static str>| {
-        let probes = &probes;
-        move || async move {
-            probes.fetch_add(1, Ordering::SeqCst);
-            tokio::task::yield_now().await;
-            reported.map(String::from)
-        }
-    };
+    let counter = &probes;
+    let probe = |reported: Option<&'static str>| move || counted_probe(counter, reported);
     let detector = detect::Detector::default();
     assert!(!detector.detect(probe(None)).await.found);
     assert!(

@@ -92,18 +92,120 @@ function cached(data: Diff, keys: Record<Side, string>) {
 function sideKey(base: string, side: Side, text?: string) {
   return text === undefined ? `${base}\n${side}` : `${base}\n${side}\n${text}`;
 }
-export function useTokens(target: DiffTarget, enabled = true) {
+function nextSyncState({
+  hit,
+  inputs,
+  enabled,
+  current,
+  state,
+}: {
+  hit: Tokens | undefined;
+  inputs: HighlightInputs;
+  enabled: boolean;
+  current: boolean;
+  state: Highlighted;
+}): Highlighted | undefined {
+  if (hit) return highlighted(inputs, hit, true);
+  const shouldReset = !enabled && !current && state.tokens !== noTokens;
+  if (shouldReset) return idleHighlight(inputs.path, inputs.dark);
+  return undefined;
+}
+function mergeDisplay({
+  all,
+  current,
+  fallback,
+  part,
+}: {
+  all: Tokens | undefined;
+  current: Tokens | undefined;
+  fallback: Tokens;
+  part: Tokens;
+}): Tokens {
+  if (all) return all;
+  return { ...(current ?? fallback), ...part };
+}
+interface TokenizeRequest {
+  data: Diff;
+  latest: HighlightInputs;
+  keys: Record<Side, string>;
+  texts: Record<Side, string | undefined>;
+  fallback: Tokens;
+  onUpdate: (next: Highlighted) => void;
+}
+function startTokenizing({
+  data,
+  latest,
+  keys,
+  texts,
+  fallback,
+  onUpdate,
+}: TokenizeRequest) {
+  const entry = cache.get(data) ?? new Map<string, Tokens>();
+  cache.set(data, entry);
+  let display: Tokens | undefined;
+  const cancels = (['old', 'new'] as const).map((side) => {
+    const lines = sideLines(data, side, texts[side]);
+    if (!entry.has(keys[side]) && !lines.length) entry.set(keys[side], {});
+    if (entry.has(keys[side])) return undefined;
+    const progress: Tokens = {};
+    const job = {
+      lines: lines.map((line) => line.content),
+      path: latest.path,
+      dark: latest.dark,
+    };
+    return tokenize(job, (start, chunk, done) => {
+      const part = Object.fromEntries(
+        chunk.map((tokens, index) => [
+          `${side}:${lines[start + index].line}`,
+          tokens,
+        ]),
+      );
+      Object.assign(progress, part);
+      if (done) entry.set(keys[side], progress);
+      const all = joined(entry, keys);
+      display = mergeDisplay({
+        all: all,
+        current: display,
+        fallback: fallback,
+        part: part,
+      });
+      onUpdate(highlighted(latest, display, Boolean(all)));
+    });
+  });
+  const all = joined(entry, keys);
+  if (all) onUpdate(highlighted(latest, all, true));
+  return () => cancels.forEach((cancel) => cancel?.());
+}
+function useSideSources(target: DiffTarget, enabled: boolean) {
   const { data, selection } = target;
   const dark = useDark();
   const path = selection.path;
   const old = useSideText(target, 'old', enabled && needed(data, 'old'));
   const fresh = useSideText(target, 'new', enabled && needed(data, 'new'));
-  const oldText = old.text;
-  const newText = fresh.text;
-  const settled = old.settled && fresh.settled;
   const base = `${dark ? 'dark' : 'light'}\n${path}`;
-  const oldKey = sideKey(base, 'old', oldText);
-  const newKey = sideKey(base, 'new', newText);
+  return {
+    data: data,
+    path: path,
+    dark: dark,
+    oldText: old.text,
+    newText: fresh.text,
+    settled: old.settled && fresh.settled,
+    oldKey: sideKey(base, 'old', old.text),
+    newKey: sideKey(base, 'new', fresh.text),
+  };
+}
+function lookupCachedHit(
+  data: Diff | undefined,
+  keys: Record<Side, string>,
+  canUse: boolean,
+) {
+  if (!canUse || !data) return undefined;
+  return cached(data, keys);
+}
+export function useTokens(target: DiffTarget, enabled = true) {
+  const source = useSideSources(target, enabled);
+  const { data, path, dark, oldText, newText, settled, oldKey, newKey } =
+    source;
   const [state, setState] = useState<Highlighted>(() =>
     idleHighlight(path, dark),
   );
@@ -115,13 +217,13 @@ export function useTokens(target: DiffTarget, enabled = true) {
     dark: dark,
   };
   const current = sameInputs(state.inputs, inputs);
-  const hit =
-    !current && data && settled
-      ? cached(data, { old: oldKey, new: newKey })
-      : undefined;
-  if (hit) setState(highlighted(inputs, hit, true));
-  else if (!enabled && !current && state.tokens !== noTokens)
-    setState(idleHighlight(path, dark));
+  const hit = lookupCachedHit(
+    data,
+    { old: oldKey, new: newKey },
+    !current && settled,
+  );
+  const syncState = nextSyncState({ hit, inputs, enabled, current, state });
+  if (syncState) setState(syncState);
   const finished = current && state.done;
   const shown = useRef(state.tokens);
   useEffect(() => {
@@ -129,45 +231,14 @@ export function useTokens(target: DiffTarget, enabled = true) {
   });
   useEffect(() => {
     if (!enabled || !data || !settled || finished) return;
-    const latest: HighlightInputs = {
+    return startTokenizing({
       data: data,
-      oldText: oldText,
-      newText: newText,
-      path: path,
-      dark: dark,
-    };
-    const keys = { old: oldKey, new: newKey };
-    const texts = { old: oldText, new: newText };
-    const entry = cache.get(data) ?? new Map<string, Tokens>();
-    cache.set(data, entry);
-    let display: Tokens | undefined;
-    const cancels = (['old', 'new'] as const).map((side) => {
-      const lines = sideLines(data, side, texts[side]);
-      if (!entry.has(keys[side]) && !lines.length) entry.set(keys[side], {});
-      if (entry.has(keys[side])) return undefined;
-      const progress: Tokens = {};
-      const job = {
-        lines: lines.map((line) => line.content),
-        path: path,
-        dark: dark,
-      };
-      return tokenize(job, (start, chunk, done) => {
-        const part = Object.fromEntries(
-          chunk.map((tokens, index) => [
-            `${side}:${lines[start + index].line}`,
-            tokens,
-          ]),
-        );
-        Object.assign(progress, part);
-        if (done) entry.set(keys[side], progress);
-        const all = joined(entry, keys);
-        display = all ?? Object.assign(display ?? { ...shown.current }, part);
-        setState(highlighted(latest, display, Boolean(all)));
-      });
+      latest: { data, oldText, newText, path, dark },
+      keys: { old: oldKey, new: newKey },
+      texts: { old: oldText, new: newText },
+      fallback: shown.current,
+      onUpdate: setState,
     });
-    const all = joined(entry, keys);
-    if (all) setState(highlighted(latest, all, true));
-    return () => cancels.forEach((cancel) => cancel?.());
   }, [
     data,
     oldText,

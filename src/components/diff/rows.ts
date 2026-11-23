@@ -93,22 +93,63 @@ function gapRows(gap: Gap, reveal: Reveal, split: boolean): Row[] {
     ...lines(range.end + 1 - range.up, range.up),
   ];
 }
+function collectRun(lines: DiffLine[], start: number, kind: DiffLine['kind']) {
+  const collected: DiffLine[] = [];
+  let cursor = start;
+  while (cursor < lines.length && lines[cursor].kind === kind) {
+    collected.push(lines[cursor]);
+    cursor += 1;
+  }
+  return { collected: collected, next: cursor };
+}
+function pairLines(removed: DiffLine[], added: DiffLine[]): Row[] {
+  const length = Math.max(removed.length, added.length);
+  return Array.from({ length }, (_slot, index) => ({
+    left: removed[index],
+    right: added[index],
+  }));
+}
+function hunkBodyRows(lines: DiffLine[], split: boolean): Row[] {
+  if (!split) return lines.map((line) => ({ right: line }));
+  const rows: Row[] = [];
+  let cursor = 0;
+  while (cursor < lines.length) {
+    const line = lines[cursor];
+    if (line.kind === 'context') {
+      rows.push({ left: line, right: line });
+      cursor += 1;
+      continue;
+    }
+    if (line.kind === 'add') {
+      rows.push({ right: line });
+      cursor += 1;
+      continue;
+    }
+    const removed = collectRun(lines, cursor, 'remove');
+    const added = collectRun(lines, removed.next, 'add');
+    rows.push(...pairLines(removed.collected, added.collected));
+    cursor = added.next;
+  }
+  return rows;
+}
+function contentRows(content: string, added: boolean): Row[] {
+  return content.split('\n').map((line, index) => ({
+    right: {
+      kind: added ? 'add' : 'context',
+      content: line,
+      old: null,
+      new: index + 1,
+      noNewline: false,
+      marks: [],
+    },
+  }));
+}
 export function diffRows(
   diff: Diff,
   split: boolean,
   reveal: Reveal = { open: {} },
 ): Row[] {
-  if (diff.content !== null)
-    return diff.content.split('\n').map((content, index) => ({
-      right: {
-        kind: diff.added ? 'add' : 'context',
-        content: content,
-        old: null,
-        new: index + 1,
-        noNewline: false,
-        marks: [],
-      },
-    }));
+  if (diff.content !== null) return contentRows(diff.content, diff.added);
   const all = gaps(diff);
   const before = (index: number, kind: Gap['kind']) =>
     all
@@ -118,44 +159,11 @@ export function diffRows(
       )
       .flatMap((gap) => gapRows(gap, reveal, split));
   return [
-    ...diff.hunks.flatMap((hunk, index) => {
-      const rows: Row[] = [...before(index, 'mid'), { hunk: index }];
-      for (let lineIndex = 0; lineIndex < hunk.lines.length; lineIndex++) {
-        const line = hunk.lines[lineIndex];
-        if (!split) {
-          rows.push({ right: line });
-          continue;
-        }
-        if (line.kind === 'context') {
-          rows.push({ left: line, right: line });
-          continue;
-        }
-        if (line.kind === 'add') {
-          rows.push({ right: line });
-          continue;
-        }
-        const removed: DiffLine[] = [];
-        const added: DiffLine[] = [];
-        while (
-          lineIndex < hunk.lines.length &&
-          hunk.lines[lineIndex].kind === 'remove'
-        )
-          removed.push(hunk.lines[lineIndex++]);
-        while (
-          lineIndex < hunk.lines.length &&
-          hunk.lines[lineIndex].kind === 'add'
-        )
-          added.push(hunk.lines[lineIndex++]);
-        lineIndex--;
-        for (
-          let pairIndex = 0;
-          pairIndex < Math.max(removed.length, added.length);
-          pairIndex++
-        )
-          rows.push({ left: removed[pairIndex], right: added[pairIndex] });
-      }
-      return rows;
-    }),
+    ...diff.hunks.flatMap((hunk, index) => [
+      ...before(index, 'mid'),
+      { hunk: index },
+      ...hunkBodyRows(hunk.lines, split),
+    ]),
     ...before(diff.hunks.length - 1, 'end'),
   ];
 }

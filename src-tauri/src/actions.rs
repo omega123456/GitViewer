@@ -40,17 +40,21 @@ impl Targets<'_> {
     fn index_of(&self, path: &str) -> Option<&str> {
         self.entries.get(path).map(|entry| entry.index())
     }
+    fn original_of(&self, path: &str) -> Option<&str> {
+        self.entries
+            .get(path)
+            .and_then(|entry| entry.original_path())
+    }
     fn include_rename_sources(&mut self) {
         let mut chosen: HashSet<&str> = self.requested.iter().map(String::as_str).collect();
-        for path in self.requested {
-            let original = self
-                .entries
-                .get(path.as_str())
-                .and_then(|entry| entry.original_path());
-            if let Some(original) = original.filter(|original| chosen.insert(original)) {
-                self.selected.push(original.into());
-            }
-        }
+        let sources: Vec<String> = self
+            .requested
+            .iter()
+            .filter_map(|path| self.original_of(path))
+            .filter(|original| chosen.insert(original))
+            .map(String::from)
+            .collect();
+        self.selected.extend(sources);
     }
 }
 async fn stage(targets: &Targets<'_>) -> Result<()> {
@@ -58,20 +62,23 @@ async fn stage(targets: &Targets<'_>) -> Result<()> {
     Ok(())
 }
 async fn unstage(targets: &Targets<'_>) -> Result<()> {
-    let unborn = targets.status.oid == "(initial)";
-    let arguments = if unborn {
-        vec!["rm", "--cached", "--force", "--ignore-unmatch"]
-    } else {
-        vec!["restore", "--staged"]
-    };
-    git::run_with_pathspec(&targets.repo.root, &arguments, targets.selected()).await?;
+    let arguments = unstage_arguments(targets.status);
+    git::run_with_pathspec(&targets.repo.root, arguments, targets.selected()).await?;
     Ok(())
+}
+const UNBORN_OID: &str = "(initial)";
+const ADDED: &str = "A";
+fn unstage_arguments(status: &Status) -> &'static [&'static str] {
+    if status.oid == UNBORN_OID {
+        return &["rm", "--cached", "--force", "--ignore-unmatch"];
+    }
+    &["restore", "--staged"]
 }
 async fn revert(targets: &mut Targets<'_>) -> Result<()> {
     let (added, tracked): (Vec<&String>, Vec<&String>) = targets
         .selected
         .iter()
-        .partition(|path| matches!(targets.index_of(path), Some(git::UNTRACKED | "A")));
+        .partition(|path| matches!(targets.index_of(path), Some(git::UNTRACKED | ADDED)));
     if !tracked.is_empty() {
         git::run_with_pathspec(
             &targets.repo.root,
@@ -83,7 +90,7 @@ async fn revert(targets: &mut Targets<'_>) -> Result<()> {
     let indexed: Vec<&String> = added
         .iter()
         .copied()
-        .filter(|path| targets.index_of(path) == Some("A"))
+        .filter(|path| targets.index_of(path) == Some(ADDED))
         .collect();
     if !indexed.is_empty() {
         git::run_with_pathspec(

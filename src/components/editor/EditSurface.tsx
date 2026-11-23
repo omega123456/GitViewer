@@ -1,12 +1,12 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
-  FileWarning,
-  Replace,
-  RotateCcw,
-  Search,
-  WrapText,
-} from 'lucide-react';
-import { isolateHistory } from '@codemirror/commands';
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react';
+import { FileWarning, Replace } from 'lucide-react';
 import { findNext, findPrevious, searchPanelOpen } from '@codemirror/search';
 import type { Transaction } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
@@ -16,15 +16,10 @@ import { useBackend } from '../../lib/query';
 import type { Opened } from '../../lib/types';
 import {
   applyReconciliation,
-  approveDiscard,
   current,
-  drop,
-  keepEdits,
   openBuffer,
   reconcile,
-  reload,
   remember,
-  save,
   track,
   useBuffer,
   type Buffer,
@@ -32,8 +27,6 @@ import {
 } from '../../stores/editor';
 import { useStopEditing } from '../../lib/open-file';
 import { useDark } from '../../lib/theme';
-import { Button } from '../shared/Button';
-import { Spinner } from '../shared/Spinner';
 import { ErrorState } from '../states/Errors';
 import { State } from '../states/State';
 import {
@@ -49,36 +42,28 @@ import {
   wrapSlot,
 } from './setup';
 import { FindPanel } from './FindPanel';
+import { ConflictBanner, EditorToolbar } from './EditorChrome';
 import { scopeKey } from '../../lib/git';
 import { findActionSet } from '../diff/FindControls';
-import { accentToggle } from '../shared/styles';
-const outline =
-  'border border-line bg-surface text-ink dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark';
-export default function EditSurface({
-  repo,
-  path,
-  wrap,
-  toggleWrap,
+function useBufferSync({
+  file,
+  opened,
+  base,
+  ready,
+  dark,
 }: {
-  repo: string;
-  path: string;
-  wrap: boolean;
-  toggleWrap: () => void;
+  file: FileKey;
+  opened: { isSuccess: boolean; data: Opened | null | undefined };
+  base: { isPending: boolean; data: string | null | undefined };
+  ready: Buffer | undefined;
+  dark: boolean;
 }) {
-  const opened = useBackend('file_read', { repo, path });
-  const base = useBackend('file_lines', {
-    repo: repo,
-    path: path,
-    source: 'staged',
-  });
-  const file = useMemo(() => ({ repo: repo, path: path }), [repo, path]);
-  const ready = useBuffer(file);
-  const dark = useDark();
-  const stopEditing = useStopEditing(repo);
+  const stopEditing = useStopEditing(file.repo);
   const seen = useRef(opened.data);
   useEffect(() => {
     const data = opened.data;
-    if (!opened.isSuccess || !data || ready || base.isPending) return;
+    const canInitialize = opened.isSuccess && data && !ready && !base.isPending;
+    if (!canInitialize) return;
     seen.current = data;
     openBuffer(
       file,
@@ -101,12 +86,34 @@ export default function EditSurface({
     stopEditing,
   ]);
   useEffect(() => {
-    if (!opened.isSuccess || !ready || ready.saving || ready.conflict) return;
-    const data = opened.data;
-    if (data === seen.current) return;
-    seen.current = data;
-    applyReconciliation(file, reconcile(ready, data ?? null));
+    const canReconcile =
+      opened.isSuccess && ready && !ready.saving && !ready.conflict;
+    if (!canReconcile || opened.data === seen.current) return;
+    seen.current = opened.data;
+    applyReconciliation(file, reconcile(ready, opened.data ?? null));
   }, [opened.isSuccess, opened.data, ready, file]);
+}
+export default function EditSurface({
+  repo,
+  path,
+  wrap,
+  toggleWrap,
+}: {
+  repo: string;
+  path: string;
+  wrap: boolean;
+  toggleWrap: () => void;
+}) {
+  const opened = useBackend('file_read', { repo, path });
+  const base = useBackend('file_lines', {
+    repo: repo,
+    path: path,
+    source: 'staged',
+  });
+  const file = useMemo(() => ({ repo: repo, path: path }), [repo, path]);
+  const ready = useBuffer(file);
+  const dark = useDark();
+  useBufferSync({ file, opened, base, ready, dark });
   if (opened.error)
     return (
       <ErrorState
@@ -115,7 +122,8 @@ export default function EditSurface({
         retry={() => void opened.refetch()}
       />
     );
-  if (opened.isSuccess && opened.data === null && !ready)
+  const uneditableFile = opened.isSuccess && opened.data === null && !ready;
+  if (uneditableFile)
     return (
       <State icon={FileWarning} title="This file can't be edited here">
         GitViewer edits UTF-8 text files up to 2 MB.
@@ -133,27 +141,8 @@ export default function EditSurface({
     />
   );
 }
-function Editor({
-  file,
-  buffer,
-  base,
-  dark,
-  wrap,
-  toggleWrap,
-}: {
-  file: FileKey;
-  buffer: Buffer;
-  base: string | null | undefined;
-  dark: boolean;
-  wrap: boolean;
-  toggleWrap: () => void;
-}) {
-  const { repo, path } = file;
-  const host = useRef<HTMLDivElement>(null);
+function useEditorMount(file: FileKey, host: RefObject<HTMLDivElement | null>) {
   const [view, setView] = useState<EditorView>();
-  const [language, setLanguage] = useState(
-    () => describeLanguage(path)?.name ?? 'Plain text',
-  );
   useLayoutEffect(() => {
     const parent = host.current;
     if (!parent) return;
@@ -183,7 +172,29 @@ function Editor({
       });
       created.destroy();
     };
-  }, [file]);
+  }, [file, host]);
+  return view;
+}
+function useEditorEffects({
+  view,
+  buffer,
+  base,
+  dark,
+  wrap,
+  toggleWrap,
+  path,
+}: {
+  view: EditorView | undefined;
+  buffer: Buffer;
+  base: string | null | undefined;
+  dark: boolean;
+  wrap: boolean;
+  toggleWrap: () => void;
+  path: string;
+}) {
+  const [language, setLanguage] = useState(
+    () => describeLanguage(path)?.name ?? 'Plain text',
+  );
   useEffect(() => {
     if (view && view.state !== buffer.state) view.setState(buffer.state);
   }, [view, buffer.state]);
@@ -211,6 +222,13 @@ function Editor({
       cancelled = true;
     };
   }, [view, path]);
+  return language;
+}
+function useEditorActions(
+  repo: string,
+  view: EditorView | undefined,
+  buffer: Buffer,
+) {
   const finding = searchPanelOpen(buffer.state);
   const findActions = findActionSet({
     reveal: () => {
@@ -238,73 +256,45 @@ function Editor({
     findActions.next,
     findActions.previous,
   ]);
-  const head = buffer.state.selection.main.head;
-  const line = buffer.state.doc.lineAt(head);
+}
+function Editor({
+  file,
+  buffer,
+  base,
+  dark,
+  wrap,
+  toggleWrap,
+}: {
+  file: FileKey;
+  buffer: Buffer;
+  base: string | null | undefined;
+  dark: boolean;
+  wrap: boolean;
+  toggleWrap: () => void;
+}) {
+  const { repo, path } = file;
+  const host = useRef<HTMLDivElement>(null);
+  const view = useEditorMount(file, host);
+  const language = useEditorEffects({
+    view: view,
+    buffer: buffer,
+    base: base,
+    dark: dark,
+    wrap: wrap,
+    toggleWrap: toggleWrap,
+    path: path,
+  });
+  useEditorActions(repo, view, buffer);
   return (
     <>
-      <div className="flex h-8 shrink-0 items-center gap-3 border-b border-line bg-sub px-2 dark:border-line-dark dark:bg-sub-dark">
-        <span className="flex gap-2.5 text-meta text-muted dark:text-muted-dark">
-          <span>{language}</span>
-          <span>{buffer.disk.bom ? 'UTF-8 with BOM' : 'UTF-8'}</span>
-          <span>{buffer.disk.crlf ? 'CRLF' : 'LF'}</span>
-          <span className="tabular-nums">
-            Ln {line.number}, Col {head - line.from + 1}
-          </span>
-        </span>
-        <span className="ml-auto flex items-center gap-1.5">
-          <Button
-            title="Word wrap"
-            aria-pressed={wrap}
-            variant="icon"
-            className={`size-control ${
-              wrap ? accentToggle : 'text-muted dark:text-muted-dark'
-            }`}
-            onClick={toggleWrap}
-          >
-            <WrapText className="size-3.5" />
-          </Button>
-          <Button
-            className="text-muted dark:text-muted-dark"
-            disabled={!view}
-            onClick={() => view && openFind(view, false)}
-          >
-            <Search className="size-4" />
-            <span>Find</span>
-          </Button>
-          <Button
-            className="text-muted dark:text-muted-dark"
-            disabled={!view || !buffer.dirty || buffer.saving}
-            onClick={async () => {
-              if (!view || !(await approveDiscard(file))) return;
-              view.dispatch({
-                changes: {
-                  from: 0,
-                  to: view.state.doc.length,
-                  insert: buffer.disk.saved,
-                },
-                annotations: isolateHistory.of('full'),
-              });
-            }}
-          >
-            <RotateCcw className="size-4" />
-            <span>Revert</span>
-          </Button>
-          {buffer.saving ? (
-            <span className="inline-flex items-center gap-1.5 px-2 text-xs text-muted dark:text-muted-dark">
-              <Spinner className="size-3" />
-              Saving…
-            </span>
-          ) : (
-            <Button
-              variant="primary"
-              disabled={!buffer.dirty}
-              onClick={() => void save(file)}
-            >
-              Save
-            </Button>
-          )}
-        </span>
-      </div>
+      <EditorToolbar
+        file={file}
+        buffer={buffer}
+        language={language}
+        view={view}
+        wrap={wrap}
+        toggleWrap={toggleWrap}
+      />
       {buffer.conflict && (
         <ConflictBanner
           file={file}
@@ -315,53 +305,5 @@ function Editor({
       <div ref={host} className="min-h-0 flex-1" aria-label="Editor" />
       {view && <FindPanel view={view} state={buffer.state} />}
     </>
-  );
-}
-function ConflictBanner({
-  file,
-  name,
-  current,
-}: {
-  file: FileKey;
-  name: string;
-  current: Opened | null;
-}) {
-  const stopEditing = useStopEditing(file.repo);
-  return (
-    <div
-      role="alert"
-      className="flex shrink-0 items-center gap-2.5 border-b border-line bg-merge px-3 py-1.5 text-sm text-merge-ink dark:border-line-dark dark:bg-merge-dark dark:text-merge-ink-dark"
-    >
-      {current ? (
-        <span>
-          <b>{name} changed on disk</b> since you started editing. Your edits
-          are still here.
-        </span>
-      ) : (
-        <span>
-          <b>{name} was deleted on disk.</b> Your edits are still here.
-        </span>
-      )}
-      <span className="ml-auto flex gap-1.5">
-        {current ? (
-          <Button className={outline} onClick={() => reload(file, current)}>
-            Reload from disk
-          </Button>
-        ) : (
-          <Button
-            className={outline}
-            onClick={() => {
-              drop(file);
-              stopEditing();
-            }}
-          >
-            Discard edits
-          </Button>
-        )}
-        <Button variant="primary" onClick={() => keepEdits(file)}>
-          Keep my edits
-        </Button>
-      </span>
-    </div>
   );
 }

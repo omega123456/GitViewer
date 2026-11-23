@@ -24,30 +24,42 @@ struct Fake {
 }
 struct Source(Arc<Fake>);
 struct Offer(Arc<Fake>, String);
+fn offered_version(fake: &Fake) -> &'static str {
+    if *fake.newer.lock().unwrap() {
+        return "0.3.0";
+    }
+    "0.2.0"
+}
+fn offer(fake: Arc<Fake>) -> Box<dyn Release> {
+    let version = offered_version(&fake).into();
+    Box::new(Offer(fake, version))
+}
+async fn checked(fake: Arc<Fake>) -> Result<Option<Box<dyn Release>>> {
+    fake.checks.fetch_add(1, Ordering::SeqCst);
+    if *fake.delayed.lock().unwrap() {
+        fake.block.notified().await;
+    }
+    if *fake.failure.lock().unwrap() == "check" {
+        return Err(Error::refused("Offline"));
+    }
+    if *fake.absent.lock().unwrap() {
+        return Ok(None);
+    }
+    Ok(Some(offer(fake)))
+}
+async fn downloaded(fake: Arc<Fake>, progress: Progress<'_>) -> Result<Vec<u8>> {
+    fake.downloads.fetch_add(1, Ordering::SeqCst);
+    progress(2, Some(4));
+    if *fake.failure.lock().unwrap() == "download" {
+        return Err(Error::refused("Invalid signature"));
+    }
+    progress(2, Some(4));
+    Ok(vec![1, 2, 3, 4])
+}
+fn unobserved() {}
 impl Backend for Source {
     fn check(&self) -> Task<'_, Option<Box<dyn Release>>> {
-        Box::pin(async move {
-            self.0.checks.fetch_add(1, Ordering::SeqCst);
-            if *self.0.delayed.lock().unwrap() {
-                self.0.block.notified().await;
-            }
-            if *self.0.failure.lock().unwrap() == "check" {
-                return Err(Error::refused("Offline"));
-            }
-            if *self.0.absent.lock().unwrap() {
-                Ok(None)
-            } else {
-                Ok(Some(Box::new(Offer(
-                    self.0.clone(),
-                    if *self.0.newer.lock().unwrap() {
-                        "0.3.0"
-                    } else {
-                        "0.2.0"
-                    }
-                    .into(),
-                )) as Box<dyn Release>))
-            }
-        })
+        Box::pin(checked(self.0.clone()))
     }
 }
 impl Release for Offer {
@@ -59,15 +71,7 @@ impl Release for Offer {
         }
     }
     fn download<'a>(&'a self, progress: Progress<'a>) -> Task<'a, Vec<u8>> {
-        Box::pin(async move {
-            self.0.downloads.fetch_add(1, Ordering::SeqCst);
-            progress(2, Some(4));
-            if *self.0.failure.lock().unwrap() == "download" {
-                return Err(Error::refused("Invalid signature"));
-            }
-            progress(2, Some(4));
-            Ok(vec![1, 2, 3, 4])
-        })
+        Box::pin(downloaded(self.0.clone(), progress))
     }
     fn install(&self, bytes: &[u8], restart: bool) -> Result<()> {
         assert_eq!(bytes, &[1, 2, 3, 4]);
@@ -94,7 +98,7 @@ fn service(automatic: bool) -> (Arc<Service>, Arc<Fake>) {
                 ..Default::default()
             },
         },
-        || {},
+        unobserved,
     ));
     (service, fake)
 }
@@ -173,14 +177,15 @@ async fn failed_checks_downloads_and_installs_can_be_retried_or_skipped() {
     assert!(service.finish_close().unwrap());
 }
 
+async fn check_in_background(service: Arc<Service>) -> Result<()> {
+    service.check().await
+}
+
 #[tokio::test]
 async fn busy_checks_do_not_duplicate_work_or_delay_quit() {
     let (service, fake) = service(true);
     *fake.delayed.lock().unwrap() = true;
-    let running = tokio::spawn({
-        let service = service.clone();
-        async move { service.check().await }
-    });
+    let running = tokio::spawn(check_in_background(service.clone()));
     tokio::task::yield_now().await;
     service.check().await.unwrap();
     assert!(service.prepare_install().await.is_err());
@@ -240,7 +245,7 @@ async fn development_and_missing_configuration_never_access_the_backend() {
                 backend: None,
                 settings: Settings::default(),
             },
-            || {},
+            unobserved,
         ));
         assert!(service.check().await.is_err());
         assert!(service.prepare_install().await.is_err());

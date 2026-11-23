@@ -110,8 +110,7 @@ pub fn overlapping(status: &Status, target: &HashSet<String>) -> Vec<String> {
 pub async fn untracked(repo: &Repo, hash: &str) -> Result<Vec<String>> {
     git::untracked_in_stash(&repo.root, hash, &["--name-only"]).await
 }
-pub async fn precheck(repo: &Repo, hash: &str) -> Result<()> {
-    let sha = resolve(repo, hash).await?;
+async fn preflight_head(repo: &Repo, sha: &str) -> Result<String> {
     let head_tree = git::text(&repo.root, &["rev-parse", &git::tree_of(git::HEAD)]).await?;
     let head = git::run(
         &repo.root,
@@ -123,48 +122,59 @@ pub async fn precheck(repo: &Repo, hash: &str) -> Result<()> {
             "commit-tree",
             head_tree.trim(),
             "-p",
-            &git::first_parent(&sha),
+            &git::first_parent(sha),
         ],
         Some(b"GitViewer stash preflight\n"),
     )
     .await?
     .accept(&[git::EXIT_SUCCESS])?
     .text();
-    for target in [sha.clone(), git::stash_index(&sha)] {
-        if let Some(conflicts) = git::merge_conflicts(&repo.root, head.trim(), &target).await? {
+    Ok(head.trim().to_owned())
+}
+async fn refuse_conflicts(repo: &Repo, sha: &str) -> Result<()> {
+    let head = preflight_head(repo, sha).await?;
+    for target in [sha.to_owned(), git::stash_index(sha)] {
+        if let Some(conflicts) = git::merge_conflicts(&repo.root, &head, &target).await? {
             return Err(Error::refused(format!(
                 "Stash would conflict:\n{conflicts}"
             )));
         }
     }
+    Ok(())
+}
+async fn check_index_restorable(repo: &Repo, sha: &str) -> Result<()> {
     let index_patch = git::run(
         &repo.root,
         &[
             "diff",
             "--binary",
-            &git::first_parent(&sha),
-            &git::stash_index(&sha),
+            &git::first_parent(sha),
+            &git::stash_index(sha),
         ],
         None,
     )
     .await?
     .accept(&[git::EXIT_SUCCESS])?;
-    if !index_patch.bytes.is_empty() {
-        git::run(
-            &repo.root,
-            &["apply", "--cached", "--check"],
-            Some(&index_patch.bytes),
-        )
-        .await?
-        .accept(&[git::EXIT_SUCCESS])
-        .map_err(|error| {
-            Error::refused(format!(
-                "Staged changes cannot be restored safely: {}",
-                error.message
-            ))
-        })?;
+    if index_patch.bytes.is_empty() {
+        return Ok(());
     }
-    for path in untracked(repo, &sha).await? {
+    git::run(
+        &repo.root,
+        &["apply", "--cached", "--check"],
+        Some(&index_patch.bytes),
+    )
+    .await?
+    .accept(&[git::EXIT_SUCCESS])
+    .map_err(|error| {
+        Error::refused(format!(
+            "Staged changes cannot be restored safely: {}",
+            error.message
+        ))
+    })?;
+    Ok(())
+}
+async fn refuse_untracked_overwrites(repo: &Repo, sha: &str) -> Result<()> {
+    for path in untracked(repo, sha).await? {
         if repo.path(&path)?.exists() {
             return Err(Error::refused(format!(
                 "Stash would overwrite untracked path: {path}"
@@ -172,6 +182,12 @@ pub async fn precheck(repo: &Repo, hash: &str) -> Result<()> {
         }
     }
     Ok(())
+}
+pub async fn precheck(repo: &Repo, hash: &str) -> Result<()> {
+    let sha = resolve(repo, hash).await?;
+    refuse_conflicts(repo, &sha).await?;
+    check_index_restorable(repo, &sha).await?;
+    refuse_untracked_overwrites(repo, &sha).await
 }
 pub(crate) async fn restore(repo: &Repo, hash: &str) -> Result<()> {
     precheck(repo, hash).await?;
@@ -185,26 +201,35 @@ pub struct ApplyOptions {
     pub pop: bool,
     pub smart: bool,
 }
+struct StashApply<'a> {
+    hash: &'a str,
+    smart: bool,
+}
+async fn refuse_local_overlap(repo: &Repo, status: &Status, apply: StashApply<'_>) -> Result<()> {
+    if !apply.smart {
+        return Err(Error::new(
+            "smart_apply",
+            "Local changes need a smart apply",
+        ));
+    }
+    let overlap = overlapping(status, &changed_paths(repo, apply.hash).await?);
+    if !overlap.is_empty() {
+        return Err(Error::refused(format!(
+            "Stashes share paths: {}",
+            overlap.join(", ")
+        )));
+    }
+    Ok(())
+}
 pub async fn apply(repo: &Repo, hash: &str, options: ApplyOptions) -> Result<()> {
     let ApplyOptions { pop, smart } = options;
     let status = repo.writable().await?;
-    if !list(repo).await?.iter().any(|stash| stash.hash == hash) {
+    let exists = list(repo).await?.iter().any(|stash| stash.hash == hash);
+    if !exists {
         return Err(Error::refused("Stash no longer exists"));
     }
     if !status.entries.is_empty() {
-        if !smart {
-            return Err(Error::new(
-                "smart_apply",
-                "Local changes need a smart apply",
-            ));
-        }
-        let overlap = overlapping(&status, &changed_paths(repo, hash).await?);
-        if !overlap.is_empty() {
-            return Err(Error::refused(format!(
-                "Stashes share paths: {}",
-                overlap.join(", ")
-            )));
-        }
+        refuse_local_overlap(repo, &status, StashApply { hash, smart }).await?;
     }
     let mut arguments = vec!["stash", "apply"];
     if precheck(repo, hash).await.is_ok() {
@@ -215,23 +240,28 @@ pub async fn apply(repo: &Repo, hash: &str, options: ApplyOptions) -> Result<()>
         .await?
         .accept(&git::SUCCESS_OR_DIFFERENT)?;
     if output.code == git::EXIT_DIFFERENT {
-        if repo.refresh().await?.conflicted {
-            return Ok(());
-        }
-        return Err(Error::git(output.message()));
+        return conflicted_or_failed(repo, &output).await;
     }
     if pop {
         remove(repo, hash).await?;
     }
     Ok(())
 }
+async fn conflicted_or_failed(repo: &Repo, output: &git::Output) -> Result<()> {
+    if repo.refresh().await?.conflicted {
+        return Ok(());
+    }
+    Err(Error::git(output.message()))
+}
+fn checkout_target(status: &Status) -> String {
+    if status.branch == git::DETACHED_LABEL {
+        return status.oid.clone();
+    }
+    status.branch.clone()
+}
 pub async fn smart_checkout(repo: &Repo, name: &str) -> Result<()> {
     let status = repo.writable().await?;
-    let original = if status.branch == git::DETACHED_LABEL {
-        status.oid.clone()
-    } else {
-        status.branch.clone()
-    };
+    let original = checkout_target(&status);
     let temporary = save(repo, "GitViewer: smart checkout").await?;
     let switched = branch::switch(repo, name).await;
     let outcome = match switched {

@@ -8,7 +8,7 @@ import {
 import { Section } from '../shared/Section';
 import { dynamic } from '../shared/styles';
 import { SectionResizeHandle } from '../shell/ResizeHandle';
-import { FilesTree } from './FileTree';
+import { FilesTree } from './FilesTree';
 export const FilesSection = memo(function FilesSection({
   repo,
   status,

@@ -133,31 +133,35 @@ pub async fn switch(repo: &Repo, name: &str) -> Result<()> {
         .iter()
         .find(|branch| branch.name == name)
         .ok_or_else(|| Error::refused("Choose an existing branch"))?;
-    let mut target = name;
-    let mut arguments = vec!["checkout"];
-    if branch.remote {
-        let local = git::split_remote(name)
-            .ok_or_else(|| Error::refused("Invalid remote branch"))?
-            .branch;
-        if let Some(existing) = branches
-            .iter()
-            .find(|branch| !branch.remote && branch.name == local)
-        {
-            if existing.upstream != name {
-                return Err(Error::refused(format!(
-                    "Local branch {local} already exists and tracks a different reference"
-                )));
-            }
-            target = local;
-        } else {
-            arguments.extend(["--track", "-b", local]);
-        }
-    }
-    arguments.extend([target, "--"]);
+    let arguments = checkout_arguments(&branches, branch)?;
     git::run(&repo.root, &arguments, None)
         .await?
         .accept(&[git::EXIT_SUCCESS])?;
     Ok(())
+}
+impl Branch {
+    fn is_local_named(&self, name: &str) -> bool {
+        !self.remote && self.name == name
+    }
+}
+fn checkout_arguments<'a>(branches: &'a [Branch], branch: &'a Branch) -> Result<Vec<&'a str>> {
+    let name = branch.name.as_str();
+    if !branch.remote {
+        return Ok(vec!["checkout", name, "--"]);
+    }
+    let local = git::split_remote(name)
+        .ok_or_else(|| Error::refused("Invalid remote branch"))?
+        .branch;
+    let existing = branches.iter().find(|branch| branch.is_local_named(local));
+    let Some(existing) = existing else {
+        return Ok(vec!["checkout", "--track", "-b", local, name, "--"]);
+    };
+    if existing.upstream != name {
+        return Err(Error::refused(format!(
+            "Local branch {local} already exists and tracks a different reference"
+        )));
+    }
+    Ok(vec!["checkout", local, "--"])
 }
 pub async fn create(repo: &Repo, name: &str, base: &str) -> Result<()> {
     repo.writable().await?;
@@ -208,11 +212,7 @@ async fn local_remotes_only(repo: &Repo) -> Result<()> {
     #[cfg(feature = "test-utils")]
     {
         let remotes = git::text(&repo.root, &["remote", "-v"]).await?;
-        if remotes.lines().any(|line| {
-            line.split_whitespace()
-                .nth(1)
-                .is_some_and(|url| url.contains("://") || url.contains('@'))
-        }) {
+        if remotes.lines().any(is_network_remote) {
             return Err(Error::refused(
                 "Tests may only synchronize local fixture remotes",
             ));
@@ -222,18 +222,32 @@ async fn local_remotes_only(repo: &Repo) -> Result<()> {
     let _ = repo;
     Ok(())
 }
+#[cfg(feature = "test-utils")]
+fn is_network_url(url: &str) -> bool {
+    url.contains("://") || url.contains('@')
+}
+#[cfg(feature = "test-utils")]
+fn is_network_remote(line: &str) -> bool {
+    line.split_whitespace().nth(1).is_some_and(is_network_url)
+}
+impl Branch {
+    fn lost_upstream(&self) -> bool {
+        self.gone || self.upstream.is_empty()
+    }
+    fn is_checked_out(&self) -> bool {
+        self.current || !self.worktree.is_empty()
+    }
+    fn is_prune_candidate(&self, default: Option<&str>) -> bool {
+        let is_default = default == Some(self.name.as_str());
+        !self.remote && self.lost_upstream() && !self.is_checked_out() && !is_default
+    }
+}
 async fn candidates(repo: &Repo) -> Result<Vec<String>> {
     let default = default_branch(repo).await.ok();
     Ok(list(repo)
         .await?
         .into_iter()
-        .filter(|branch| {
-            !branch.remote
-                && (branch.gone || branch.upstream.is_empty())
-                && !branch.current
-                && branch.worktree.is_empty()
-                && default.as_deref() != Some(branch.name.as_str())
-        })
+        .filter(|branch| branch.is_prune_candidate(default.as_deref()))
         .map(|branch| branch.name)
         .collect())
 }
@@ -509,7 +523,8 @@ pub async fn merge(repo: &Repo, name: &str) -> Result<bool> {
         .await?
         .accept(&git::SUCCESS_OR_DIFFERENT)?;
     let conflicted = merging(repo).await?;
-    if output.code == git::EXIT_DIFFERENT && !conflicted {
+    let failed_without_conflicts = output.code == git::EXIT_DIFFERENT && !conflicted;
+    if failed_without_conflicts {
         return Err(Error::git(output.message()));
     }
     Ok(!conflicted)
@@ -537,17 +552,20 @@ pub async fn default_branch(repo: &Repo) -> Result<String> {
     )
     .await?;
     if head.succeeded() {
-        let remote = head.text().trim().to_owned();
-        let local = git::without_remote(&remote);
-        if local_exists(repo, local).await? {
-            return Ok(local.into());
-        }
-        return Ok(remote);
+        return preferred_local(repo, head.text().trim().to_owned()).await;
     }
-    for name in ["main", "master"] {
+    for name in CONVENTIONAL_DEFAULTS {
         if local_exists(repo, name).await? {
             return Ok(name.into());
         }
     }
     Ok(repo.snapshot().await?.branch.clone())
+}
+const CONVENTIONAL_DEFAULTS: [&str; 2] = ["main", "master"];
+async fn preferred_local(repo: &Repo, remote: String) -> Result<String> {
+    let local = git::without_remote(&remote);
+    if local_exists(repo, local).await? {
+        return Ok(local.into());
+    }
+    Ok(remote)
 }
