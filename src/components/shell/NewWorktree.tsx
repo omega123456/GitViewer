@@ -1,28 +1,31 @@
 import { useState } from 'react';
 import { open as choose } from '@tauri-apps/plugin-dialog';
-import { GitBranch } from 'lucide-react';
-import { nameProblem } from '../../lib/branch-name';
+import { baseOrHead, branchRefs, nameProblem } from '../../lib/branch-name';
+import { createThenSwitch, type CreateMode } from '../../lib/create';
 import { perform, useBackend } from '../../lib/query';
 import { switchWorktree } from '../../lib/repository';
 import type { WorktreeMode } from '../../lib/types';
 import type { Tab } from '../../stores/tabs';
 import { Button } from '../shared/Button';
-import { CreateButton, type CreateMode } from '../shared/CreateButton';
 import { Modal } from '../shared/Modal';
 import { Choice } from '../shared/Choice';
 import { Select } from '../shared/Select';
 import { TextInput } from '../shared/TextInput';
-import { field } from '../shared/styles';
+import { field, mutedLabel } from '../shared/styles';
 import { FieldError } from '../states/Errors';
-import { HEAD } from '../../lib/git';
 import { keysOf } from '../../lib/options';
+import {
+  BaseBranchSelect,
+  BranchNameField,
+  branchIcon,
+  CreateFooter,
+} from './BranchForm';
 const kinds = {
   detached: 'detached',
   'new branch': 'new',
   'existing branch': 'existing',
 } satisfies Record<string, WorktreeMode>;
 type Kind = keyof typeof kinds;
-const hint = 'text-label text-muted dark:text-muted-dark';
 export function NewWorktree({
   repo,
   project,
@@ -43,15 +46,10 @@ export function NewWorktree({
   const [custom, setCustom] = useState<string | null>(null);
   const [mode, setMode] = useState<CreateMode>('switch');
   const branches = useBackend('branches', { repo }, open).data ?? [];
-  const head = branches.find((branch) => branch.current)?.name;
-  const local = branches
-    .filter((branch) => !branch.remote)
-    .map((branch) => branch.name);
-  const remote = branches
-    .filter((branch) => branch.remote)
-    .map((branch) => branch.name);
+  const refs = branchRefs(branches);
+  const remote = refs.remote;
   const free = branches.filter((branch) => !branch.remote && !branch.worktree);
-  const chosenBase = base || head || HEAD;
+  const chosenBase = baseOrHead(base, refs.head);
   const worktreeMode = kinds[kind];
   const reference =
     worktreeMode === 'detached'
@@ -85,32 +83,20 @@ export function NewWorktree({
     setExisting('');
     setCustom(null);
   };
-  const startOptions = [
-    { label: 'Local', options: head ? local : [HEAD, ...local] },
-    { label: 'Remote', options: remote },
-  ].filter((group) => group.options.length);
   const baseSelect = (label: string) => (
-    <div className="flex flex-col gap-1 text-sm">
-      <span>{label}</span>
-      <Select
-        label={label}
-        placeholder="Current branch"
-        icon={
-          <GitBranch className="size-3.5 shrink-0 text-muted dark:text-muted-dark" />
-        }
-        mono
-        value={chosenBase}
-        groups={startOptions}
-        badges={head ? { [head]: 'current' } : { HEAD: 'detached' }}
-        onChange={setBase}
-      />
+    <BaseBranchSelect
+      label={label}
+      value={chosenBase}
+      refs={refs}
+      onChange={setBase}
+    >
       {worktreeMode === 'detached' && target && (
-        <p className={hint}>
+        <p className={mutedLabel}>
           Checks out <span className="font-mono">{target.label}</span> without
           creating a branch.
         </p>
       )}
-    </div>
+    </BaseBranchSelect>
   );
   return (
     <Modal
@@ -118,18 +104,14 @@ export function NewWorktree({
       open={open}
       onOpenChange={(next) => (next ? onOpenChange(true) : close())}
       footer={
-        <>
-          <CreateButton
-            form="new-worktree-form"
-            mode={mode}
-            disabled={blocked}
-            optionsLabel="Create worktree options"
-            onMode={setMode}
-          />
-          <Button variant="standard" className="h-8" onClick={close}>
-            Cancel
-          </Button>
-        </>
+        <CreateFooter
+          form="new-worktree-form"
+          mode={mode}
+          disabled={blocked}
+          optionsLabel="Create worktree options"
+          onMode={setMode}
+          onCancel={close}
+        />
       }
     >
       <form
@@ -138,17 +120,21 @@ export function NewWorktree({
         onSubmit={async (event) => {
           event.preventDefault();
           if (blocked) return;
-          const created = await perform('worktree_add', {
-            repo: repo,
-            path: folder,
-            mode: worktreeMode,
-            branch: worktreeMode === 'new' ? name : existing,
-            base: chosenBase,
+          await createThenSwitch({
+            mode: mode,
+            create: () =>
+              perform('worktree_add', {
+                repo: repo,
+                path: folder,
+                mode: worktreeMode,
+                branch: worktreeMode === 'new' ? name : existing,
+                base: chosenBase,
+              }),
+            finish: close,
+            switchTo: async (created) => {
+              if (project) await switchWorktree(project, created);
+            },
           });
-          if (created === undefined) return;
-          close();
-          if (mode === 'switch' && project)
-            await switchWorktree(project, created);
         }}
       >
         <Choice
@@ -164,27 +150,14 @@ export function NewWorktree({
         {worktreeMode === 'detached' && baseSelect('Start from')}
         {worktreeMode === 'new' && (
           <>
-            <div className="flex flex-col gap-1 text-sm">
-              <label htmlFor="new-worktree-branch">Branch name</label>
-              <TextInput
-                id="new-worktree-branch"
-                aria-invalid={Boolean(problem)}
-                aria-describedby="new-worktree-branch-hint"
-                className={`${field} h-8 font-mono text-diff`}
-                placeholder="feature/short-description"
-                value={name}
-                onChange={(event) =>
-                  setName(event.target.value.replace(/\s+/g, '-'))
-                }
-              />
-              <div id="new-worktree-branch-hint">
-                {problem ? (
-                  <FieldError>{problem}</FieldError>
-                ) : (
-                  <p className={hint}>Spaces become dashes.</p>
-                )}
-              </div>
-            </div>
+            <BranchNameField
+              id="new-worktree-branch"
+              hintId="new-worktree-branch-hint"
+              label="Branch name"
+              value={name}
+              problem={problem}
+              onChange={setName}
+            />
             {baseSelect('Based on')}
           </>
         )}
@@ -194,9 +167,7 @@ export function NewWorktree({
             <Select
               label="Branch"
               placeholder="Choose a branch"
-              icon={
-                <GitBranch className="size-3.5 shrink-0 text-muted dark:text-muted-dark" />
-              }
+              icon={branchIcon}
               mono
               value={existing}
               groups={[
@@ -212,7 +183,7 @@ export function NewWorktree({
               }}
             />
             {tracked && (
-              <p className={hint}>
+              <p className={mutedLabel}>
                 Creates <span className="font-mono">{tracked}</span> tracking
                 it.
               </p>
@@ -251,7 +222,7 @@ export function NewWorktree({
                 This folder already exists and is not empty.
               </FieldError>
             ) : (
-              <p className={hint}>
+              <p className={mutedLabel}>
                 Ignored files such as{' '}
                 <span className="font-mono">node_modules</span> and{' '}
                 <span className="font-mono">.env</span> are not copied.

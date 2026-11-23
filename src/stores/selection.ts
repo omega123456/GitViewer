@@ -3,6 +3,7 @@ import { client, queryKey } from '../lib/query';
 import type { Selection, SettingsResponse } from '../lib/types';
 import { approveDiscard, drop, isProtected, useEditor } from './editor';
 import { tabLayout, type SidebarMode } from './layout';
+import { stepIndex } from '../lib/list';
 export type Group = 'staged' | 'unstaged';
 export type Stack = Group | 'commit' | 'compare';
 export interface FileTab {
@@ -193,7 +194,7 @@ export const useSelection = create<Selections>((set, get) => ({
     const index = tabs.findIndex(
       (tab) => active?.path && tabKey(tab.selection) === tabKey(active),
     );
-    const next = tabs[(index + direction + tabs.length) % tabs.length];
+    const next = tabs[stepIndex(index, direction, tabs.length)];
     if (next) get().select(id, next.selection);
   },
   forget: (id) => {

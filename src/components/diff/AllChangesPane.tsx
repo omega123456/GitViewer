@@ -11,16 +11,10 @@ import {
   type SetStateAction,
 } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import {
-  CheckCircle2,
-  ChevronDown,
-  ChevronRight,
-  ExternalLink,
-  Loader2,
-  Pencil,
-} from 'lucide-react';
+import { CheckCircle2, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import { useActions } from '../../lib/actions';
-import { perform, useBackend } from '../../lib/query';
+import { useBackend } from '../../lib/query';
+import { splitPath } from '../../lib/paths';
 import type {
   Comparison,
   Diff,
@@ -35,13 +29,19 @@ import {
   useComparison,
 } from '../sidebar/CompareSection';
 import { groupEntries, treeOrder } from '../sidebar/nodes';
-import { useDiffView } from '../../stores/diff-view';
 import { useDeferredFilter } from '../../stores/filter';
 import { useSelection, type Stack } from '../../stores/selection';
-import { Button } from '../shared/Button';
-import { CopyButton } from '../shared/CopyButton';
 import { Spinner } from '../shared/Spinner';
-import { clickable, dynamic, focus, focusInset } from '../shared/styles';
+import { VirtualCanvas } from '../shared/VirtualCanvas';
+import {
+  addedInk,
+  clickable,
+  dynamic,
+  focus,
+  focusInset,
+  removedInk,
+  paneHeader,
+} from '../shared/styles';
 import { ErrorState } from '../states/Errors';
 import { State } from '../states/State';
 import { StatusBadge } from '../sidebar/StatusBadge';
@@ -60,7 +60,13 @@ import {
 import { FullFileButton } from './DiffToolbar';
 import { canEdit } from './editable';
 import { useExpansion, type Openings } from './expansion';
-import { runHunkAction } from './hunks';
+import {
+  ChangeCountBadges,
+  CopyPathButton,
+  EditButton,
+  OpenInSystemButton,
+} from './DiffFileActions';
+import { useDiffFile } from './useDiffFile';
 import {
   DIFF_CONTEXT_LINES,
   DIVIDER_ROW_HEIGHT,
@@ -291,7 +297,7 @@ export const AllChangesPane = memo(function AllChangesPane({
       className="flex h-full min-w-0 flex-col"
       aria-label={stashed ? 'All changes in stash' : labels[stack]}
     >
-      <header className="flex h-9.5 shrink-0 items-center gap-1 border-b border-line px-2.5 text-sm dark:border-line-dark">
+      <header className={paneHeader}>
         <span className="font-semibold">
           {stashed ? 'Stash' : titles[stack]}
         </span>
@@ -310,12 +316,8 @@ export const AllChangesPane = memo(function AllChangesPane({
         {stack === 'compare' && !listing ? (
           <span className="ml-auto shrink-0 font-mono text-badge text-muted">
             {entries.length} files ·{' '}
-            <span className="text-added dark:text-added-dark">
-              +{totals.additions}
-            </span>{' '}
-            <span className="text-deleted dark:text-deleted-dark">
-              −{totals.deletions}
-            </span>
+            <span className={addedInk}>+{totals.additions}</span>{' '}
+            <span className={removedInk}>−{totals.deletions}</span>
           </span>
         ) : listing ? (
           <Spinner className="size-3.5 text-muted" />
@@ -363,12 +365,7 @@ export const AllChangesPane = memo(function AllChangesPane({
               This group is empty.
             </State>
           ) : (
-            <div
-              className="relative h-virtual"
-              style={dynamic({
-                '--virtual-height': `${virtual.getTotalSize()}px`,
-              })}
-            >
+            <VirtualCanvas height={virtual.getTotalSize()}>
               {virtual.getVirtualItems().map((item) => {
                 const entry = ordered[item.index];
                 const path = entry.selection.path;
@@ -401,7 +398,7 @@ export const AllChangesPane = memo(function AllChangesPane({
                   </div>
                 );
               })}
-            </div>
+            </VirtualCanvas>
           )}
         </div>
       </div>
@@ -513,26 +510,13 @@ const FileDiff = memo(function FileDiff({
     setOpening,
   ]);
   const tokens = useTokens(repo, selection, data, near);
-  const mode = useDiffView((state) => state.mode) ?? settings.diffMode;
-  const split = mode === 'split' && data?.content === null;
-  const rows = useMemo(
-    () => (data ? diffRows(data, split, expansion.reveal) : []),
-    [data, split, expansion.reveal],
-  );
-  const { added, removed } = useMemo(() => {
-    const lines = data?.hunks.flatMap((hunk) => hunk.lines) ?? [];
-    return {
-      added: lines.filter((line) => line.kind === 'add').length,
-      removed: lines.filter((line) => line.kind === 'remove').length,
-    };
-  }, [data]);
-  const hunkAction = useCallback(
-    (hunk: number, action: string) => {
-      if (!data) return;
-      void runHunkAction(repo, selection, data, hunk, action);
-    },
-    [repo, selection, data],
-  );
+  const { split, rows, counts, hunkAction } = useDiffFile({
+    repo: repo,
+    selection: selection,
+    data: data,
+    reveal: expansion.reveal,
+    defaultMode: settings.diffMode,
+  });
   const message = note(data, error);
   const surface = open && !message && mounted;
   const handle = useRef<DiffSurfaceHandle>(null);
@@ -552,7 +536,7 @@ const FileDiff = memo(function FileDiff({
   useLayoutEffect(() => {
     setInner(body.current?.offsetTop ?? 0);
   }, [surface]);
-  const nameStart = selection.path.lastIndexOf('/') + 1;
+  const { directory, name } = splitPath(selection.path);
   const reserved = rows.reduce((sum, row) => sum + rowHeight(row), 0);
   return (
     <div ref={box} className="border-b border-line dark:border-line-dark">
@@ -569,55 +553,28 @@ const FileDiff = memo(function FileDiff({
             <ChevronRight className="size-3.5 shrink-0 text-muted" />
           )}
           <span className="truncate" title={selection.path}>
-            <span className="text-muted">
-              {selection.path.slice(0, nameStart)}
-            </span>
-            <span className="font-semibold">
-              {selection.path.slice(nameStart)}
-            </span>
+            <span className="text-muted">{directory}</span>
+            <span className="font-semibold">{name}</span>
           </span>
           <DiffSourcePill selection={selection} />
-          {Boolean(added) && (
-            <span className="shrink-0 font-mono text-badge text-added dark:text-added-dark">
-              +{added}
-            </span>
-          )}
-          {Boolean(removed) && (
-            <span className="shrink-0 font-mono text-badge text-deleted dark:text-deleted-dark">
-              −{removed}
-            </span>
-          )}
+          <ChangeCountBadges counts={counts} />
           {badge && <StatusBadge status={badge} />}
         </button>
         {open && expansion.available && (
           <FullFileButton full={expansion.full} toggle={expansion.toggleFull} />
         )}
-        <CopyButton
-          text={selection.path}
-          label="Copy file path"
-          className="size-6 text-muted dark:text-muted-dark"
-        />
-        <Button
-          title="Open in system application"
-          onClick={() =>
-            void perform('system_open', { repo: repo, path: selection.path })
-          }
-        >
-          <ExternalLink className="size-4" />
-          <span>Open</span>
-        </Button>
+        <CopyPathButton path={selection.path} />
+        <OpenInSystemButton repo={repo} path={selection.path} />
         {canEdit(selection.source, badge, data) && (
-          <Button
+          <EditButton
             title="Edit this file"
+            label="Edit"
             onClick={() =>
               useSelection
                 .getState()
                 .select(repo, { ...selection, editing: true })
             }
-          >
-            <Pencil className="size-4" />
-            <span>Edit</span>
-          </Button>
+          />
         )}
       </div>
       {open &&

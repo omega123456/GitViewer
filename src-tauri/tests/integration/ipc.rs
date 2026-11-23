@@ -1,5 +1,5 @@
 use super::workflows::{base, fixture};
-use gitviewer_lib::{blob, error::Error, ipc, repo::Registry};
+use gitviewer_lib::{blob, error::Error, ipc, media, repo::Registry};
 use serde_json::{json, Value};
 use std::{
     sync::{Arc, Mutex},
@@ -288,7 +288,7 @@ async fn typed_commands_events_and_protocol_are_wired() {
     .unwrap();
     assert_eq!(plain.1, "text/plain; charset=utf-8");
     assert_eq!(plain.0, std::fs::read(dir.path().join("file.txt")).unwrap());
-    assert_eq!(blob::mime("archive.tar.gz"), "text/plain; charset=utf-8");
+    assert_eq!(media::mime("archive.tar.gz"), "text/plain; charset=utf-8");
     std::fs::File::create(dir.path().join("large.png"))
         .unwrap()
         .set_len(20 * 1024 * 1024 + 1)

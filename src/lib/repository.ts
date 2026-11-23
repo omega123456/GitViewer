@@ -5,16 +5,14 @@ import { client, perform, queryKey } from './query';
 import type { Repository, Worktree } from './types';
 import { unsavedNames } from '../stores/editor';
 import { projectWidths, useLayout } from '../stores/layout';
-import { useSuccesses } from '../stores/successes';
-import { useTabs, type Tab } from '../stores/tabs';
+import { announceInfo } from '../stores/successes';
+import { projectOf, tabById, useTabs, type Tab } from '../stores/tabs';
 export function seedStatus(info: Repository) {
   client.setQueryData(queryKey('status', { repo: info.id }), info.status);
 }
 export function joinProject(repo: Repository) {
   seedStatus(repo);
-  const project = useTabs
-    .getState()
-    .tabs.find((tab) => tab.id === repo.project);
+  const project = tabById(repo.project);
   if (project && !useLayout.getState().tabs[repo.id])
     useLayout.getState().update(repo.id, projectWidths(project.view));
   useTabs.getState().join(repo.project, folderName(repo.project), repo.id);
@@ -48,14 +46,14 @@ export async function switchWorktree(tab: Tab, id: string) {
   useTabs.getState().show(tab.id, id);
 }
 export async function showWorktree(id: string) {
-  const tab = useTabs.getState().tabs.find((tab) => tab.members.includes(id));
+  const tab = projectOf(id);
   if (tab) await switchWorktree(tab, id);
 }
 export async function syncMembers(id: string, list: Worktree[]) {
   const present = list.filter(
     (worktree) => !worktree.missing && !worktree.bare,
   );
-  const tab = useTabs.getState().tabs.find((tab) => tab.id === id);
+  const tab = tabById(id);
   if (!tab) return;
   for (const worktree of present)
     if (!tab.members.includes(worktree.id)) {
@@ -66,13 +64,11 @@ export async function syncMembers(id: string, list: Worktree[]) {
     if (!present.some((worktree) => worktree.id === member)) {
       await perform('repo_close', { repo: member });
       useTabs.getState().leave(id, member);
-      const shown = useTabs.getState().tabs.find((tab) => tab.id === id)?.view;
+      const shown = tabById(id)?.view;
       if (member === tab.view && shown)
-        useSuccesses.getState().announce(shown, {
-          key: 'worktree-missing',
+        announceInfo(shown, 'worktree-missing', {
           title: `Worktree ${folderName(member)} is missing`,
           description: `Showing ${folderName(shown)}`,
-          info: true,
         });
     }
 }

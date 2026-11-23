@@ -7,6 +7,7 @@ import {
 } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { dynamic } from './styles';
+import { VirtualCanvas } from './VirtualCanvas';
 const LIST_OVERSCAN = 12;
 const END_REACHED_DISTANCE = 8;
 export interface VirtualListHandle {
@@ -48,10 +49,7 @@ export function VirtualList<T>({
       aria-label={label}
       className="min-h-0 flex-1 overflow-auto"
     >
-      <div
-        className="relative h-virtual w-full"
-        style={dynamic({ '--virtual-height': `${virtual.getTotalSize()}px` })}
-      >
+      <VirtualCanvas height={virtual.getTotalSize()} className="w-full">
         {virtual.getVirtualItems().map((row) => (
           <div
             className="absolute top-0 left-0 w-full translate-y-row"
@@ -61,7 +59,7 @@ export function VirtualList<T>({
             {render(items[row.index], row.index)}
           </div>
         ))}
-      </div>
+      </VirtualCanvas>
     </div>
   );
 }

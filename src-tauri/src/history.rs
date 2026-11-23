@@ -17,7 +17,7 @@ pub struct Page {
 pub struct Session {
     child: tokio::process::Child,
     reader: tokio::io::BufReader<tokio::process::ChildStdout>,
-    stderr: Option<tokio::task::JoinHandle<std::io::Result<String>>>,
+    stderr: Option<tokio::task::JoinHandle<std::io::Result<Vec<u8>>>>,
     lanes: Vec<Lane>,
     kept: Option<(String, Page)>,
     next: String,
@@ -34,26 +34,12 @@ impl Session {
         if !path.is_empty() {
             arguments.extend(["--", path]);
         }
-        let mut child = git::command("git", &repo.root, &arguments).spawn()?;
-        child.stdin.take();
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or(Error::new("unexpected", "History stdout unavailable"))?;
-        let mut stderr = child
-            .stderr
-            .take()
-            .ok_or(Error::new("unexpected", "History stderr unavailable"))?;
-        let stderr = tokio::spawn(async move {
-            use tokio::io::AsyncReadExt;
-            let mut text = String::new();
-            stderr.read_to_string(&mut text).await?;
-            Ok(text)
-        });
+        let piped = git::spawn_piped(&mut git::command("git", &repo.root, &arguments))?;
+        drop(piped.stdin);
         Ok(Self {
-            child,
-            reader: tokio::io::BufReader::new(stdout),
-            stderr: Some(stderr),
+            child: piped.child,
+            reader: tokio::io::BufReader::new(piped.stdout),
+            stderr: Some(git::collect(piped.stderr)),
             lanes: Vec::new(),
             kept: None,
             next: String::new(),
@@ -104,7 +90,7 @@ impl Session {
         if eof {
             let code = self.child.wait().await?;
             let stderr = match self.stderr.take() {
-                Some(task) => task.await.map_err(Error::from)??,
+                Some(task) => String::from_utf8_lossy(&git::finish(task).await?).into_owned(),
                 None => String::new(),
             };
             let unborn = code.code() == Some(git::EXIT_FATAL)

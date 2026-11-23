@@ -3,8 +3,8 @@ import { revisionTree } from '../sidebar/reveal';
 import { sumLines } from '../shared/LineCount';
 import { memo, useEffect, useMemo, useRef } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { formatDistanceToNowStrict, fromUnixTime } from 'date-fns';
-import { History, Layers } from 'lucide-react';
+import { relativeTime } from '../../lib/time';
+import { History } from 'lucide-react';
 import { invoke } from '../../lib/ipc';
 import { useBackend } from '../../lib/query';
 import { useSidebarMode } from '../../stores/layout';
@@ -15,24 +15,23 @@ import {
 } from '../../stores/selection';
 import { Avatar } from '../shared/Avatar';
 import { Button } from '../shared/Button';
+import { ViewAllButton } from '../shared/ViewAllButton';
 import { GroupHeader } from '../shared/Section';
 import { VirtualList, type VirtualListHandle } from '../shared/VirtualList';
-import { ErrorRow, ErrorState } from '../states/Errors';
+import { ErrorRetry, ErrorState } from '../states/Errors';
 import { State } from '../states/State';
-import { clickable, dynamic, focus, pill } from '../shared/styles';
+import {
+  clickable,
+  dynamic,
+  focus,
+  pill,
+  mutedLabel,
+  selectedRow,
+} from '../shared/styles';
 import { CommitDetails } from './CommitDetails';
 import { LaneGraph, graphWidth, laneCount } from './LaneGraph';
+import { laneColours } from '../shared/lanes';
 import { shortHash } from '../../lib/git';
-const refColours = [
-  'text-lane-1 dark:text-lane-1-dark',
-  'text-lane-2 dark:text-lane-2-dark',
-  'text-lane-3 dark:text-lane-3-dark',
-  'text-lane-4 dark:text-lane-4-dark',
-  'text-lane-5 dark:text-lane-5-dark',
-  'text-lane-6 dark:text-lane-6-dark',
-  'text-lane-7 dark:text-lane-7-dark',
-  'text-lane-8 dark:text-lane-8-dark',
-];
 export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
   const mode = useSidebarMode(repo);
   const path = useHistoryPath(repo);
@@ -135,7 +134,7 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
           render={(commit) => (
             <div className="px-1">
               <button
-                className={`relative flex h-commit w-full items-center gap-2 rounded pr-2 text-left hover:bg-hover dark:hover:bg-hover-dark ${selection?.revision === commit.hash ? 'bg-selected dark:bg-selected-dark' : ''} ${clickable} ${focus}`}
+                className={`relative flex h-commit w-full items-center gap-2 rounded pr-2 text-left hover:bg-hover dark:hover:bg-hover-dark ${selection?.revision === commit.hash ? selectedRow : ''} ${clickable} ${focus}`}
                 onClick={() =>
                   useSelection.getState().select(repo, {
                     path: path,
@@ -163,24 +162,21 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
                     </span>
                     {commit.refs && (
                       <span
-                        className={`max-w-24 shrink-0 truncate rounded-full border border-current px-1.5 text-label ${refColours[commit.color]}`}
+                        className={`max-w-24 shrink-0 truncate rounded-full border border-current px-1.5 text-label ${laneColours[commit.color].text}`}
                       >
                         {commit.refs}
                       </span>
                     )}
                   </span>
-                  <span className="flex min-w-0 items-center gap-2 text-label text-muted dark:text-muted-dark">
+                  <span
+                    className={`flex min-w-0 items-center gap-2 ${mutedLabel}`}
+                  >
                     <span className="min-w-0 truncate text-ink dark:text-ink-dark">
                       {commit.author}
                     </span>
                     <span aria-hidden="true">·</span>
                     <span className="shrink-0 tabular-nums">
-                      {formatDistanceToNowStrict(
-                        fromUnixTime(commit.timestamp),
-                        {
-                          addSuffix: true,
-                        },
-                      )}
+                      {relativeTime(commit.timestamp)}
                     </span>
                     <span className="ml-auto shrink-0 font-mono text-badge">
                       {shortHash(commit.hash)}
@@ -213,24 +209,15 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
             count={paths.length}
             lines={total}
             actions={
-              <Button
-                variant="icon"
-                className="size-6"
-                aria-label="All changes in commit"
-                title="All changes in commit"
-                onClick={() => useSelection.getState().viewAll(repo, 'commit')}
-              >
-                <Layers className="size-4 text-muted dark:text-muted-dark" />
-              </Button>
+              <ViewAllButton
+                repo={repo}
+                stack="commit"
+                label="All changes in commit"
+                look="section"
+              />
             }
           />
-          {files.error && (
-            <ErrorRow
-              label="Could not load the commit files"
-              error={files.error}
-              retry={() => void files.refetch()}
-            />
-          )}
+          <ErrorRetry label="Could not load the commit files" query={files} />
           {files.data && (
             <RevisionTree
               key={selection.revision}

@@ -72,6 +72,8 @@ import { ResizeHandle } from './ResizeHandle';
 import { StatusBar } from './StatusBar';
 import { Toolbar } from './Toolbar';
 import { isDetached, scopeKey, UNTRACKED, UNMODIFIED } from '../../lib/git';
+import { pluralWord } from '../../lib/text';
+import { stepIndex } from '../../lib/list';
 export const RepositoryView = memo(function RepositoryView({
   repo,
   settings,
@@ -127,7 +129,7 @@ export const RepositoryView = memo(function RepositoryView({
     useLayout.getState().update(repo, { mode: 'working' });
     useSelection
       .getState()
-      .select(repo, files[(current + direction + files.length) % files.length]);
+      .select(repo, files[stepIndex(current, direction, files.length)]);
   };
   const changeSelectedFile = async (action: 'stage' | 'unstage') => {
     if (!select) return;
@@ -390,7 +392,7 @@ export const RepositoryView = memo(function RepositoryView({
               <GitMerge className="size-3.5 shrink-0" />
               <span>
                 Merging {status.merging} into {status.branch}. {conflicts}{' '}
-                {conflicts === 1 ? 'path conflicts' : 'paths conflict'} —
+                {pluralWord(conflicts, 'path conflicts', 'paths conflict')} —
                 resolve them in your editor, then finish the merge from a
                 terminal.
               </span>
@@ -499,7 +501,5 @@ export const RepositoryView = memo(function RepositoryView({
 function moveTab(direction: number) {
   const state = useTabs.getState();
   const index = state.tabs.findIndex((tab) => tab.id === state.active);
-  state.activate(
-    state.tabs[(index + direction + state.tabs.length) % state.tabs.length].id,
-  );
+  state.activate(state.tabs[stepIndex(index, direction, state.tabs.length)].id);
 }

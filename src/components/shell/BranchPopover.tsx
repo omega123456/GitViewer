@@ -47,20 +47,24 @@ import type {
 } from '../../lib/types';
 import { anchorOf, useProject, type Tab } from '../../stores/tabs';
 import { Button } from '../shared/Button';
-import { CreateButton, type CreateMode } from '../shared/CreateButton';
+import { createThenSwitch, type CreateMode } from '../../lib/create';
+import { BaseBranchSelect, BranchNameField, CreateFooter } from './BranchForm';
 import { Decision } from '../shared/Decision';
-import { ErrorRow, FieldError } from '../states/Errors';
+import { ErrorRetry } from '../states/Errors';
 import { Modal } from '../shared/Modal';
-import { Select } from '../shared/Select';
 import { Spinner } from '../shared/Spinner';
+import { BusyIcon } from '../shared/BusyIcon';
 import { VirtualList } from '../shared/VirtualList';
 import {
   dynamic,
-  field,
+  errorDot,
   flyout,
   menu,
   menuItem,
   menuSeparator,
+  mutedLabel,
+  quietIcon,
+  removedInk,
   searchBox,
   searchInput,
 } from '../shared/styles';
@@ -68,8 +72,8 @@ import { openCompare } from '../sidebar/CompareSection';
 import { mergeBranch } from '../../lib/merge';
 import { pruneBranches } from '../../lib/prune';
 import { NewWorktree } from './NewWorktree';
-import { nameProblem } from '../../lib/branch-name';
-import { isDetached, shortHash, HEAD, scopeKey } from '../../lib/git';
+import { baseOrHead, branchRefs, nameProblem } from '../../lib/branch-name';
+import { isDetached, shortHash, scopeKey } from '../../lib/git';
 const WORKTREE_LABEL_GAP = 2;
 type Row =
   | { kind: 'heading'; heading: string }
@@ -115,13 +119,7 @@ function Marker({
       </>
     );
   if (failed)
-    return (
-      <span
-        role="img"
-        aria-label="Errors waiting"
-        className="size-1.5 rounded-full bg-error-ink dark:bg-error-ink-dark"
-      />
-    );
+    return <span role="img" aria-label="Errors waiting" className={errorDot} />;
   if (count)
     return (
       <>
@@ -201,7 +199,7 @@ function WorktreeMenu({
           )}
           <DropdownMenu.Item
             disabled={busy}
-            className={`${menuItem} text-deleted dark:text-deleted-dark`}
+            className={`${menuItem} ${removedInk}`}
             onSelect={() => {
               onPick();
               void deleteWorktree(project, worktree, changes);
@@ -211,7 +209,7 @@ function WorktreeMenu({
             Delete worktree…
           </DropdownMenu.Item>
           {empty && (
-            <p className="px-3.5 pb-1 pl-10.5 text-label text-muted dark:text-muted-dark">
+            <p className={`px-3.5 pb-1 pl-10.5 ${mutedLabel}`}>
               No changes since it split from main
             </p>
           )}
@@ -327,15 +325,9 @@ export function BranchPopover({
   const [mode, setMode] = useState<CreateMode>('switch');
   const query = useBackend('branches', { repo }, open || creating);
   const all = query.data ?? [];
-  const head = all.find((branch) => branch.current)?.name;
-  const local = all
-    .filter((branch) => !branch.remote)
-    .map((branch) => branch.name);
-  const remote = all
-    .filter((branch) => branch.remote)
-    .map((branch) => branch.name);
+  const refs = branchRefs(all);
   const tracked = all.some((branch) => !branch.remote && branch.upstream);
-  const chosenBase = base || head || HEAD;
+  const chosenBase = baseOrHead(base, refs.head);
   const problem = name ? nameProblem(name, all) : null;
   const blocked = disabled || !name || Boolean(problem);
   const branches =
@@ -506,7 +498,7 @@ export function BranchPopover({
                   <span className="text-muted dark:text-muted-dark">/</span>
                 </>
               )}
-              {switching ? <Spinner /> : <GitBranch className="size-4" />}
+              <BusyIcon busy={switching} icon={GitBranch} />
               {isDetached(status.branch)
                 ? `${shortHash(status.oid)} · detached`
                 : status.branch || 'Branch'}
@@ -545,13 +537,7 @@ export function BranchPopover({
                 onChange={(event) => setFilter(event.target.value)}
               />
             </label>
-            {query.error && (
-              <ErrorRow
-                label="Could not load branches"
-                error={query.error}
-                retry={() => void query.refetch()}
-              />
-            )}
+            <ErrorRetry label="Could not load branches" query={query} />
             <VirtualList
               label="Branches"
               items={rows}
@@ -568,16 +554,16 @@ export function BranchPopover({
                           title="Check the remote and delete local branches whose remote branch was deleted"
                           aria-busy={checking}
                           disabled={disabled || switching}
-                          className="h-5 text-label text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark"
+                          className={`h-5 text-label ${quietIcon}`}
                           onClick={() =>
                             void pruneBranches(repo, status.branch)
                           }
                         >
-                          {checking ? (
-                            <Spinner className="size-3" />
-                          ) : (
-                            <Eraser className="size-3" />
-                          )}
+                          <BusyIcon
+                            busy={checking}
+                            icon={Eraser}
+                            className="size-3"
+                          />
                           {checking ? 'Checking remote…' : 'Prune'}
                         </Button>
                       )}
@@ -626,7 +612,9 @@ export function BranchPopover({
                                   worktree.branch,
                                 )}
                         </span>
-                        <span className="ml-auto flex shrink-0 items-center gap-1.5 text-label text-muted dark:text-muted-dark">
+                        <span
+                          className={`ml-auto flex shrink-0 items-center gap-1.5 ${mutedLabel}`}
+                        >
                           <Marker
                             worktree={worktree}
                             status={status}
@@ -763,7 +751,7 @@ export function BranchPopover({
                               branch.default ||
                               Boolean(holder)
                             }
-                            className={`${menuItem} text-deleted dark:text-deleted-dark`}
+                            className={`${menuItem} ${removedInk}`}
                             onSelect={() => {
                               void confirm(
                                 `Delete ${branch.name}? Unmerged commits will be lost.`,
@@ -781,7 +769,7 @@ export function BranchPopover({
                             Delete branch
                           </DropdownMenu.Item>
                           {holder && (
-                            <p className="px-3.5 pb-1 pl-10.5 text-label text-muted dark:text-muted-dark">
+                            <p className={`px-3.5 pb-1 pl-10.5 ${mutedLabel}`}>
                               Checked out in {holder.name}
                             </p>
                           )}
@@ -836,22 +824,14 @@ export function BranchPopover({
         open={creating}
         onOpenChange={setCreating}
         footer={
-          <>
-            <CreateButton
-              form="new-branch-form"
-              mode={mode}
-              disabled={blocked}
-              optionsLabel="Create options"
-              onMode={setMode}
-            />
-            <Button
-              variant="standard"
-              className="h-8"
-              onClick={() => setCreating(false)}
-            >
-              Cancel
-            </Button>
-          </>
+          <CreateFooter
+            form="new-branch-form"
+            mode={mode}
+            disabled={blocked}
+            optionsLabel="Create options"
+            onMode={setMode}
+            onCancel={() => setCreating(false)}
+          />
         }
       >
         <form
@@ -860,60 +840,38 @@ export function BranchPopover({
           onSubmit={async (event) => {
             event.preventDefault();
             if (blocked) return;
-            const result = await perform('branch_create', {
-              repo: repo,
-              name: name,
-              base: chosenBase,
-              checkout: false,
+            await createThenSwitch({
+              mode: mode,
+              create: () =>
+                perform('branch_create', {
+                  repo: repo,
+                  name: name,
+                  base: chosenBase,
+                  checkout: false,
+                }),
+              finish: () => {
+                setCreating(false);
+                setName('');
+                setBase('');
+              },
+              switchTo: () => checkout(repo, name),
             });
-            if (result === undefined) return;
-            setCreating(false);
-            setName('');
-            setBase('');
-            if (mode === 'switch') await checkout(repo, name);
           }}
         >
-          <div className="flex flex-col gap-1 text-sm">
-            <label htmlFor="new-branch-name">Name</label>
-            <TextInput
-              id="new-branch-name"
-              aria-invalid={Boolean(problem)}
-              aria-describedby="new-branch-hint"
-              className={`${field} h-8 font-mono text-diff`}
-              placeholder="feature/short-description"
-              value={name}
-              onChange={(event) =>
-                setName(event.target.value.replace(/\s+/g, '-'))
-              }
-            />
-            <div id="new-branch-hint">
-              {problem ? (
-                <FieldError>{problem}</FieldError>
-              ) : (
-                <p className="text-label text-muted dark:text-muted-dark">
-                  Spaces become dashes.
-                </p>
-              )}
-            </div>
-          </div>
-          <div className="flex flex-col gap-1 text-sm">
-            <span>Based on</span>
-            <Select
-              label="Based on"
-              placeholder="Current branch"
-              icon={
-                <GitBranch className="size-3.5 shrink-0 text-muted dark:text-muted-dark" />
-              }
-              mono
-              value={chosenBase}
-              groups={[
-                { label: 'Local', options: head ? local : [HEAD, ...local] },
-                { label: 'Remote', options: remote },
-              ].filter((group) => group.options.length)}
-              badges={head ? { [head]: 'current' } : { HEAD: 'detached' }}
-              onChange={setBase}
-            />
-          </div>
+          <BranchNameField
+            id="new-branch-name"
+            hintId="new-branch-hint"
+            label="Name"
+            value={name}
+            problem={problem}
+            onChange={setName}
+          />
+          <BaseBranchSelect
+            label="Based on"
+            value={chosenBase}
+            refs={refs}
+            onChange={setBase}
+          />
         </form>
       </Modal>
       <NewWorktree

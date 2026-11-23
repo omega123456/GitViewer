@@ -74,6 +74,26 @@ export function ErrorRow({
     </p>
   );
 }
+export interface RetryableQuery {
+  error: { message: string } | null;
+  refetch: () => Promise<unknown>;
+}
+export function ErrorRetry({
+  label,
+  query,
+}: {
+  label: string;
+  query: RetryableQuery;
+}) {
+  if (!query.error) return null;
+  return (
+    <ErrorRow
+      label={label}
+      error={query.error}
+      retry={() => void query.refetch()}
+    />
+  );
+}
 export function FieldError({ children }: { children: ReactNode }) {
   return (
     <p

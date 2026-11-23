@@ -9,13 +9,15 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { invoke, normalizeError } from '../../lib/ipc';
-import { perform, useBackend } from '../../lib/query';
+import { useBackend } from '../../lib/query';
+import { plural } from '../../lib/text';
+import { saveSettings } from '../../lib/settings';
 import type { AiSettings, SettingsResponse } from '../../lib/types';
 import { Button } from '../shared/Button';
 import { Select } from '../shared/Select';
 import { TextArea } from '../shared/TextArea';
 import { TextInput } from '../shared/TextInput';
-import { field } from '../shared/styles';
+import { field, mutedLabel } from '../shared/styles';
 import { FieldError } from '../states/Errors';
 import { ApiKeyField } from './ApiKeyField';
 import { SettingCard, SettingGroup, card } from './SettingCard';
@@ -60,7 +62,7 @@ export function aiStateNote(
   if (state === 'failed' && result && !result.ok) return result.message;
   if (state === 'connected' && result && result.ok)
     return result.count
-      ? `${result.count} ${result.count === 1 ? 'model' : 'models'} available. The Generate button shows in the commit box.`
+      ? `${plural(result.count, 'model')} available. The Generate button shows in the commit box.`
       : 'Connected, but this endpoint lists no models.';
   return 'The Generate button shows in the commit box.';
 }
@@ -76,7 +78,7 @@ export function AiSection({ settings }: { settings: SettingsResponse }) {
   const options = models.data ?? [];
   const save = (ai: AiSettings) => {
     setResult(null);
-    written.current = perform('settings_set', { ...settings, ai });
+    written.current = saveSettings(settings, { ai });
     return written.current;
   };
   const commit = (ai: Partial<AiSettings>) => {
@@ -149,9 +151,7 @@ export function AiSection({ settings }: { settings: SettingsResponse }) {
           description="Fetched from the endpoint"
           below={
             !listable ? (
-              <p className="text-label text-muted dark:text-muted-dark">
-                Enter an endpoint to load the list.
-              </p>
+              <p className={mutedLabel}>Enter an endpoint to load the list.</p>
             ) : (
               !models.isPending &&
               !options.length && (

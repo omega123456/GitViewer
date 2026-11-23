@@ -12,7 +12,7 @@ import {
 } from '../../stores/selection';
 import { Button } from '../shared/Button';
 import { FileMenu } from '../shared/FileMenu';
-import { tabBar } from '../shared/styles';
+import { tabBar, dirtyDot } from '../shared/styles';
 import { revealInSidebar } from '../sidebar/reveal';
 import { tabSteps } from '../shared/ViewSwitch';
 import { shortHash } from '../../lib/git';
@@ -137,7 +137,7 @@ function FileTabCell({
             <span
               role="img"
               aria-label="Unsaved edits"
-              className={`size-1.5 rounded-full bg-modified dark:bg-modified-dark ${active ? 'hidden' : 'group-hover:opacity-0 group-focus-within:opacity-0'}`}
+              className={`${dirtyDot} ${active ? 'hidden' : 'group-hover:opacity-0 group-focus-within:opacity-0'}`}
             />
           )}
           <Button

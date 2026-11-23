@@ -1,5 +1,7 @@
 use crate::{
-    actions, ai, branch, diff, edit,
+    actions, ai,
+    app::emit_status_changed,
+    branch, diff, edit,
     error::{Error, Result},
     git, history, lines,
     repo::Registry,
@@ -41,30 +43,11 @@ fn patched(diff: &mut diff::Diff) {
             .collect();
     }
 }
-fn settings_path<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<std::path::PathBuf> {
-    #[cfg(feature = "test-utils")]
-    {
-        let _ = app;
-        Err(Error::refused("Global settings are unavailable in tests"))
-    }
-    #[cfg(not(feature = "test-utils"))]
-    {
-        Ok(app
-            .path()
-            .app_config_dir()
-            .map_err(Error::from)?
-            .join("settings.json"))
-    }
-}
 fn project_changed<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     repo: &crate::repo::Repo,
 ) -> Result<()> {
-    app.emit(
-        "repo://status-changed",
-        json!({"repo":repo.project.to_string_lossy()}),
-    )
-    .map_err(Error::from)
+    emit_status_changed(app, &repo.project.to_string_lossy())
 }
 #[tauri::command]
 pub async fn execute<R: tauri::Runtime>(
@@ -96,8 +79,7 @@ pub async fn dispatch<R: tauri::Runtime>(
             #[cfg(not(feature = "test-utils"))]
             {
                 use tauri::menu::{Menu, PredefinedMenuItem};
-                let window = app
-                    .get_webview_window("main")
+                let window = crate::app::main_window(&app)
                     .ok_or_else(|| Error::refused("Main window is unavailable"))?;
                 let menu = Menu::with_items(
                     &app,
@@ -122,7 +104,7 @@ pub async fn dispatch<R: tauri::Runtime>(
             #[cfg(not(feature = "test-utils"))]
             {
                 app.clipboard().write_text(text).map_err(|error| {
-                    Error::new("unexpected", format!("Clipboard write failed: {error}"))
+                    Error::unexpected(format!("Clipboard write failed: {error}"))
                 })?;
                 return done();
             }
@@ -167,14 +149,13 @@ pub async fn dispatch<R: tauri::Runtime>(
         "env" => return raw(&git::detect::environment().await),
         "settings_get" => {
             return raw(&settings::Response {
-                settings: settings::read(&settings_path(&app)?),
+                settings: settings::read(&settings::settings_path(&app)?),
                 key_stored: ai::key_stored(),
             })
         }
         "ai_models" => {
-            let preferences = settings::read(&settings_path(&app)?);
-            let endpoint =
-                ai::Endpoint::new(&preferences.ai.base_url, &ai::key()?.unwrap_or_default());
+            let preferences = settings::read(&settings::settings_path(&app)?);
+            let endpoint = ai::Endpoint::configured(&preferences.ai)?;
             return raw(&ai::models(&endpoint).await?);
         }
         "ai_key_set" => {
@@ -182,9 +163,8 @@ pub async fn dispatch<R: tauri::Runtime>(
             return done();
         }
         "ai_generate" => {
-            let preferences = settings::read(&settings_path(&app)?);
-            let endpoint =
-                ai::Endpoint::new(&preferences.ai.base_url, &ai::key()?.unwrap_or_default());
+            let preferences = settings::read(&settings::settings_path(&app)?);
+            let endpoint = ai::Endpoint::configured(&preferences.ai)?;
             let material = ai::material(&registry.get(string(&args, "repo")?).await?.root).await?;
             return raw(&ai::draft(
                 &endpoint,
@@ -195,13 +175,14 @@ pub async fn dispatch<R: tauri::Runtime>(
             .await?);
         }
         "settings_set" => {
-            let settings =
-                settings::write(&settings_path(&app)?, serde_json::from_value(args.clone())?)?;
+            let settings = settings::write(
+                &settings::settings_path(&app)?,
+                serde_json::from_value(args.clone())?,
+            )?;
             if let Some(service) = app.try_state::<std::sync::Arc<crate::updater::Service>>() {
                 service.preferences(settings.clone());
             }
-            settings::apply_zoom(&app, settings.zoom)?;
-            settings::apply_backdrop(&app, &settings.theme)?;
+            settings::apply_window_settings(&app, &settings)?;
             app.emit("settings://changed", ()).map_err(Error::from)?;
             return raw(&settings);
         }
@@ -215,7 +196,7 @@ pub async fn dispatch<R: tauri::Runtime>(
                     let _ = emitter.emit("repo://files-changed", json!({"repo":id}));
                     return;
                 }
-                let _ = emitter.emit("repo://status-changed", json!({"repo":id}));
+                let _ = emit_status_changed(&emitter, &id);
                 if change == watch::Change::Head {
                     let _ = emitter.emit("repo://head-changed", json!({"repo":id}));
                 }
@@ -229,8 +210,7 @@ pub async fn dispatch<R: tauri::Runtime>(
             let repo = registry.get(id).await?;
             let _write = repo.writes.lock().await;
             let reread = repo.reread().await;
-            app.emit("repo://status-changed", json!({"repo":id}))
-                .map_err(Error::from)?;
+            emit_status_changed(&app, id)?;
             if reread.as_ref().is_ok_and(|reread| reread.moved) {
                 app.emit("repo://head-changed", json!({"repo":id}))
                     .map_err(Error::from)?;
@@ -425,8 +405,7 @@ pub async fn dispatch<R: tauri::Runtime>(
                         .and_then(|()| done())
                 };
                 target.refresh().await?;
-                app.emit("repo://status-changed", json!({"repo":target_id}))
-                    .map_err(Error::from)?;
+                emit_status_changed(&app, target_id)?;
                 return result;
             }
             "default_branch" => return raw(&branch::default_branch(&repo).await?),
@@ -570,8 +549,7 @@ pub async fn dispatch<R: tauri::Runtime>(
         repo.history_stale
             .store(true, std::sync::atomic::Ordering::SeqCst);
     }
-    app.emit("repo://status-changed", json!({"repo":id}))
-        .map_err(Error::from)?;
+    emit_status_changed(&app, id)?;
     if head_changed {
         app.emit("repo://head-changed", json!({"repo":id}))
             .map_err(Error::from)?;

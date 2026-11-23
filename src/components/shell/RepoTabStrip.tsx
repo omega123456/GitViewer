@@ -20,7 +20,7 @@ import { usePalette } from '../../stores/palette';
 import { anchorOf, useTabs, type Tab } from '../../stores/tabs';
 import { Button } from '../shared/Button';
 import { Spinner } from '../shared/Spinner';
-import { tabBar } from '../shared/styles';
+import { dirtyDot, errorDot, tabBar } from '../shared/styles';
 import { tabSteps } from '../shared/ViewSwitch';
 const strip =
   'size-8 rounded text-muted hover:bg-tab-hover hover:text-ink dark:text-muted-dark dark:hover:bg-tab-hover-dark dark:hover:text-ink-dark';
@@ -95,9 +95,7 @@ function useTabSignals(tab: Tab) {
     branch: statuses[tab.view]?.branch,
   };
 }
-const dirtyDot = 'size-1.5 rounded-full bg-modified dark:bg-modified-dark';
-const failedDot =
-  'size-1.5 shrink-0 rounded-full bg-error-ink dark:bg-error-ink-dark';
+const failedDot = `shrink-0 ${errorDot}`;
 export function RepositorySignals({
   tab,
   current,

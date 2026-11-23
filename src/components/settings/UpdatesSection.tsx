@@ -1,6 +1,13 @@
 import { format, formatDistanceToNow, parseISO } from 'date-fns';
 import { perform, useBackend } from '../../lib/query';
-import type { Settings, UpdateSnapshot } from '../../lib/types';
+import type { Settings } from '../../lib/types';
+import { updateBusy, updateStatus } from '../../lib/updates';
+import {
+  InstallUpdateButton,
+  QuitWithoutUpdatingButton,
+} from './UpdateActions';
+import { saveSettings } from '../../lib/settings';
+import { intervalLabels, updateCheckIntervals } from '../../lib/intervals';
 import { Info, Power, RefreshCw } from 'lucide-react';
 import { Button } from '../shared/Button';
 import { Select } from '../shared/Select';
@@ -9,41 +16,7 @@ import { FieldError } from '../states/Errors';
 import { SettingCard, SettingGroup, card } from './SettingCard';
 import { keysOf } from '../../lib/options';
 
-export function updateStatus(state: UpdateSnapshot) {
-  if (state.availability === 'development')
-    return 'Updates unavailable in development builds';
-  if (state.availability === 'unconfigured') return 'Updates not configured';
-  switch (state.phase) {
-    case 'checking':
-      return 'Checking for updates…';
-    case 'downloading':
-      return 'Downloading update…';
-    case 'ready':
-      return 'Update downloaded and verified';
-    case 'saving':
-      return 'Saving session…';
-    case 'installing':
-      return 'Installing update…';
-    case 'error':
-      return state.error;
-    case 'available':
-      return 'An update is available';
-    default:
-      return state.lastChecked ? 'Up to date' : 'Not checked yet';
-  }
-}
-export function updateBusy(state: UpdateSnapshot) {
-  return ['checking', 'downloading', 'saving', 'installing'].includes(
-    state.phase,
-  );
-}
-const intervals: Record<Settings['updateCheckInterval'], string> = {
-  '1h': 'Every hour',
-  '5h': 'Every 5 hours',
-  '1d': 'Every day',
-  '7d': 'Every 7 days',
-  off: 'Off',
-};
+const updateIntervalLabels = intervalLabels(updateCheckIntervals);
 export function UpdatesSection({ settings }: { settings: Settings }) {
   const query = useBackend('update_get', {});
   const state = query.data;
@@ -105,25 +78,14 @@ export function UpdatesSection({ settings }: { settings: Settings }) {
                     max={state.total ?? undefined}
                   />
                 )}
-                <Button
-                  variant="primary"
-                  className="h-8"
-                  disabled={updateBusy(state)}
-                  onClick={() => void perform('update_install', {})}
-                >
-                  Install and restart
-                </Button>
+                <InstallUpdateButton snapshot={state} className="h-8" />
               </div>
             )}
             {state.canQuitWithoutUpdating && (
-              <Button
-                variant="standard"
+              <QuitWithoutUpdatingButton
+                snapshot={state}
                 className="h-8 self-start"
-                disabled={updateBusy(state)}
-                onClick={() => void perform('update_quit', {})}
-              >
-                Quit without updating
-              </Button>
+              />
             )}
           </>
         )}
@@ -139,13 +101,10 @@ export function UpdatesSection({ settings }: { settings: Settings }) {
               label="Check for updates"
               placeholder="Every day"
               value={settings.updateCheckInterval}
-              options={keysOf(intervals)}
-              labels={intervals}
+              options={keysOf(updateCheckIntervals)}
+              labels={updateIntervalLabels}
               onChange={(updateCheckInterval) =>
-                void perform('settings_set', {
-                  ...settings,
-                  updateCheckInterval,
-                })
+                void saveSettings(settings, { updateCheckInterval })
               }
             />
           </span>
@@ -159,10 +118,7 @@ export function UpdatesSection({ settings }: { settings: Settings }) {
             label="Install on quit"
             checked={settings.installUpdateOnQuit}
             onChange={(installUpdateOnQuit) =>
-              void perform('settings_set', {
-                ...settings,
-                installUpdateOnQuit,
-              })
+              void saveSettings(settings, { installUpdateOnQuit })
             }
           />
         </SettingCard>

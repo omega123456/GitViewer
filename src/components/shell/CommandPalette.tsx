@@ -12,7 +12,7 @@ import { Eye, EyeOff, FolderGit2, Search } from 'lucide-react';
 import { useActionRegistry } from '../../lib/actions';
 import { fuzzyFilter, fuzzySearch } from '../../lib/fuzzy';
 import { shortcutLabel } from '../../lib/keyboard';
-import { parentPath } from '../../lib/paths';
+import { fileName, parentPath } from '../../lib/paths';
 import { useBackend, useStatuses } from '../../lib/query';
 import { useLayout } from '../../stores/layout';
 import { usePalette } from '../../stores/palette';
@@ -25,8 +25,9 @@ import { Button } from '../shared/Button';
 import { MatchedText } from '../shared/MatchedText';
 import { Modal } from '../shared/Modal';
 import { RepositorySignals } from './RepoTabStrip';
-import { clickable, focusInset, pill } from '../shared/styles';
+import { clickable, focusInset, pill, selectedRow } from '../shared/styles';
 import { isScopeOf, scopeName, UNMODIFIED } from '../../lib/git';
+import { stepIndex } from '../../lib/list';
 const groupNames: Record<string, string> = {
   app: 'Application',
   repository: 'Repository',
@@ -198,7 +199,7 @@ export function CommandPalette({ repo }: { repo: string }) {
                   id: path,
                   icon: (
                     <FileIcon
-                      name={path.slice(path.lastIndexOf('/') + 1)}
+                      name={fileName(path)}
                       directory={false}
                       size="size-3.5"
                     />
@@ -266,8 +267,7 @@ export function CommandPalette({ repo }: { repo: string }) {
   const move = (delta: number) =>
     setIndex((value) =>
       enabled.length
-        ? (Math.min(value, enabled.length - 1) + delta + enabled.length) %
-          enabled.length
+        ? stepIndex(Math.min(value, enabled.length - 1), delta, enabled.length)
         : 0,
     );
   const page = (direction: number) => {
@@ -367,7 +367,7 @@ export function CommandPalette({ repo }: { repo: string }) {
                   setIndex(enabled.indexOf(row));
                 }}
                 onClick={() => run(row)}
-                className={`relative flex h-10 w-full items-center gap-3 rounded px-3 text-sm disabled:opacity-40 ${row === current ? 'bg-selected dark:bg-selected-dark' : ''} ${clickable} ${focusInset}`}
+                className={`relative flex h-10 w-full items-center gap-3 rounded px-3 text-sm disabled:opacity-40 ${row === current ? selectedRow : ''} ${clickable} ${focusInset}`}
               >
                 {row === current && <span className={pill} />}
                 <span className="flex size-3.5 shrink-0 items-center justify-center text-muted dark:text-muted-dark">

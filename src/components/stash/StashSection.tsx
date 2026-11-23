@@ -1,9 +1,9 @@
 import { RevisionTree } from '../sidebar/RevisionTree';
 import { revisionTree } from '../sidebar/reveal';
 import { memo, useEffect, useState } from 'react';
-import { formatDistanceToNowStrict, fromUnixTime } from 'date-fns';
+import { elapsedTime } from '../../lib/time';
 import { confirm } from '@tauri-apps/plugin-dialog';
-import { Archive, Copy, CopyMinus, Layers, Trash2 } from 'lucide-react';
+import { Archive, Copy, CopyMinus, Trash2 } from 'lucide-react';
 import { useActions } from '../../lib/actions';
 import { attempt, perform, useBackend } from '../../lib/query';
 import { normalizeError } from '../../lib/ipc';
@@ -20,19 +20,22 @@ import {
 import { useReveal } from '../../stores/reveal';
 import { useSelection, useWorkingSelection } from '../../stores/selection';
 import { Button } from '../shared/Button';
+import { ViewAllButton } from '../shared/ViewAllButton';
 import { Decision } from '../shared/Decision';
-import { ErrorRow } from '../states/Errors';
+import { ErrorRetry } from '../states/Errors';
 import { GroupHeader, Section } from '../shared/Section';
-import { Spinner } from '../shared/Spinner';
+import { BusyIcon } from '../shared/BusyIcon';
 import {
   dynamic,
   pill,
   pinnedSlot,
   revealSlot,
   rowTint,
+  selectedRow,
+  removedInk,
 } from '../shared/styles';
 import { VirtualList } from '../shared/VirtualList';
-import { percentBelow, ResizeHandle } from '../shell/ResizeHandle';
+import { SectionResizeHandle } from '../shell/ResizeHandle';
 import { scopeKey } from '../../lib/git';
 export const StashSection = memo(function StashSection({
   repo,
@@ -147,26 +150,15 @@ export const StashSection = memo(function StashSection({
   ];
   useActions(scopeKey(repo, 'stashes'), actions);
   if (query.error)
-    return (
-      <ErrorRow
-        label="Could not load stashes"
-        error={query.error}
-        retry={() => void query.refetch()}
-      />
-    );
+    return <ErrorRetry label="Could not load stashes" query={query} />;
   if (!query.data?.length) return null;
   return (
     <>
       {stashOpen && (
-        <ResizeHandle
+        <SectionResizeHandle
           label="Resize stash section"
-          orientation="vertical"
-          min={sectionHeightBounds.min}
-          max={sectionHeightBounds.max}
-          step={sectionHeightBounds.step}
+          bounds={sectionHeightBounds}
           value={stashHeight}
-          className="h-1.5 shrink-0 cursor-row-resize border-y border-line hover:bg-accent focus-visible:bg-accent dark:border-line-dark"
-          measure={percentBelow}
           onChange={(next) =>
             useLayout.getState().update(repo, { stashHeight: next })
           }
@@ -212,7 +204,7 @@ export const StashSection = memo(function StashSection({
                 });
                 return (
                   <div
-                    className={`group relative mx-1 flex items-center rounded ${rowTint} ${selected === stash.hash ? 'bg-selected dark:bg-selected-dark' : ''}`}
+                    className={`group relative mx-1 flex items-center rounded ${rowTint} ${selected === stash.hash ? selectedRow : ''}`}
                   >
                     {selected === stash.hash && <span className={pill} />}
                     <Button
@@ -227,9 +219,7 @@ export const StashSection = memo(function StashSection({
                         {stash.message}
                       </span>
                       <span className="shrink-0 font-mono text-badge text-muted dark:text-muted-dark">
-                        {formatDistanceToNowStrict(
-                          fromUnixTime(stash.timestamp),
-                        )}
+                        {elapsedTime(stash.timestamp)}
                       </span>
                     </Button>
                     <div
@@ -244,11 +234,11 @@ export const StashSection = memo(function StashSection({
                         disabled={disabled}
                         onClick={() => void apply(stash.hash, false)}
                       >
-                        {applying ? (
-                          <Spinner className="size-3" />
-                        ) : (
-                          <Copy className="size-3" />
-                        )}
+                        <BusyIcon
+                          busy={applying}
+                          icon={Copy}
+                          className="size-3"
+                        />
                       </Button>
                       <Button
                         variant="icon"
@@ -259,27 +249,27 @@ export const StashSection = memo(function StashSection({
                         disabled={disabled}
                         onClick={() => void apply(stash.hash, true)}
                       >
-                        {popping ? (
-                          <Spinner className="size-3" />
-                        ) : (
-                          <CopyMinus className="size-3" />
-                        )}
+                        <BusyIcon
+                          busy={popping}
+                          icon={CopyMinus}
+                          className="size-3"
+                        />
                       </Button>
                       <span className="w-1.5 shrink-0" />
                       <Button
                         variant="icon"
-                        className="size-6 text-deleted dark:text-deleted-dark"
+                        className={`size-6 ${removedInk}`}
                         aria-busy={dropping}
                         aria-label={`Drop ${stash.selector}`}
                         title={`Drop ${stash.selector}`}
                         disabled={disabled}
                         onClick={() => void drop(stash.hash)}
                       >
-                        {dropping ? (
-                          <Spinner className="size-3" />
-                        ) : (
-                          <Trash2 className="size-3" />
-                        )}
+                        <BusyIcon
+                          busy={dropping}
+                          icon={Trash2}
+                          className="size-3"
+                        />
                       </Button>
                     </div>
                   </div>
@@ -289,15 +279,10 @@ export const StashSection = memo(function StashSection({
           </div>
           {selected && (
             <>
-              <ResizeHandle
+              <SectionResizeHandle
                 label="Resize stash files"
-                orientation="vertical"
-                min={stashFilesHeightBounds.min}
-                max={stashFilesHeightBounds.max}
-                step={stashFilesHeightBounds.step}
+                bounds={stashFilesHeightBounds}
                 value={stashFilesHeight}
-                className="h-1.5 shrink-0 cursor-row-resize border-y border-line hover:bg-accent focus-visible:bg-accent dark:border-line-dark"
-                measure={percentBelow}
                 onChange={(next) =>
                   useLayout.getState().update(repo, { stashFilesHeight: next })
                 }
@@ -312,26 +297,18 @@ export const StashSection = memo(function StashSection({
                   title="Stash files"
                   count={Object.keys(files.data?.statuses ?? {}).length}
                   actions={
-                    <Button
-                      variant="icon"
-                      className="size-6"
-                      aria-label="All changes in stash"
-                      title="All changes in stash"
-                      onClick={() =>
-                        useSelection.getState().viewAll(repo, 'commit')
-                      }
-                    >
-                      <Layers className="size-4 text-muted dark:text-muted-dark" />
-                    </Button>
+                    <ViewAllButton
+                      repo={repo}
+                      stack="commit"
+                      label="All changes in stash"
+                      look="section"
+                    />
                   }
                 />
-                {files.error && (
-                  <ErrorRow
-                    label="Could not load the stash files"
-                    error={files.error}
-                    retry={() => void files.refetch()}
-                  />
-                )}
+                <ErrorRetry
+                  label="Could not load the stash files"
+                  query={files}
+                />
                 {files.data && (
                   <RevisionTree
                     key={selected}

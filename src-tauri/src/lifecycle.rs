@@ -1,4 +1,7 @@
-use crate::session::{Geometry, Store};
+use crate::{
+    app::main_window,
+    session::{Geometry, Store},
+};
 use tauri::{Emitter, Manager, Runtime};
 
 const CLOSE_TIMEOUT_SECONDS: i64 = 2;
@@ -31,7 +34,7 @@ pub fn capture<R: Runtime>(window: &tauri::Window<R>) {
 }
 
 pub fn flush<R: Runtime>(app: &tauri::AppHandle<R>) {
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = main_window(app) {
         capture(&window.as_ref().window());
     }
     if let Some(store) = app.try_state::<Store>() {
@@ -162,11 +165,9 @@ pub fn setup<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), Box<dyn std::err
         app.manage(Store::load(
             app.path().app_config_dir()?.join("session.json"),
         ));
-        let config = app.path().app_config_dir()?;
-        let settings = crate::settings::read(&config.join("settings.json"));
-        crate::settings::apply_zoom(app.handle(), settings.zoom)?;
-        crate::settings::apply_backdrop(app.handle(), &settings.theme)?;
-        if let Some(window) = app.get_webview_window("main") {
+        let settings = crate::settings::read(&crate::settings::settings_path(app.handle())?);
+        crate::settings::apply_window_settings(app.handle(), &settings)?;
+        if let Some(window) = main_window(app.handle()) {
             if let Some(geometry) = app.state::<Store>().get().window {
                 window.set_size(tauri::PhysicalSize::new(
                     geometry.width.max(MIN_WINDOW_WIDTH),

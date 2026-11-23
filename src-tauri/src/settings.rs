@@ -1,9 +1,11 @@
 use crate::{
+    app::main_window,
     error::{Error, Result},
     lock::lock_recovering,
 };
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use tauri::{AppHandle, Runtime};
 
 pub const ZOOM_LEVELS: [u32; 6] = [80, 90, 100, 110, 125, 150];
 const DEFAULT_ZOOM: u32 = 100;
@@ -11,6 +13,8 @@ const FULL_ZOOM_PERCENT: f64 = 100.0;
 const DEFAULT_MAX_FILE_TABS: u32 = 8;
 const MIN_FILE_TABS: u32 = 3;
 const MAX_FILE_TABS: u32 = 20;
+#[cfg(not(feature = "test-utils"))]
+const SETTINGS_FILE: &str = "settings.json";
 
 pub const DEFAULT_PROMPT: &str = "Write a concise commit message for this diff (under 220 characters total).\n\
 - Subject line: Imperative mood, under 72 characters, summarizing the core functional change.\n\
@@ -76,24 +80,38 @@ pub struct Response {
     pub settings: Settings,
     pub key_stored: bool,
 }
-pub fn apply_zoom<R: tauri::Runtime>(app: &tauri::AppHandle<R>, zoom: u32) -> Result<()> {
-    use tauri::Manager;
-    if let Some(window) = app.get_webview_window("main") {
+pub fn settings_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf> {
+    #[cfg(feature = "test-utils")]
+    {
+        let _ = app;
+        Err(Error::refused("Global settings are unavailable in tests"))
+    }
+    #[cfg(not(feature = "test-utils"))]
+    {
+        use tauri::Manager;
+        Ok(app.path().app_config_dir()?.join(SETTINGS_FILE))
+    }
+}
+pub fn apply_window_settings<R: Runtime>(app: &AppHandle<R>, settings: &Settings) -> Result<()> {
+    apply_zoom(app, settings.zoom)?;
+    apply_backdrop(app, &settings.theme)
+}
+pub fn apply_zoom<R: Runtime>(app: &AppHandle<R>, zoom: u32) -> Result<()> {
+    if let Some(window) = main_window(app) {
         window.set_zoom(f64::from(zoom) / FULL_ZOOM_PERCENT)?;
     }
     Ok(())
 }
-pub fn apply_backdrop<R: tauri::Runtime>(app: &tauri::AppHandle<R>, theme: &str) -> Result<()> {
+pub fn apply_backdrop<R: Runtime>(app: &AppHandle<R>, theme: &str) -> Result<()> {
     #[cfg(windows)]
     {
         use tauri::window::{Effect, EffectsBuilder};
-        use tauri::Manager;
         const FIRST_WINDOWS_11_BUILD: u64 = 22000;
         let tabbed = matches!(
             tauri_plugin_os::version(),
             tauri_plugin_os::Version::Semantic(_, _, build) if build >= FIRST_WINDOWS_11_BUILD
         );
-        if let (true, Some(window)) = (tabbed, app.get_webview_window("main")) {
+        if let (true, Some(window)) = (tabbed, main_window(app)) {
             let effect = match theme {
                 "dark" => Effect::TabbedDark,
                 "light" => Effect::TabbedLight,

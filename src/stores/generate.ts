@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { invoke, normalizeError } from '../lib/ipc';
 import type { GeneratedMessage } from '../lib/types';
+import { repoStateUpdater } from './repo-state';
 import { useTabs } from './tabs';
 export interface GenerateState {
   busy: boolean;
@@ -16,14 +17,6 @@ interface Generate {
   repos: Record<string, GenerateState>;
   generate: (repo: string) => Promise<void>;
 }
-function update(repo: string, patch: Partial<GenerateState>) {
-  useGenerate.setState((state) => ({
-    repos: {
-      ...state.repos,
-      [repo]: { ...(state.repos[repo] ?? idle), ...patch },
-    },
-  }));
-}
 export const useGenerate = create<Generate>(() => ({
   repos: {},
   generate: async (repo) => {
@@ -37,6 +30,7 @@ export const useGenerate = create<Generate>(() => ({
     }
   },
 }));
+const update = repoStateUpdater(useGenerate, idle);
 export function useGenerateState(repo: string) {
   return useGenerate((state) => state.repos[repo]) ?? idle;
 }

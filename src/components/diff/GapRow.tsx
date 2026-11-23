@@ -4,6 +4,7 @@ import { Spinner } from '../shared/Spinner';
 import { clickable, focusInset } from '../shared/styles';
 import { step, type Direction, type Expansion } from './expansion';
 import type { Row } from './rows';
+import { plural } from '../../lib/text';
 const row =
   'flex h-6 items-stretch border-y border-dashed border-line bg-sub font-sans text-xs text-muted dark:border-line-dark dark:bg-sub-dark dark:text-muted-dark';
 const arrow = `grid flex-1 place-items-center text-accent hover:bg-selected dark:text-accent-dark dark:hover:bg-selected-dark ${clickable} ${focusInset}`;
@@ -38,7 +39,7 @@ export function GapRow({
       ? 'File too large to expand'
       : hidden === null
         ? 'Rest of file hidden'
-        : `${hidden} hidden line${hidden === 1 ? '' : 's'}${kind === 'top' ? ' above' : kind === 'end' ? ' below' : ''}`;
+        : `${plural(hidden, 'hidden line')}${kind === 'top' ? ' above' : kind === 'end' ? ' below' : ''}`;
   return (
     <div className={row}>
       <div className="sticky left-0 flex">

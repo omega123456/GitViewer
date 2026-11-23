@@ -1,6 +1,6 @@
 import { format, fromUnixTime } from 'date-fns';
 import { useBackend } from '../../lib/query';
-import { ErrorRow } from '../states/Errors';
+import { ErrorRetry } from '../states/Errors';
 export function CommitDetails({
   repo,
   revision,
@@ -11,11 +11,7 @@ export function CommitDetails({
   const detail = useBackend('commit_detail', { repo, revision });
   if (detail.error)
     return (
-      <ErrorRow
-        label="Could not load the commit details"
-        error={detail.error}
-        retry={() => void detail.refetch()}
-      />
+      <ErrorRetry label="Could not load the commit details" query={detail} />
     );
   if (!detail.data) return null;
   const { subject, author, timestamp, hash, body } = detail.data;

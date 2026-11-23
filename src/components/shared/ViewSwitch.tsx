@@ -1,11 +1,12 @@
 import type { KeyboardEvent, ReactNode } from 'react';
 import { clickable, focus } from './styles';
+import { stepIndex } from '../../lib/list';
 export const tabSteps: Record<
   string,
   (index: number, count: number) => number
 > = {
-  ArrowRight: (index, count) => (index + 1) % count,
-  ArrowLeft: (index, count) => (index - 1 + count) % count,
+  ArrowRight: (index, count) => stepIndex(index, 1, count),
+  ArrowLeft: (index, count) => stepIndex(index, -1, count),
   Home: () => 0,
   End: (_current, count) => count - 1,
 };

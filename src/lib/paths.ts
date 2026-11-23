@@ -4,12 +4,20 @@ export function folderName(path: string) {
 export function parentPath(path: string) {
   return path.replace(/[\\/]*[^\\/]+[\\/]*$/, '');
 }
-export function fileName(path: string) {
-  return path.slice(path.lastIndexOf('/') + 1);
-}
 const WINDOWS_VERBATIM_PREFIX = /^\\\\\?\\/;
 const WINDOWS_SEPARATOR = '\\';
 const POSIX_SEPARATOR = '/';
+export interface SplitPath {
+  directory: string;
+  name: string;
+}
+export function splitPath(path: string): SplitPath {
+  const nameStart = path.lastIndexOf(POSIX_SEPARATOR) + 1;
+  return { directory: path.slice(0, nameStart), name: path.slice(nameStart) };
+}
+export function fileName(path: string) {
+  return splitPath(path).name;
+}
 export function absolutePath(repo: string, path: string) {
   const root = repo.replace(WINDOWS_VERBATIM_PREFIX, '');
   const windowsPath = path.replaceAll(POSIX_SEPARATOR, WINDOWS_SEPARATOR);

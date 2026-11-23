@@ -1,10 +1,6 @@
-import { DropdownMenu } from 'radix-ui';
-import { Check, ChevronDown } from 'lucide-react';
-import { Button } from './Button';
-import { menu, menuItem } from './styles';
-import { chooseOption, keysOf } from '../../lib/options';
-export const createModes = { switch: 'Create & switch', stay: 'Create only' };
-export type CreateMode = keyof typeof createModes;
+import { createModes, type CreateMode } from '../../lib/create';
+import { keysOf } from '../../lib/options';
+import { SplitButton, SplitMenu, SplitPrimary } from './SplitButton';
 const createModeOptions = keysOf(createModes);
 export function CreateButton({
   mode,
@@ -20,57 +16,25 @@ export function CreateButton({
   onMode: (mode: CreateMode) => void;
 }) {
   return (
-    <div className="flex">
-      <Button
+    <SplitButton>
+      <SplitPrimary
+        size="regular"
         type="submit"
         form={form}
-        variant="primary"
         disabled={disabled}
-        className="h-8 min-w-0 flex-1 rounded-r-none"
       >
         {createModes[mode]}
-      </Button>
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger asChild>
-          <Button
-            variant="splitMenu"
-            disabled={disabled}
-            aria-label={optionsLabel}
-            className="h-8 w-8 rounded-l-none border-l border-on-accent/30 dark:border-on-accent-dark/30"
-          >
-            <ChevronDown className="size-3.5" />
-          </Button>
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content
-            align="end"
-            sideOffset={4}
-            className={`w-44 ${menu}`}
-          >
-            <DropdownMenu.RadioGroup
-              value={mode}
-              onValueChange={(value) =>
-                chooseOption(createModeOptions, value, onMode)
-              }
-            >
-              {createModeOptions.map((option) => (
-                <DropdownMenu.RadioItem
-                  key={option}
-                  value={option}
-                  className={menuItem}
-                >
-                  <span className="flex size-3 items-center justify-center">
-                    <DropdownMenu.ItemIndicator>
-                      <Check className="size-3" />
-                    </DropdownMenu.ItemIndicator>
-                  </span>
-                  {createModes[option]}
-                </DropdownMenu.RadioItem>
-              ))}
-            </DropdownMenu.RadioGroup>
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Root>
-    </div>
+      </SplitPrimary>
+      <SplitMenu
+        size="regular"
+        label={optionsLabel}
+        disabled={disabled}
+        width="w-44"
+        value={mode}
+        options={createModeOptions}
+        onChange={onMode}
+        renderOption={(option) => createModes[option]}
+      />
+    </SplitButton>
   );
 }

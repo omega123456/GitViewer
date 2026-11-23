@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { isScopeOf } from '../lib/git';
+import { withoutWhere } from '../lib/record';
 export type ImageMode = 'side by side' | 'swipe' | 'onion skin';
 export interface TabImageView {
   mode: ImageMode;
@@ -29,11 +30,7 @@ export const useImageViews = create<ImageViews>((set) => ({
     })),
   forget: (id) =>
     set((state) => ({
-      tabs: Object.fromEntries(
-        Object.entries(state.tabs).filter(
-          ([key]) => key !== id && !isScopeOf(key, id),
-        ),
-      ),
+      tabs: withoutWhere(state.tabs, (key) => key === id || isScopeOf(key, id)),
     })),
 }));
 export function useTabImageView(id: string) {

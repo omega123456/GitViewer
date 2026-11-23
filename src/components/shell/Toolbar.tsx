@@ -15,6 +15,7 @@ import { useFilter, useFilterStore } from '../../stores/filter';
 import { usePalette } from '../../stores/palette';
 import { Button } from '../shared/Button';
 import { Spinner } from '../shared/Spinner';
+import { BusyIcon } from '../shared/BusyIcon';
 import { searchBox, searchInput } from '../shared/styles';
 import { BranchPopover } from './BranchPopover';
 const icons = {
@@ -84,7 +85,7 @@ export function Toolbar({
           title="Stash changes"
           onClick={() => void stash.run()}
         >
-          {stashing ? <Spinner /> : <Archive className="size-4" />}
+          <BusyIcon busy={stashing} icon={Archive} />
           <span>Stash</span>
         </Button>
       )}

@@ -1,5 +1,6 @@
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { boundsOf, percentOf } from '../../lib/geometry';
+import type { ResizeBounds } from '../../stores/layout';
 export function percentBelow(event: ReactPointerEvent<HTMLDivElement>) {
   const handle = event.currentTarget;
   const pane = boundsOf(handle.nextElementSibling);
@@ -55,6 +56,33 @@ export function ResizeHandle({
         if (event.currentTarget.hasPointerCapture(event.pointerId))
           onChange(clamp(measure(event)));
       }}
+    />
+  );
+}
+const sectionHandle =
+  'h-1.5 shrink-0 cursor-row-resize border-y border-line hover:bg-accent focus-visible:bg-accent dark:border-line-dark';
+export function SectionResizeHandle({
+  label,
+  bounds,
+  value,
+  onChange,
+}: {
+  label: string;
+  bounds: ResizeBounds;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <ResizeHandle
+      label={label}
+      orientation="vertical"
+      min={bounds.min}
+      max={bounds.max}
+      step={bounds.step}
+      value={value}
+      className={sectionHandle}
+      measure={percentBelow}
+      onChange={onChange}
     />
   );
 }

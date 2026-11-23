@@ -1,7 +1,11 @@
-import { perform, useBackend } from '../../lib/query';
+import { useBackend } from '../../lib/query';
 import { useUpdate } from '../../stores/update';
 import { Button } from '../shared/Button';
-import { updateBusy, updateStatus } from '../settings/UpdatesSection';
+import { updateStatus } from '../../lib/updates';
+import {
+  InstallUpdateButton,
+  QuitWithoutUpdatingButton,
+} from '../settings/UpdateActions';
 export function UpdateBanner() {
   const { data: snapshot } = useBackend('update_get', {});
   const dismissed = useUpdate((state) => state.dismissedVersion);
@@ -21,21 +25,9 @@ export function UpdateBanner() {
       <span role="status" className="text-muted dark:text-muted-dark">
         {updateStatus(snapshot)}
       </span>
-      <Button
-        variant="primary"
-        disabled={updateBusy(snapshot)}
-        onClick={() => void perform('update_install', {})}
-      >
-        Install and restart
-      </Button>
+      <InstallUpdateButton snapshot={snapshot} />
       {snapshot.canQuitWithoutUpdating && (
-        <Button
-          variant="standard"
-          disabled={updateBusy(snapshot)}
-          onClick={() => void perform('update_quit', {})}
-        >
-          Quit without updating
-        </Button>
+        <QuitWithoutUpdatingButton snapshot={snapshot} />
       )}
       <Button
         aria-label="Dismiss update"

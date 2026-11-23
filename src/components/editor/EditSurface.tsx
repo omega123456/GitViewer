@@ -1,7 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
-  ArrowDown,
-  ArrowUp,
   FileWarning,
   Replace,
   RotateCcw,
@@ -50,11 +48,8 @@ import {
 } from './setup';
 import { FindPanel } from './FindPanel';
 import { scopeKey } from '../../lib/git';
-import {
-  FIND_SHORTCUT,
-  FIND_NEXT_SHORTCUT,
-  FIND_PREVIOUS_SHORTCUT,
-} from '../diff/find';
+import { findActionSet } from '../diff/FindControls';
+import { accentToggle } from '../shared/styles';
 const outline =
   'border border-line bg-surface text-ink dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark';
 export default function EditSurface({
@@ -216,15 +211,21 @@ function Editor({
     };
   }, [view, path]);
   const finding = searchPanelOpen(buffer.state);
-  useActions(scopeKey(repo, 'editor'), [
-    {
-      id: 'find',
-      icon: <Search className="size-3.5" />,
-      label: 'Find in file',
-      key: FIND_SHORTCUT,
-      run: () => view && openFind(view, false),
-      disabled: !view,
+  const findActions = findActionSet({
+    reveal: () => {
+      if (view) openFind(view, false);
     },
+    next: () => {
+      if (view) findNext(view);
+    },
+    previous: () => {
+      if (view) findPrevious(view);
+    },
+    revealDisabled: !view,
+    stepDisabled: !view || !finding,
+  });
+  useActions(scopeKey(repo, 'editor'), [
+    findActions.find,
     {
       id: 'replace',
       icon: <Replace className="size-3.5" />,
@@ -233,26 +234,8 @@ function Editor({
       run: () => view && openFind(view, true),
       disabled: !view,
     },
-    {
-      id: 'find-next',
-      icon: <ArrowDown className="size-3.5" />,
-      label: 'Next match',
-      key: FIND_NEXT_SHORTCUT,
-      run: () => {
-        if (view) findNext(view);
-      },
-      disabled: !view || !finding,
-    },
-    {
-      id: 'find-previous',
-      icon: <ArrowUp className="size-3.5" />,
-      label: 'Previous match',
-      key: FIND_PREVIOUS_SHORTCUT,
-      run: () => {
-        if (view) findPrevious(view);
-      },
-      disabled: !view || !finding,
-    },
+    findActions.next,
+    findActions.previous,
   ]);
   const head = buffer.state.selection.main.head;
   const line = buffer.state.doc.lineAt(head);
@@ -273,9 +256,7 @@ function Editor({
             aria-pressed={wrap}
             variant="icon"
             className={`size-control ${
-              wrap
-                ? 'bg-selected text-accent dark:bg-selected-dark dark:text-accent-dark'
-                : 'text-muted dark:text-muted-dark'
+              wrap ? accentToggle : 'text-muted dark:text-muted-dark'
             }`}
             onClick={toggleWrap}
           >

@@ -1,16 +1,9 @@
-import { create } from 'zustand';
 import type { Success } from '../lib/success';
-import { nextNotice } from './errors';
+import { createNoticeStore, nextNotice, NOTICE_LIMIT } from './notices';
 export interface Notice extends Success {
   id: number;
 }
-interface Successes {
-  scopes: Record<string, Notice[]>;
-  announce: (scope: string, success: Success) => void;
-  dismiss: (scope: string, id: number) => void;
-  withdraw: (scope: string, key: string) => void;
-}
-const limit = 3;
+export type Announcement = Omit<Success, 'key'>;
 function actionable(notice: Notice) {
   return Boolean(notice.restore || notice.unapply || notice.show);
 }
@@ -20,29 +13,39 @@ function trim(list: Notice[]) {
     ...older.filter((notice) => !actionable(notice)),
     ...older.filter(actionable),
   ];
-  const evicted = new Set(evictable.slice(0, Math.max(0, list.length - limit)));
+  const overflow = Math.max(0, list.length - NOTICE_LIMIT);
+  const evicted = new Set(evictable.slice(0, overflow));
   return list.filter((notice) => !evicted.has(notice));
 }
-export const useSuccesses = create<Successes>((set) => {
-  const edit = (scope: string, change: (list: Notice[]) => Notice[]) =>
-    set((state) => ({
-      scopes: { ...state.scopes, [scope]: change(state.scopes[scope] ?? []) },
-    }));
-  return {
-    scopes: {},
-    announce: (scope, success) =>
-      edit(scope, (list) =>
-        trim([
-          ...list.filter(
-            (notice) =>
-              notice.key !== success.key && notice.key !== success.replaces,
-          ),
-          { ...success, id: nextNotice() },
-        ]),
-      ),
-    dismiss: (scope, id) =>
-      edit(scope, (list) => list.filter((notice) => notice.id !== id)),
-    withdraw: (scope, key) =>
-      edit(scope, (list) => list.filter((notice) => notice.key !== key)),
-  };
-});
+export const useSuccesses = createNoticeStore<
+  Notice,
+  {
+    announce: (scope: string, success: Success) => void;
+    withdraw: (scope: string, key: string) => void;
+  }
+>(({ edit }) => ({
+  announce: (scope, success) =>
+    edit(scope, (list) =>
+      trim([
+        ...list.filter(
+          (notice) =>
+            notice.key !== success.key && notice.key !== success.replaces,
+        ),
+        { ...success, id: nextNotice() },
+      ]),
+    ),
+  withdraw: (scope, key) =>
+    edit(scope, (list) => list.filter((notice) => notice.key !== key)),
+}));
+export function announceInfo(
+  scope: string,
+  key: string,
+  announcement: Announcement,
+) {
+  useSuccesses
+    .getState()
+    .announce(scope, { key: key, info: true, ...announcement });
+}
+export function announcer(scope: string, key: string) {
+  return (announcement: Announcement) => announceInfo(scope, key, announcement);
+}

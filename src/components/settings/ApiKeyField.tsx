@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Eye, EyeOff, KeyRound } from 'lucide-react';
 import { invoke, normalizeError } from '../../lib/ipc';
-import { perform } from '../../lib/query';
+import { saveSettings } from '../../lib/settings';
 import type { SettingsResponse } from '../../lib/types';
 import { Button } from '../shared/Button';
 import { TextInput } from '../shared/TextInput';
-import { field } from '../shared/styles';
+import { field, mutedLabel } from '../shared/styles';
 import { FieldError } from '../states/Errors';
 import { SettingCard } from './SettingCard';
 export function ApiKeyField({ settings }: { settings: SettingsResponse }) {
@@ -27,13 +27,11 @@ export function ApiKeyField({ settings }: { settings: SettingsResponse }) {
     setReplacing(false);
     setVisible(false);
     setConfirming(false);
-    await perform('settings_set', settings);
+    await saveSettings(settings);
   };
   const below = confirming ? (
     <div className="flex items-center gap-2">
-      <p className="text-label text-muted dark:text-muted-dark">
-        Remove the stored API key?
-      </p>
+      <p className={mutedLabel}>Remove the stored API key?</p>
       <Button
         variant="standard"
         className="ml-auto h-8"

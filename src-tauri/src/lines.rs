@@ -1,7 +1,7 @@
 use crate::{
     diff::size_limit,
     error::{Error, Result},
-    git,
+    fs, git,
     lock::lock_recovering,
     repo::Repository,
     status::Entry,
@@ -21,7 +21,7 @@ pub struct Working {
     pub unstaged: BTreeMap<String, Lines>,
 }
 
-const PINNED: [&str; 4] = ["--numstat", "-z", "--no-ext-diff", "--no-textconv"];
+const NUMSTAT_FLAGS: [&str; 2] = ["--numstat", "-z"];
 const NUMSTAT_FIELDS: usize = 3;
 
 pub fn numstat(text: &str) -> BTreeMap<String, Lines> {
@@ -49,9 +49,11 @@ fn counts(added: &str, deleted: &str) -> Lines {
 
 pub async fn working(repo: &Repository) -> Result<Working> {
     let mut staged = vec!["diff", "--cached", "--find-renames"];
-    staged.extend(PINNED);
+    staged.extend(NUMSTAT_FLAGS);
+    staged.extend(git::PINNED_DIFF_FLAGS);
     let mut unstaged = vec!["diff-files", "--no-renames"];
-    unstaged.extend(PINNED);
+    unstaged.extend(NUMSTAT_FLAGS);
+    unstaged.extend(git::PINNED_DIFF_FLAGS);
     let status = repo.snapshot().await?;
     let owner = repo.clone();
     let (staged, unstaged, untracked) = tokio::try_join!(
@@ -105,7 +107,7 @@ fn untracked(repo: &Repository, entries: &[Entry]) -> Vec<(String, Lines)> {
     counted
 }
 pub fn count(bytes: &[u8]) -> Lines {
-    if bytes.contains(&git::NUL_BYTE) {
+    if fs::is_binary(bytes) {
         return None;
     }
     let newlines = bytes.iter().filter(|byte| **byte == b'\n').count();

@@ -2,6 +2,7 @@ import { useId, useState, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { Button } from './Button';
 import { CopyButton } from './CopyButton';
+import { quietIcon } from './styles';
 export function Details({
   message,
   actions,
@@ -23,7 +24,7 @@ export function Details({
         <Button
           aria-expanded={open}
           aria-controls={tray}
-          className={`text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark ${center ? '' : '-ml-2'}`}
+          className={`${quietIcon} ${center ? '' : '-ml-2'}`}
           onClick={() => {
             setOpen(!open);
             onToggle?.();

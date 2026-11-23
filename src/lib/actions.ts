@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { create } from 'zustand';
 import type { Action } from './keyboard';
 import { isScopeOf } from './git';
+import { without, withEntry } from './record';
 interface Registry {
   scopes: Record<string, Action[]>;
   set: (scope: string, actions: Action[]) => void;
@@ -10,13 +11,8 @@ interface Registry {
 export const useActionRegistry = create<Registry>((set) => ({
   scopes: {},
   set: (scope, actions) =>
-    set((state) => ({ scopes: { ...state.scopes, [scope]: actions } })),
-  remove: (scope) =>
-    set((state) => ({
-      scopes: Object.fromEntries(
-        Object.entries(state.scopes).filter(([key]) => key !== scope),
-      ),
-    })),
+    set((state) => ({ scopes: withEntry(state.scopes, scope, actions) })),
+  remove: (scope) => set((state) => ({ scopes: without(state.scopes, scope) })),
 }));
 export function registeredActions(repo: string) {
   return Object.entries(useActionRegistry.getState().scopes)

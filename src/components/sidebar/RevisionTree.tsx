@@ -1,18 +1,24 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useTree } from '@headless-tree/react';
 import {
   syncDataLoaderFeature,
   selectionFeature,
   hotkeysCoreFeature,
 } from '@headless-tree/core';
-import { useVirtualizer } from '@tanstack/react-virtual';
-import { ChevronDown, ChevronRight } from 'lucide-react';
-import { FileIcon } from './FileIcon';
 import { StatusBadge } from './StatusBadge';
 import { LineCount } from '../shared/LineCount';
 import type { Lines } from '../../lib/types';
 import { useCompact } from '../../stores/density';
-import { clickable, dynamic, focus, pill } from '../shared/styles';
+import { clickable, focus, selectedRow } from '../shared/styles';
+import { VirtualCanvas } from '../shared/VirtualCanvas';
+import {
+  rowLines,
+  treeRowButton,
+  treeRowHeightClass,
+  treeRowPosition,
+  TreeRowContent,
+  useTreeVirtualizer,
+} from './TreeRow';
 import {
   changeNodes,
   directoryIds,
@@ -23,7 +29,7 @@ import {
 } from './nodes';
 import { openNode, useRevealInTree } from './reveal';
 import { UNMODIFIED } from '../../lib/git';
-import { revisionRowHeight, TREE_OVERSCAN, treeIndent } from './geometry';
+import { revisionRowHeight } from './geometry';
 
 export function RevisionTree({
   repo,
@@ -81,14 +87,11 @@ export function RevisionTree({
     tree.rebuildTree();
   }, [tree, nodes]);
   useExpandNewDirectories(tree, nodes);
-  const parent = useRef<HTMLDivElement>(null);
   const items = tree.getItems();
-  const virtual = useVirtualizer({
-    count: items.length,
-    getScrollElement: () => parent.current,
-    estimateSize: () => revisionRowHeight(compact),
-    overscan: TREE_OVERSCAN,
-  });
+  const { parent, virtual } = useTreeVirtualizer(
+    items.length,
+    revisionRowHeight(compact),
+  );
   const selectedIndex = items.findIndex(
     (item) => item.getItemData().path === selectedPath,
   );
@@ -110,13 +113,11 @@ export function RevisionTree({
       aria-label={label}
       className="min-h-0 flex-1 overflow-auto"
     >
-      <div
-        className="relative h-virtual"
-        style={dynamic({ '--virtual-height': `${virtual.getTotalSize()}px` })}
-      >
+      <VirtualCanvas height={virtual.getTotalSize()}>
         {virtual.getVirtualItems().map((row) => {
           const item = items[row.index];
           const node = item.getItemData();
+          const expanded = item.isExpanded();
           return (
             <button
               {...item.getProps()}
@@ -126,47 +127,35 @@ export function RevisionTree({
                 item.getProps().onClick?.(event);
                 if (!node.directory) onSelect(node.path);
               }}
-              className={`absolute top-0 right-1 left-1 flex translate-y-row items-center gap-1.5 rounded pr-2 pl-indent text-left text-sm hover:bg-hover dark:hover:bg-hover-dark ${compact ? 'h-tree-compact' : 'h-tree-comfortable'} ${selectedPath === node.path ? 'bg-selected dark:bg-selected-dark' : ''} ${clickable} ${focus}`}
-              style={dynamic({
-                '--row-offset': `${row.start}px`,
-                '--tree-indent': treeIndent(item.getItemMeta().level),
-              })}
+              className={`${treeRowButton} ${treeRowHeightClass(compact)} ${selectedPath === node.path ? selectedRow : ''} ${clickable} ${focus}`}
+              style={treeRowPosition(row.start, item.getItemMeta().level)}
             >
-              {selectedPath === node.path && <span className={pill} />}
-              {node.directory ? (
-                item.isExpanded() ? (
-                  <ChevronDown className="size-3 shrink-0 text-muted dark:text-muted-dark" />
-                ) : (
-                  <ChevronRight className="size-3 shrink-0 text-muted dark:text-muted-dark" />
-                )
-              ) : (
-                <span className="size-3 shrink-0" />
-              )}
-              <FileIcon
+              <TreeRowContent
                 name={node.name}
                 directory={node.directory}
-                expanded={item.isExpanded()}
-              />
-              <span className="truncate">{node.name}</span>
-              <span className="ml-auto flex shrink-0 items-center gap-1">
-                <LineCount
-                  lines={
-                    node.directory
-                      ? item.isExpanded()
-                        ? undefined
-                        : folders[item.getId()]
-                      : lines?.[node.path]
-                  }
-                  className={node.directory ? 'opacity-75' : ''}
-                />
-                {statuses && !node.directory && (
-                  <StatusBadge status={node.status} />
-                )}
-              </span>
+                expanded={expanded}
+                selected={selectedPath === node.path}
+              >
+                <span className="ml-auto flex shrink-0 items-center gap-1">
+                  <LineCount
+                    lines={rowLines({
+                      id: item.getId(),
+                      node: node,
+                      expanded: expanded,
+                      folders: folders,
+                      lines: lines,
+                    })}
+                    className={node.directory ? 'opacity-75' : ''}
+                  />
+                  {statuses && !node.directory && (
+                    <StatusBadge status={node.status} />
+                  )}
+                </span>
+              </TreeRowContent>
             </button>
           );
         })}
-      </div>
+      </VirtualCanvas>
     </div>
   );
 }

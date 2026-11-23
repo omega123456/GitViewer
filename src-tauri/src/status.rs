@@ -98,7 +98,7 @@ pub fn parse(bytes: &[u8]) -> Result<Status> {
     let mut status = Status::default();
     let text = std::str::from_utf8(bytes)
         .map_err(|_| Error::new("unsupported", "A repository path is not valid UTF-8"))?;
-    let mut records = text.split(git::NUL).filter(|record| !record.is_empty());
+    let mut records = git::nul_fields(text);
     while let Some(record) = records.next() {
         if let Some(header) = record.strip_prefix("# ") {
             if let Some(value) = header.strip_prefix("branch.head ") {
@@ -135,15 +135,14 @@ pub fn parse(bytes: &[u8]) -> Result<Status> {
             b'2' => RENAMED_FIELDS,
             b'u' => UNMERGED_FIELDS,
             _ => {
-                return Err(Error::new(
-                    "unexpected",
-                    format!("Unknown status record: {record}"),
-                ))
+                return Err(Error::unexpected(format!(
+                    "Unknown status record: {record}"
+                )))
             }
         };
         let parts: Vec<&str> = record.splitn(fields, ' ').collect();
         if parts.len() != fields || parts[1].len() != STATE_CODES {
-            return Err(Error::new("unexpected", "Malformed status record"));
+            return Err(Error::unexpected("Malformed status record"));
         }
         let path: String = parts[fields - 1].into();
         let index: String = parts[1][..1].into();
@@ -160,7 +159,7 @@ pub fn parse(bytes: &[u8]) -> Result<Status> {
                 path,
                 original_path: records
                     .next()
-                    .ok_or_else(|| Error::new("unexpected", "Missing rename source"))?
+                    .ok_or_else(|| Error::unexpected("Missing rename source"))?
                     .into(),
                 score: parts[8].into(),
                 index,

@@ -9,7 +9,8 @@ import {
   Rows3,
   ZoomIn,
 } from 'lucide-react';
-import { perform } from '../../lib/query';
+import { saveSettings } from '../../lib/settings';
+import { fetchIntervals, intervalLabels } from '../../lib/intervals';
 import type { Settings } from '../../lib/types';
 import { Choice } from '../shared/Choice';
 import { Select } from '../shared/Select';
@@ -24,18 +25,9 @@ const fileTabLimits = Array.from(
   (_slot, index) => String(index + MIN_FILE_TABS),
 );
 const icon = 'size-4';
-const fetchIntervals: Record<Settings['autoFetchInterval'], string> = {
-  off: 'Off',
-  '30s': 'Every 30 seconds',
-  '1m': 'Every minute',
-  '5m': 'Every 5 minutes',
-  '10m': 'Every 10 minutes',
-  '15m': 'Every 15 minutes',
-  '30m': 'Every 30 minutes',
-};
+const fetchIntervalLabels = intervalLabels(fetchIntervals);
 export function GeneralSection({ settings }: { settings: Settings }) {
-  const save = (next: Partial<Settings>) =>
-    void perform('settings_set', { ...settings, ...next });
+  const save = (next: Partial<Settings>) => void saveSettings(settings, next);
   return (
     <section aria-label="General" className="flex flex-col gap-4.5">
       <SettingGroup title="Appearance">
@@ -132,7 +124,7 @@ export function GeneralSection({ settings }: { settings: Settings }) {
               placeholder="Off"
               value={settings.autoFetchInterval}
               options={keysOf(fetchIntervals)}
-              labels={fetchIntervals}
+              labels={fetchIntervalLabels}
               onChange={(autoFetchInterval) => save({ autoFetchInterval })}
             />
           </span>

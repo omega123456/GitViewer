@@ -1,5 +1,6 @@
 import type { Ref } from 'react';
-import { format, formatDistanceToNowStrict, fromUnixTime } from 'date-fns';
+import { format, fromUnixTime } from 'date-fns';
+import { relativeTime } from '../../lib/time';
 import { useBackend } from '../../lib/query';
 import {
   useLayout,
@@ -8,7 +9,7 @@ import {
 } from '../../stores/layout';
 import { useSelection } from '../../stores/selection';
 import type { Selection } from '../../lib/types';
-import { clickable, dynamic, focus } from '../shared/styles';
+import { clickable, dynamic, focus, gutterCell } from '../shared/styles';
 import { VirtualList, type VirtualListHandle } from '../shared/VirtualList';
 import { ErrorState } from '../states/Errors';
 import { State } from '../states/State';
@@ -76,9 +77,7 @@ export function BlameView({
                     className="w-21 shrink-0 truncate tabular-nums"
                     title={format(fromUnixTime(line.timestamp), 'PPpp')}
                   >
-                    {formatDistanceToNowStrict(fromUnixTime(line.timestamp), {
-                      addSuffix: true,
-                    })}
+                    {relativeTime(line.timestamp)}
                   </span>
                   <span
                     className="min-w-0 flex-1 truncate"
@@ -90,9 +89,7 @@ export function BlameView({
               )}
             </div>
             <span className="w-1 shrink-0" />
-            <span className="w-11 shrink-0 bg-gutter px-2 text-right text-label text-faint dark:bg-gutter-dark dark:text-faint-dark">
-              {line.line}
-            </span>
+            <span className={gutterCell}>{line.line}</span>
             <code className="px-2 whitespace-pre select-text">
               {findTokens([{ content: line.content }], found, index).map(
                 (token, position) => (

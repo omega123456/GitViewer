@@ -1,14 +1,14 @@
-import { confirm } from '@tauri-apps/plugin-dialog';
+import { confirmAction } from './dialog';
 import { perform } from './query';
-import { listNames, localBranches, type Success } from './success';
-import { useSuccesses } from '../stores/successes';
+import { listNames, localBranches } from './success';
+import { plural } from './text';
+import { announcer, useSuccesses } from '../stores/successes';
 
 const key = 'branch_prune';
 
 export async function pruneBranches(repo: string, current: string) {
-  const { announce, withdraw } = useSuccesses.getState();
-  const say = (success: Omit<Success, 'key'>) =>
-    announce(repo, { key: key, info: true, ...success });
+  const { withdraw } = useSuccesses.getState();
+  const say = announcer(repo, key);
   say({
     title: 'Checking remote',
     description: 'Looking for local branches with no remote branch.',
@@ -17,15 +17,10 @@ export async function pruneBranches(repo: string, current: string) {
   const names = await perform('branch_gone', { repo });
   if (!names) return withdraw(repo, key);
   if (!names.length) return;
-  const count = names.length === 1 ? '1 branch' : `${names.length} branches`;
-  const approved = await confirm(
+  const count = plural(names.length, 'branch', 'branches');
+  const approved = await confirmAction(
     `Delete ${localBranches(names.length)} with no remote branch?\n\n${listNames(names)}\n\nGit keeps any branch with commits that are not in ${current}.`,
-    {
-      title: 'Prune local branches',
-      kind: 'warning',
-      okLabel: `Delete ${count}`,
-      cancelLabel: 'Cancel',
-    },
+    { title: 'Prune local branches', okLabel: `Delete ${count}` },
   );
   if (!approved)
     return say({

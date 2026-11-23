@@ -27,7 +27,8 @@ import {
   WrapText,
 } from 'lucide-react';
 import { useActions } from '../../lib/actions';
-import { useBackend, perform } from '../../lib/query';
+import { useBackend } from '../../lib/query';
+import { splitPath } from '../../lib/paths';
 import { useDiffView } from '../../stores/diff-view';
 import { save, useDirty } from '../../stores/editor';
 import { useLayout } from '../../stores/layout';
@@ -35,7 +36,6 @@ import { useSelection } from '../../stores/selection';
 import type { Selection, Settings } from '../../lib/types';
 import { Button } from '../shared/Button';
 import type { VirtualListHandle } from '../shared/VirtualList';
-import { CopyButton } from '../shared/CopyButton';
 import { ErrorState } from '../states/Errors';
 import { State } from '../states/State';
 import { StatusBadge } from '../sidebar/StatusBadge';
@@ -48,13 +48,22 @@ import { DiffSourcePill } from './DiffSourcePill';
 import { DiffToolbar } from './DiffToolbar';
 import { DiffSurface, type DiffSurfaceHandle } from './DiffSurface';
 import { MarkdownView, isMarkdown } from './Markdown';
-import { runHunkAction } from './hunks';
+import {
+  ChangeCountBadges,
+  CopyPathButton,
+  EditButton,
+  OpenInSystemButton,
+  openInSystem,
+} from './DiffFileActions';
+import { useDiffFile } from './useDiffFile';
 import { canEdit } from './editable';
 import { useExpansion } from './expansion';
-import { DIFF_CONTEXT_LINES, diffRows } from './rows';
+import { DIFF_CONTEXT_LINES } from './rows';
 import { cachedEntry } from './stack';
 import { useTokens } from './tokens';
 import { scopeKey } from '../../lib/git';
+import { stepIndex } from '../../lib/list';
+import { accentToggle, paneHeader } from '../shared/styles';
 const FULL_FILE_CONTEXT_LINES = 50000;
 const EditSurface = lazy(() => import('../editor/EditSurface'));
 export const DiffPane = memo(function DiffPane({
@@ -101,9 +110,7 @@ function SelectedDiff({
     (entry) => entry.path === selection.path,
   );
   const letter = selection.source === 'staged' ? entry?.index : entry?.worktree;
-  const nameStart = selection.path.lastIndexOf('/') + 1;
-  const directory = selection.path.slice(0, nameStart);
-  const name = selection.path.slice(nameStart);
+  const { directory, name } = splitPath(selection.path);
   const markdown = isMarkdown(selection.path);
   const rendered = markdown && Boolean(selection.rendered);
   const query = useBackend(
@@ -120,26 +127,20 @@ function SelectedDiff({
     !selection.blame,
     !overrideLimit && !rendered ? cachedEntry(repo, selection) : undefined,
   );
-  const mode = useDiffView((state) => state.mode) ?? settings.diffMode;
   const [wrap, setWrap] = useState(false);
   const toggleWrap = useCallback(() => setWrap((value) => !value), []);
   const [whitespace, setWhitespace] = useState(false);
   const [currentHunk, setCurrentHunk] = useState(0);
   const surface = useRef<DiffSurfaceHandle>(null);
   const data = query.data;
-  const split = mode === 'split' && data?.content === null;
   const expansion = useExpansion(repo, selection, data);
-  const rows = useMemo(
-    () => (data ? diffRows(data, split, expansion.reveal) : []),
-    [data, split, expansion.reveal],
-  );
-  const { added, removed } = useMemo(() => {
-    const lines = data?.hunks.flatMap((hunk) => hunk.lines) ?? [];
-    return {
-      added: lines.filter((line) => line.kind === 'add').length,
-      removed: lines.filter((line) => line.kind === 'remove').length,
-    };
-  }, [data]);
+  const { mode, split, rows, counts, hunkAction } = useDiffFile({
+    repo: repo,
+    selection: selection,
+    data: data,
+    reveal: expansion.reveal,
+    defaultMode: settings.diffMode,
+  });
   const editable = canEdit(selection.source, entry?.worktree, data);
   const editing = Boolean(selection.editing) && editable;
   const tokens = useTokens(repo, selection, data, !editing);
@@ -202,14 +203,10 @@ function SelectedDiff({
       row.hunk !== undefined ? [index] : [],
     );
     if (indices.length) {
-      const next = (currentHunk + direction + indices.length) % indices.length;
+      const next = stepIndex(currentHunk, direction, indices.length);
       setCurrentHunk(next);
       surface.current?.scrollToRow(indices[next]);
     }
-  };
-  const hunkAction = (hunk: number, action: string) => {
-    if (!data) return;
-    void runHunkAction(repo, selection, data, hunk, action);
   };
   const selectedHunk = Math.min(
     currentHunk,
@@ -284,7 +281,7 @@ function SelectedDiff({
       icon: <ExternalLink className="size-3.5" />,
       label: 'Open in system application',
       key: 'Mod+e',
-      run: () => perform('system_open', { repo: repo, path: selection.path }),
+      run: () => openInSystem(repo, selection.path),
     },
     {
       id: 'file-history',
@@ -341,7 +338,7 @@ function SelectedDiff({
   ]);
   return (
     <section className="flex h-full min-w-0 flex-col" aria-label="Diff viewer">
-      <header className="flex h-9.5 shrink-0 items-center gap-1 border-b border-line px-2.5 text-sm dark:border-line-dark">
+      <header className={paneHeader}>
         <span className="mr-1 flex">
           <FileIcon name={name} directory={false} />
         </span>
@@ -356,32 +353,11 @@ function SelectedDiff({
             className="size-status-dot shrink-0 rounded-full bg-accent dark:bg-accent-dark"
           />
         )}
-        <CopyButton
-          text={selection.path}
-          label="Copy file path"
-          className="size-6 text-muted dark:text-muted-dark"
-        />
+        <CopyPathButton path={selection.path} />
         <DiffSourcePill selection={selection} />
-        {Boolean(added) && (
-          <span className="shrink-0 font-mono text-badge text-added dark:text-added-dark">
-            +{added}
-          </span>
-        )}
-        {Boolean(removed) && (
-          <span className="shrink-0 font-mono text-badge text-deleted dark:text-deleted-dark">
-            −{removed}
-          </span>
-        )}
+        <ChangeCountBadges counts={counts} />
         <div className="ml-auto flex items-center gap-1">
-          <Button
-            title="Open in system application"
-            onClick={() =>
-              void perform('system_open', { repo: repo, path: selection.path })
-            }
-          >
-            <ExternalLink className="size-4" />
-            <span>Open</span>
-          </Button>
+          <OpenInSystemButton repo={repo} path={selection.path} />
           <Button
             title="File history"
             onClick={() => openFileHistory(repo, selection.path)}
@@ -410,23 +386,22 @@ function SelectedDiff({
             </span>
           </Button>
           {editable ? (
-            <Button
+            <EditButton
               aria-pressed={editing}
-              className={
-                editing
-                  ? 'bg-selected text-accent dark:bg-selected-dark dark:text-accent-dark'
-                  : ''
-              }
+              className={editing ? accentToggle : ''}
               onClick={toggleEdit}
-            >
-              <Pencil className="size-4" />
-              <span className="min-w-7">{editing ? 'Diff' : 'Edit'}</span>
-            </Button>
+              label={editing ? 'Diff' : 'Edit'}
+              labelClassName="min-w-7"
+            />
           ) : (
-            <Button aria-hidden tabIndex={-1} disabled className="invisible">
-              <Pencil className="size-4" />
-              <span className="min-w-7">Edit</span>
-            </Button>
+            <EditButton
+              aria-hidden
+              tabIndex={-1}
+              disabled
+              className="invisible"
+              label="Edit"
+              labelClassName="min-w-7"
+            />
           )}
         </div>
         <span className="flex w-3.5 shrink-0">
@@ -466,14 +441,7 @@ function SelectedDiff({
           title="File too large to diff"
           action={
             data.image ? (
-              <Button
-                onClick={() =>
-                  void perform('system_open', {
-                    repo: repo,
-                    path: selection.path,
-                  })
-                }
-              >
+              <Button onClick={() => void openInSystem(repo, selection.path)}>
                 Open in system application
               </Button>
             ) : (

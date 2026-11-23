@@ -1,11 +1,13 @@
 import type { Lines } from '../../lib/types';
+import { pluralWord } from '../../lib/text';
+import { addedInk, removedInk } from './styles';
 const compact = new Intl.NumberFormat('en', { notation: 'compact' });
 const exact = new Intl.NumberFormat('en');
 function short(value: number) {
   return compact.format(value).toLowerCase();
 }
 function describe([added, removed]: [number, number]) {
-  return `${exact.format(added)} ${added === 1 ? 'line' : 'lines'} added, ${exact.format(removed)} removed`;
+  return `${exact.format(added)} ${pluralWord(added, 'line')} added, ${exact.format(removed)} removed`;
 }
 export function sumLines(
   lines: Record<string, Lines> | undefined,
@@ -47,15 +49,12 @@ export function LineCount({
     <span className={`flex gap-1 ${base}`} title={label}>
       <span className="sr-only">{label}</span>
       {added > 0 && (
-        <span aria-hidden="true" className="text-added dark:text-added-dark">
+        <span aria-hidden="true" className={addedInk}>
           +{short(added)}
         </span>
       )}
       {removed > 0 && (
-        <span
-          aria-hidden="true"
-          className="text-deleted dark:text-deleted-dark"
-        >
+        <span aria-hidden="true" className={removedInk}>
           −{short(removed)}
         </span>
       )}

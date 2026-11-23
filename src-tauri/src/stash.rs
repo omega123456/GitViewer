@@ -73,7 +73,7 @@ pub async fn store(repo: &Repo, hash: &str, message: &str) -> Result<()> {
     Ok(())
 }
 async fn changed_paths(repo: &Repo, hash: &str) -> Result<HashSet<String>> {
-    let text = git::text(
+    let mut paths: HashSet<String> = git::nul_list(
         &repo.root,
         &[
             "diff",
@@ -84,12 +84,9 @@ async fn changed_paths(repo: &Repo, hash: &str) -> Result<HashSet<String>> {
             hash,
         ],
     )
-    .await?;
-    let mut paths: HashSet<String> = text
-        .split(git::NUL)
-        .filter(|path| !path.is_empty())
-        .map(String::from)
-        .collect();
+    .await?
+    .into_iter()
+    .collect();
     paths.extend(untracked(repo, hash).await?);
     Ok(paths)
 }
@@ -112,24 +109,7 @@ pub fn overlapping(status: &Status, target: &HashSet<String>) -> Vec<String> {
         .collect()
 }
 pub async fn untracked(repo: &Repo, hash: &str) -> Result<Vec<String>> {
-    let third = git::run(
-        &repo.root,
-        &["rev-parse", "--verify", &git::stash_untracked(hash)],
-        None,
-    )
-    .await?;
-    if third.code != git::EXIT_SUCCESS {
-        return Ok(Vec::new());
-    }
-    Ok(git::text(
-        &repo.root,
-        &["ls-tree", "-r", "--name-only", "-z", third.text().trim()],
-    )
-    .await?
-    .split(git::NUL)
-    .filter(|path| !path.is_empty())
-    .map(String::from)
-    .collect())
+    git::untracked_in_stash(&repo.root, hash, &["--name-only"]).await
 }
 pub async fn precheck(repo: &Repo, hash: &str) -> Result<()> {
     let sha = resolve(repo, hash).await?;
@@ -152,23 +132,9 @@ pub async fn precheck(repo: &Repo, hash: &str) -> Result<()> {
     .accept(&[git::EXIT_SUCCESS])?
     .text();
     for target in [sha.clone(), git::stash_index(&sha)] {
-        let output = git::run(
-            &repo.root,
-            &[
-                "merge-tree",
-                "--write-tree",
-                "--name-only",
-                head.trim(),
-                &target,
-            ],
-            None,
-        )
-        .await?
-        .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?;
-        if output.code == git::EXIT_DIFFERENT {
+        if let Some(conflicts) = git::merge_conflicts(&repo.root, head.trim(), &target).await? {
             return Err(Error::refused(format!(
-                "Stash would conflict:\n{}",
-                output.text()
+                "Stash would conflict:\n{conflicts}"
             )));
         }
     }
@@ -242,7 +208,7 @@ pub async fn apply(repo: &Repo, hash: &str, pop: bool, smart: bool) -> Result<()
     arguments.push(hash);
     let output = git::run(&repo.root, &arguments, None)
         .await?
-        .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?;
+        .accept(&git::SUCCESS_OR_DIFFERENT)?;
     if output.code == git::EXIT_DIFFERENT {
         if repo.refresh().await?.conflicted {
             return Ok(());
@@ -272,13 +238,10 @@ pub async fn smart_checkout(repo: &Repo, name: &str) -> Result<()> {
             .await?
             .accept(&[git::EXIT_SUCCESS])?;
         restore(repo, &temporary).await.map_err(|failure| {
-            Error::new(
-                "unexpected",
-                format!(
-                    "Changes remain recoverable in stash {temporary}. {}",
-                    failure.message
-                ),
-            )
+            Error::unexpected(format!(
+                "Changes remain recoverable in stash {temporary}. {}",
+                failure.message
+            ))
         })?;
         remove(repo, &temporary).await?;
         return Err(Error::refused(format!(

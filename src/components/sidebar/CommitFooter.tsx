@@ -1,18 +1,12 @@
 import { TextArea } from '../shared/TextArea';
-import { DropdownMenu } from 'radix-ui';
-import {
-  Check,
-  ChevronDown,
-  GitCommitHorizontal,
-  Sparkles,
-} from 'lucide-react';
+import { GitCommitHorizontal, Sparkles } from 'lucide-react';
 import type {
   GeneratedMessage,
   SettingsResponse,
   Status,
 } from '../../lib/types';
 import { shortcutLabel } from '../../lib/keyboard';
-import { perform } from '../../lib/query';
+import { saveSettings } from '../../lib/settings';
 import { useCommit, useCommitState } from '../../stores/commit';
 import { useGenerate, useGenerateState } from '../../stores/generate';
 import {
@@ -27,13 +21,15 @@ import {
   useTabs,
 } from '../../stores/tabs';
 import { Button } from '../shared/Button';
-import { Spinner } from '../shared/Spinner';
-import { dynamic, field, menu, menuItem } from '../shared/styles';
+import { BusyIcon } from '../shared/BusyIcon';
+import { dynamic, field, mutedLabel } from '../shared/styles';
+import { SplitButton, SplitMenu, SplitPrimary } from '../shared/SplitButton';
 import { ResizeHandle } from '../shell/ResizeHandle';
 import { FieldError } from '../states/Errors';
 import { isDetached, UNTRACKED, UNMODIFIED } from '../../lib/git';
-import { chooseOption, keysOf } from '../../lib/options';
+import { keysOf } from '../../lib/options';
 import { boundsOf } from '../../lib/geometry';
+import { plural } from '../../lib/text';
 export function aiConfigured(settings: SettingsResponse) {
   return Boolean(settings.ai.baseUrl && settings.ai.model);
 }
@@ -61,8 +57,8 @@ export function commitLabel(
     (entry) => entry.index !== UNMODIFIED && entry.index !== UNTRACKED,
   ).length;
   if (staged === 0 && smartCommit && status.entries.length > 0)
-    return `${verb} all ${status.entries.length} ${status.entries.length === 1 ? 'change' : 'changes'} to ${status.branch}`;
-  return `${verb} ${staged} ${staged === 1 ? 'file' : 'files'} to ${status.branch}`;
+    return `${verb} all ${plural(status.entries.length, 'change')} to ${status.branch}`;
+  return `${verb} ${plural(staged, 'file')} to ${status.branch}`;
 }
 export function CommitFooter({
   repo,
@@ -97,8 +93,7 @@ export function CommitFooter({
         : commitLabel(status, active, settings.smartCommit !== 'never');
   const stageAll = (always: boolean) => {
     const pending = flow.prompt ?? 'commit';
-    if (always)
-      void perform('settings_set', { ...settings, smartCommit: 'always' });
+    if (always) void saveSettings(settings, { smartCommit: 'always' });
     void useCommit.getState().run(repo, {
       message: message,
       mode: pending,
@@ -118,11 +113,11 @@ export function CommitFooter({
               disabled={generate.busy}
               onClick={() => void useGenerate.getState().generate(repo)}
             >
-              {generate.busy ? (
-                <Spinner className="size-3.5" />
-              ) : (
-                <Sparkles className="size-3.5" />
-              )}
+              <BusyIcon
+                busy={generate.busy}
+                icon={Sparkles}
+                className="size-3.5"
+              />
               {generate.busy ? 'Generating' : 'Generate'}
             </Button>
           </div>
@@ -156,18 +151,16 @@ export function CommitFooter({
           />
         </div>
         {generate.error && <FieldError>{generate.error}</FieldError>}
-        {notice && (
-          <p className="text-label text-muted dark:text-muted-dark">{notice}</p>
-        )}
+        {notice && <p className={mutedLabel}>{notice}</p>}
         {flow.prompt && (
           <div
             role="group"
             aria-label="Stage all and commit"
             className="flex flex-col gap-2 rounded-md border border-line bg-surface p-2 dark:border-line-dark dark:bg-surface-dark"
           >
-            <p className="text-label text-muted dark:text-muted-dark">
-              Nothing is staged. Stage all {changes.length}{' '}
-              {changes.length === 1 ? 'change' : 'changes'} and commit?
+            <p className={mutedLabel}>
+              Nothing is staged. Stage all {plural(changes.length, 'change')}{' '}
+              and commit?
             </p>
             <div className="flex justify-end gap-1.5">
               <Button onClick={() => useCommit.getState().dismiss(repo)}>
@@ -185,68 +178,36 @@ export function CommitFooter({
             This commit will be created on detached HEAD.
           </p>
         )}
-        <div className="flex">
-          <Button
+        <SplitButton>
+          <SplitPrimary
+            size="compact"
             disabled={disabled}
-            variant="primary"
-            className="h-7.5 min-w-0 flex-1 rounded-r-none"
             onClick={() => commit(active)}
           >
-            {flow.phase === 'idle' ? (
-              <GitCommitHorizontal className="size-4" />
-            ) : (
-              <Spinner className="size-4" />
-            )}
+            <BusyIcon busy={flow.phase !== 'idle'} icon={GitCommitHorizontal} />
             <span className="truncate">{label}</span>
-          </Button>
-          <DropdownMenu.Root>
-            <DropdownMenu.Trigger asChild>
-              <Button
-                disabled={disabled || !pushable}
-                variant="splitMenu"
-                aria-label="Commit options"
-                className="h-7.5 w-8 rounded-l-none border-l border-on-accent/30 dark:border-on-accent-dark/30"
-              >
-                <ChevronDown className="size-3" />
-              </Button>
-            </DropdownMenu.Trigger>
-            <DropdownMenu.Portal>
-              <DropdownMenu.Content
-                align="end"
-                side="top"
-                sideOffset={4}
-                className={`w-60 ${menu}`}
-              >
-                <DropdownMenu.RadioGroup
-                  value={active}
-                  onValueChange={(value) =>
-                    chooseOption(modeOptions, value, (option) =>
-                      useTabs.getState().setCommitMode(repo, option),
-                    )
-                  }
-                >
-                  {modeOptions.map((option) => (
-                    <DropdownMenu.RadioItem
-                      key={option}
-                      value={option}
-                      className={menuItem}
-                    >
-                      <span className="flex size-3 items-center justify-center">
-                        <DropdownMenu.ItemIndicator>
-                          <Check className="size-3" />
-                        </DropdownMenu.ItemIndicator>
-                      </span>
-                      <span className="flex-1">{modes[option].label}</span>
-                      <span className="text-label text-muted dark:text-muted-dark">
-                        {shortcutLabel(modes[option].key)}
-                      </span>
-                    </DropdownMenu.RadioItem>
-                  ))}
-                </DropdownMenu.RadioGroup>
-              </DropdownMenu.Content>
-            </DropdownMenu.Portal>
-          </DropdownMenu.Root>
-        </div>
+          </SplitPrimary>
+          <SplitMenu
+            size="compact"
+            label="Commit options"
+            disabled={disabled || !pushable}
+            side="top"
+            width="w-60"
+            value={active}
+            options={modeOptions}
+            onChange={(option) =>
+              useTabs.getState().setCommitMode(repo, option)
+            }
+            renderOption={(option) => (
+              <>
+                <span className="flex-1">{modes[option].label}</span>
+                <span className={mutedLabel}>
+                  {shortcutLabel(modes[option].key)}
+                </span>
+              </>
+            )}
+          />
+        </SplitButton>
       </div>
     </section>
   );

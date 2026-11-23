@@ -5,6 +5,7 @@ import { normalizeError } from '../lib/ipc';
 import { fileName } from '../lib/paths';
 import { attempt } from '../lib/query';
 import type { Opened } from '../lib/types';
+import { without, withEntry } from '../lib/record';
 import { useErrors } from './errors';
 export interface Buffer {
   path: string;
@@ -121,16 +122,12 @@ export function drop(repo: string, path?: string) {
     buffers:
       path === undefined
         ? without(state.buffers, repo)
-        : {
-            ...state.buffers,
-            [repo]: without(state.buffers[repo] ?? {}, path),
-          },
+        : withEntry(
+            state.buffers,
+            repo,
+            without(state.buffers[repo] ?? {}, path),
+          ),
   }));
-}
-function without<T>(record: Record<string, T>, key: string) {
-  return Object.fromEntries(
-    Object.entries(record).filter(([entry]) => entry !== key),
-  );
 }
 export async function approveDiscard(repo: string, path: string) {
   const buffer = current(repo, path);

@@ -1,24 +1,21 @@
-import { confirm } from '@tauri-apps/plugin-dialog';
+import { confirmAction } from './dialog';
 import { invoke, normalizeError } from './ipc';
 import { folderName } from './paths';
+import { plural, pluralWord } from './text';
 import { client, perform, queryKey } from './query';
 import type { Success } from './success';
 import type { GitError, Worktree, WorktreeSummary } from './types';
 import { ask } from '../stores/decision';
 import { useErrors } from '../stores/errors';
-import { useSuccesses } from '../stores/successes';
-import { anchorOf, useTabs, type Tab } from '../stores/tabs';
-function plural(count: number, noun: string) {
-  return `${count} ${noun}${count === 1 ? '' : 's'}`;
-}
+import { announceInfo, announcer, useSuccesses } from '../stores/successes';
+import { anchorOf, tabById, useTabs, type Tab } from '../stores/tabs';
 export async function applyWorktree(
   view: string,
   source: Worktree,
   target: string,
 ) {
-  const { announce, withdraw } = useSuccesses.getState();
-  const say = (success: Omit<Success, 'key'>) =>
-    announce(view, { key: 'worktree_apply', info: true, ...success });
+  const { withdraw } = useSuccesses.getState();
+  const say = announcer(view, 'worktree_apply');
   const args = { repo: view, source: source.id, target: target, smart: false };
   say({
     title: 'Applying to main',
@@ -62,10 +59,8 @@ export async function unapplyWorktree(
   view: string,
   unapply: NonNullable<Success['unapply']>,
 ) {
-  const { announce, withdraw } = useSuccesses.getState();
-  announce(view, {
-    key: 'worktree_unapply',
-    info: true,
+  const { withdraw } = useSuccesses.getState();
+  announceInfo(view, 'worktree_unapply', {
     title: 'Undoing apply',
     description: `Removing the applied changes from ${folderName(unapply.target)}.`,
     pending: true,
@@ -84,7 +79,7 @@ export function deletion(
   const { orphans } = summary;
   const body = [
     orphans
-      ? `${plural(orphans, 'commit')} ${orphans === 1 ? 'is' : 'are'} on no branch and will be lost.`
+      ? `${plural(orphans, 'commit')} ${pluralWord(orphans, 'is', 'are')} on no branch and will be lost.`
       : '',
     changes ? `Its ${plural(changes, 'uncommitted change')} will be lost.` : '',
     summary.submodules ? 'Its submodules are deleted with it.' : '',
@@ -133,17 +128,8 @@ export async function deleteWorktree(
     return;
   }
   const { title, body } = deletion(worktree, summary, changes);
-  if (
-    !(await confirm(body, {
-      title: title,
-      kind: 'warning',
-      okLabel: 'Delete',
-      cancelLabel: 'Cancel',
-    }))
-  )
-    return useSuccesses.getState().announce(tab.view, {
-      key: 'worktree_remove',
-      info: true,
+  if (!(await confirmAction(body, { title: title, okLabel: 'Delete' })))
+    return announceInfo(tab.view, 'worktree_remove', {
       title: 'Deletion cancelled',
       description: `Kept worktree ${worktree.name}.`,
     });
@@ -151,13 +137,9 @@ export async function deleteWorktree(
   if ((await perform('repo_close', { repo: worktree.id })) === undefined)
     return;
   useTabs.getState().leave(tab.id, worktree.id);
-  const view =
-    useTabs.getState().tabs.find((entry) => entry.id === tab.id)?.view ??
-    args.target;
-  const { announce, withdraw } = useSuccesses.getState();
-  announce(view, {
-    key: 'worktree_remove',
-    info: true,
+  const view = tabById(tab.id)?.view ?? args.target;
+  const { withdraw } = useSuccesses.getState();
+  announceInfo(view, 'worktree_remove', {
     title: `Deleting worktree ${worktree.name}`,
     description:
       'Removing its folder and ignored files. Large folders can take a while.',

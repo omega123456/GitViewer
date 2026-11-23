@@ -5,11 +5,13 @@ export function isInside(target: EventTarget | null, selector: string) {
   return target instanceof Element && target.closest(selector) !== null;
 }
 
+const EDITABLE_TAGS = ['INPUT', 'TEXTAREA', 'SELECT'];
+export function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || EDITABLE_TAGS.includes(target.tagName);
+}
 export function preventBrowserShortcut(event: KeyboardEvent) {
-  const editable =
-    event.target instanceof HTMLElement &&
-    (event.target.isContentEditable ||
-      ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName));
+  const editable = isEditableTarget(event.target);
   const key = event.key.toLowerCase();
   if (
     key === 'f5' ||

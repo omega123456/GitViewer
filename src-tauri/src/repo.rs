@@ -1,5 +1,6 @@
 use crate::{
     error::{Error, Result},
+    fs,
     git::{self, detect::MINIMUM_GIT_VERSION},
     status::{self, Status},
     worktree,
@@ -142,12 +143,7 @@ impl Repo {
     pub async fn info(&self) -> Info {
         Info {
             id: self.root.to_string_lossy().into_owned(),
-            name: self
-                .root
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned(),
+            name: fs::file_name_of(&self.root),
             root: self.root.to_string_lossy().into_owned(),
             project: self.project.to_string_lossy().into_owned(),
             status: Status::clone(&*self.status.lock().await),
@@ -193,7 +189,7 @@ impl Repo {
             .await?
             .accept(&[git::EXIT_SUCCESS, git::EXIT_FATAL])?;
             let name = named.text().trim().to_owned();
-            if named.code == git::EXIT_SUCCESS && !name.is_empty() {
+            if named.succeeded() && !name.is_empty() {
                 Arc::make_mut(status).merging = Some(
                     name.strip_prefix("remotes/")
                         .unwrap_or(name.as_str())

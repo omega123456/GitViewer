@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { client, connectEvents, perform } from '../lib/query';
 import { invoke, reportAppError } from '../lib/ipc';
-import { activeView, anchorOf, useTabs } from '../stores/tabs';
+import { activeTab, activeView, anchorOf } from '../stores/tabs';
 function refresh(repo: string) {
   void perform('refresh', { repo }, { run: invoke });
 }
@@ -17,8 +17,7 @@ export function QueryProvider({ children }: { children: ReactNode }) {
       })
       .catch(reportAppError);
     const focus = () => {
-      const { tabs, active } = useTabs.getState();
-      const tab = tabs.find((tab) => tab.id === active);
+      const tab = activeTab();
       if (!tab) return;
       const view = activeView();
       refresh(view);

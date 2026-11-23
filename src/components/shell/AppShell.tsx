@@ -1,13 +1,14 @@
 import { Activity, useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { milliseconds, type Duration } from 'date-fns';
+import { milliseconds } from 'date-fns';
 import { UpdateBanner } from '../states/UpdateBanner';
-import type { Settings, SettingsResponse } from '../../lib/types';
+import type { SettingsResponse } from '../../lib/types';
+import { fetchIntervals } from '../../lib/intervals';
 import { invoke, reportAppError } from '../../lib/ipc';
 import { folderName } from '../../lib/paths';
 import { mica } from '../../lib/platform';
 import { useCompact } from '../../stores/density';
-import { useActiveView, useTabs } from '../../stores/tabs';
+import { useActiveTab, useActiveView, useTabs } from '../../stores/tabs';
 import { useDark } from '../../stores/theme';
 import { SettingsSurface } from '../settings/SettingsSurface';
 import { FirstRun } from '../states/FirstRun';
@@ -15,14 +16,6 @@ import { CommandPalette } from './CommandPalette';
 import { RepoTabStrip } from './RepoTabStrip';
 import { RepositoryView } from './RepositoryView';
 import { Toaster } from './Toaster';
-const fetchEvery: Partial<Record<Settings['autoFetchInterval'], Duration>> = {
-  '30s': { seconds: 30 },
-  '1m': { minutes: 1 },
-  '5m': { minutes: 5 },
-  '10m': { minutes: 10 },
-  '15m': { minutes: 15 },
-  '30m': { minutes: 30 },
-};
 export function AppShell({
   settings,
   version,
@@ -33,14 +26,9 @@ export function AppShell({
   const tabs = useTabs((state) => state.tabs);
   const active = useTabs((state) => state.active);
   const view = useActiveView();
-  const multiple = useTabs(
-    (state) =>
-      (state.tabs.find((tab) => tab.id === state.active)?.members.length ?? 0) >
-      1,
-  );
-  const project = useTabs(
-    (state) => state.tabs.find((tab) => tab.id === state.active)?.name,
-  );
+  const shownTab = useActiveTab();
+  const multiple = (shownTab?.members.length ?? 0) > 1;
+  const project = shownTab?.name;
   const dark = useDark();
   const compact = useCompact();
   useEffect(() => {
@@ -48,7 +36,7 @@ export function AppShell({
       .setTitle(project ? `${project} — GitViewer` : 'GitViewer')
       .catch(reportAppError);
   }, [project]);
-  const every = fetchEvery[settings.autoFetchInterval];
+  const every = fetchIntervals[settings.autoFetchInterval].every;
   useEffect(() => {
     if (!every) return;
     const fetching = new Set<string>();

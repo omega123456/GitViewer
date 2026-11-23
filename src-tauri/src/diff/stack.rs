@@ -1,17 +1,18 @@
-use super::{dimensions, is_image, object_sizes, parse, resolve, size_limit, Diff, LINE_LIMIT};
+use super::{dimensions, object_sizes, parse, quote, resolve, size_limit, Diff, LINE_LIMIT};
 use crate::{
     error::{Error, Result},
-    git,
+    fs, git,
+    media::is_image,
     repo::Repo,
     status::Entry,
 };
 use serde::Serialize;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 use tokio::{
-    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncReadExt, BufReader},
     process::{Child, ChildStdout},
     task::JoinHandle,
 };
@@ -20,19 +21,19 @@ const BUDGET: usize = 100_000;
 const ZERO: &str = "0000000000000000000000000000000000000000";
 const OBJECT_HEADER_FIELDS: usize = 3;
 const OBJECT_SIZE_FIELD: usize = 2;
-const PINNED: [&str; 11] = [
-    "--no-ext-diff",
-    "--no-textconv",
-    "--no-color",
+const STACK_FLAGS: [&str; 6] = [
     "--unified=3",
-    "--src-prefix=a/",
-    "--dst-prefix=b/",
     "--submodule=short",
     "--raw",
     "-p",
     "-z",
     "--no-abbrev",
 ];
+fn pinned(arguments: &mut Vec<&str>) {
+    arguments.extend(git::PINNED_DIFF_FLAGS);
+    arguments.extend(git::DIFF_PREFIXES);
+    arguments.extend(STACK_FLAGS);
+}
 
 #[derive(Debug, Default, Serialize)]
 pub struct Stack {
@@ -44,36 +45,16 @@ struct Stream {
     child: Child,
     reader: BufReader<ChildStdout>,
     writer: Option<JoinHandle<std::io::Result<()>>>,
-    stderr: Option<JoinHandle<std::io::Result<String>>>,
+    stderr: Option<JoinHandle<std::io::Result<Vec<u8>>>>,
 }
 impl Stream {
     fn start(repo: &Repo, arguments: &[&str], input: Vec<u8>) -> Result<Self> {
-        let mut child = git::command("git", &repo.root, arguments)
-            .spawn()
-            .map_err(|error| Error::new("missing_git", error.to_string()))?;
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or(Error::new("unexpected", "Git stdin unavailable"))?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or(Error::new("unexpected", "Git stdout unavailable"))?;
-        let mut stderr = child
-            .stderr
-            .take()
-            .ok_or(Error::new("unexpected", "Git stderr unavailable"))?;
-        let writer = tokio::spawn(async move { stdin.write_all(&input).await });
-        let stderr = tokio::spawn(async move {
-            let mut text = String::new();
-            stderr.read_to_string(&mut text).await?;
-            Ok(text)
-        });
+        let piped = git::spawn_piped(&mut git::command("git", &repo.root, arguments))?;
         Ok(Self {
-            child,
-            reader: BufReader::new(stdout),
-            writer: Some(writer),
-            stderr: Some(stderr),
+            child: piped.child,
+            reader: BufReader::new(piped.stdout),
+            writer: Some(git::feed(piped.stdin, input)),
+            stderr: Some(git::collect(piped.stderr)),
         })
     }
     async fn token(&mut self, delimiter: u8) -> Result<Option<Vec<u8>>> {
@@ -90,7 +71,7 @@ impl Stream {
         let header = self
             .token(b'\n')
             .await?
-            .ok_or(Error::new("unexpected", "Git object stream ended early"))?;
+            .ok_or(Error::unexpected("Git object stream ended early"))?;
         let header = String::from_utf8_lossy(&header);
         let fields: Vec<&str> = header.split(' ').collect();
         let Some(size) = fields
@@ -111,11 +92,13 @@ impl Stream {
             let _ = writer.await;
         }
         let stderr = match self.stderr.take() {
-            Some(task) => task.await.map_err(Error::from)??,
-            None => String::new(),
+            Some(task) => git::finish(task).await?,
+            None => Vec::new(),
         };
         if !status.success() {
-            return Err(Error::git(stderr.trim().to_owned()));
+            return Err(Error::git(
+                String::from_utf8_lossy(&stderr).trim().to_owned(),
+            ));
         }
         Ok(())
     }
@@ -182,34 +165,6 @@ async fn open(repo: &Repo, arguments: &[&str]) -> Result<(Stream, Vec<Raw>)> {
     Ok((stream, records))
 }
 
-fn quoted(prefix: &str, path: &str) -> String {
-    if !path
-        .chars()
-        .any(|character| character == '"' || character == '\\' || character.is_ascii_control())
-    {
-        return format!("{prefix}{path}");
-    }
-    let mut text = format!("\"{prefix}");
-    for character in path.chars() {
-        match character {
-            '"' => text.push_str("\\\""),
-            '\\' => text.push_str("\\\\"),
-            '\x07' => text.push_str("\\a"),
-            '\x08' => text.push_str("\\b"),
-            '\t' => text.push_str("\\t"),
-            '\n' => text.push_str("\\n"),
-            '\x0b' => text.push_str("\\v"),
-            '\x0c' => text.push_str("\\f"),
-            '\r' => text.push_str("\\r"),
-            control if control.is_ascii_control() => {
-                text.push_str(&format!("\\{:03o}", u32::from(control)))
-            }
-            other => text.push(other),
-        }
-    }
-    text.push('"');
-    text
-}
 fn controlled(path: &str) -> bool {
     path.chars().any(char::is_control)
 }
@@ -304,18 +259,9 @@ impl Builder<'_> {
 }
 
 async fn listing(repo: &Repo, sha: &str) -> Result<Vec<(String, String, usize)>> {
-    let output = git::run(
-        &repo.root,
-        &["ls-tree", "-r", "-l", "-z", &git::stash_untracked(sha)],
-        None,
-    )
-    .await?;
-    if output.code != git::EXIT_SUCCESS {
-        return Ok(Vec::new());
-    }
-    Ok(output
-        .text()
-        .split(git::NUL)
+    Ok(git::untracked_in_stash(&repo.root, sha, &["-l"])
+        .await?
+        .iter()
         .filter_map(|entry| {
             let (meta, path) = entry.split_once('\t')?;
             let fields: Vec<&str> = meta.split_whitespace().collect();
@@ -329,19 +275,11 @@ async fn listing(repo: &Repo, sha: &str) -> Result<Vec<(String, String, usize)>>
         })
         .collect())
 }
-fn working_size(full: &PathBuf) -> Option<usize> {
-    match std::fs::metadata(full) {
-        Ok(metadata) => Some(usize::try_from(metadata.len()).unwrap_or(usize::MAX)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Some(0),
-        Err(_) => None,
-    }
+fn working_size(full: &Path) -> Option<usize> {
+    fs::size_if_present(full).ok()
 }
-fn working_bytes(full: &PathBuf) -> Option<Vec<u8>> {
-    match std::fs::read(full) {
-        Ok(bytes) => Some(bytes),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Some(Vec::new()),
-        Err(_) => None,
-    }
+fn working_bytes(full: &Path) -> Option<Vec<u8>> {
+    fs::read_if_present(full).ok()
 }
 fn content(path: &str, source: &str, size: usize, bytes: Option<&[u8]>) -> (Diff, usize) {
     let mut entry = Diff {
@@ -354,10 +292,10 @@ fn content(path: &str, source: &str, size: usize, bytes: Option<&[u8]>) -> (Diff
     match bytes {
         None => entry.too_large = true,
         Some(bytes) if entry.image => entry.new_dimensions = dimensions(bytes),
-        Some(bytes) if bytes.contains(&0) => entry.binary = true,
+        Some(bytes) if fs::is_binary(bytes) => entry.binary = true,
         Some(bytes) => {
             let text = String::from_utf8_lossy(bytes);
-            let lines = text.lines().count();
+            let lines = fs::count_lines(&text);
             if lines > LINE_LIMIT {
                 entry.too_large = true;
             } else {
@@ -407,12 +345,12 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
     } else {
         "diff"
     }];
-    arguments.extend(PINNED);
+    pinned(&mut arguments);
     arguments.extend(range.iter().map(String::as_str));
     let (mut stream, raws) = match open(repo, &arguments).await {
         Err(_) if matches!(source, "commit" | "stash") => {
             let mut root = vec!["show", "--root", git::EMPTY_FORMAT, "--no-renames"];
-            root.extend(PINNED);
+            pinned(&mut root);
             root.push(&sha);
             open(repo, &root).await?
         }
@@ -432,10 +370,9 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
             } else {
                 raw.path.as_str()
             };
-            let header = format!(
-                "diff --git {} {}",
-                quoted("a/", old_path),
-                quoted("b/", &raw.path)
+            let header = quote::diff_header(
+                &quote::quote_path(quote::OLD_PREFIX, old_path),
+                &quote::quote_path(quote::NEW_PREFIX, &raw.path),
             );
             let paired = source != "staged" || {
                 let original = originals.get(raw.path.as_str()).copied().flatten();
@@ -485,7 +422,7 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
     {
         record.old_size = size(&record.raw.old_oid);
         let new = if source == "unstaged" {
-            record.full.as_ref().and_then(working_size)
+            record.full.as_deref().and_then(working_size)
         } else {
             Some(size(&record.raw.new_oid))
         };
@@ -667,7 +604,7 @@ async fn images(repo: &Repo, source: &str, builder: &mut Builder<'_>) -> Result<
         entry.new_dimensions = if source == "unstaged" {
             record
                 .full
-                .as_ref()
+                .as_deref()
                 .and_then(working_bytes)
                 .and_then(|bytes| dimensions(&bytes))
         } else {

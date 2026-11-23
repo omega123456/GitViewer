@@ -10,15 +10,12 @@ import {
   hotkeysCoreFeature,
 } from '@headless-tree/core';
 import {
-  ChevronRight,
-  ChevronDown,
   ChevronsDownUp,
   ChevronsUpDown,
   Minus,
   Plus,
   Trash2,
 } from 'lucide-react';
-import { useVirtualizer } from '@tanstack/react-virtual';
 import { client, perform, queryKey } from '../../lib/query';
 import { invoke, normalizeError } from '../../lib/ipc';
 import { useErrors } from '../../stores/errors';
@@ -28,17 +25,20 @@ import { useCompact } from '../../stores/density';
 import type { Lines, Source, Status, TreeEntry } from '../../lib/types';
 import { LineCount } from '../shared/LineCount';
 import {
+  addedInk,
   clickable,
-  dynamic,
+  discardIcon,
   focus,
-  pill,
+  iconButton,
+  quietIcon,
   revealSlot,
   rowTint,
+  selectedRow,
 } from '../shared/styles';
+import { VirtualCanvas } from '../shared/VirtualCanvas';
 import { FileMenu } from '../shared/FileMenu';
 import { GroupHeader } from '../shared/Section';
 import { State } from '../states/State';
-import { FileIcon } from './FileIcon';
 import { StatusBadge } from './StatusBadge';
 import {
   changeNodes,
@@ -52,13 +52,16 @@ import {
 } from './nodes';
 import { openEntry, useRevealInTree } from './reveal';
 import { UNTRACKED } from '../../lib/git';
-import { treeRowHeight, TREE_OVERSCAN, treeIndent } from './geometry';
-const rowAction = 'size-6';
-const discardTint =
-  'text-muted hover:text-deleted dark:text-muted-dark dark:hover:text-deleted-dark';
+import { treeRowHeight } from './geometry';
+import {
+  rowLines,
+  treeRowButton,
+  treeRowHeightClass,
+  treeRowPosition,
+  TreeRowContent,
+  useTreeVirtualizer,
+} from './TreeRow';
 const slot = `${revealSlot} right-badge-slot`;
-const foldTint =
-  'text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark';
 export function ChangesTree({
   repo,
   status,
@@ -120,14 +123,11 @@ export function ChangesTree({
     tree.rebuildTree();
   }, [tree, status, filter]);
   useExpandNewDirectories(tree, nodes);
-  const parent = useRef<HTMLDivElement>(null);
   const items = tree.getItems();
-  const virtual = useVirtualizer({
-    count: items.length,
-    getScrollElement: () => parent.current,
-    estimateSize: () => treeRowHeight(compact),
-    overscan: TREE_OVERSCAN,
-  });
+  const { parent, virtual } = useTreeVirtualizer(
+    items.length,
+    treeRowHeight(compact),
+  );
   const hasDirectory = useMemo(
     () =>
       Object.keys(nodes).some((id) => id !== treeRoot && nodes[id].directory),
@@ -144,7 +144,7 @@ export function ChangesTree({
             <>
               <Button
                 variant="icon"
-                className={`${rowAction} ${foldTint}`}
+                className={`${iconButton} ${quietIcon}`}
                 aria-label={`Expand all ${title}`}
                 title={`Expand all ${title}`}
                 onClick={() => void tree.expandAll()}
@@ -153,7 +153,7 @@ export function ChangesTree({
               </Button>
               <Button
                 variant="icon"
-                className={`${rowAction} ${foldTint}`}
+                className={`${iconButton} ${quietIcon}`}
                 aria-label={`Collapse all ${title}`}
                 title={`Collapse all ${title}`}
                 onClick={() => tree.collapseAll()}
@@ -171,22 +171,17 @@ export function ChangesTree({
         aria-label={source === 'staged' ? 'Staged changes' : 'Changes'}
         className={`min-h-0 overflow-auto ${fill ? 'flex-1' : 'max-h-staged-cap'}`}
       >
-        <div
-          className="relative h-virtual"
-          style={dynamic({ '--virtual-height': `${virtual.getTotalSize()}px` })}
-        >
+        <VirtualCanvas height={virtual.getTotalSize()}>
           {virtual.getVirtualItems().map((row) => {
             const item = items[row.index];
             const node = item.getItemData();
             if (!node) return null;
+            const expanded = item.isExpanded();
             return (
               <div
                 key={item.getId()}
-                className={`group absolute top-0 right-1 left-1 flex translate-y-row items-center rounded ${rowTint} ${selection?.path === node.path && selection.source === source ? 'bg-selected dark:bg-selected-dark' : ''}`}
-                style={dynamic({
-                  '--row-offset': `${row.start}px`,
-                  '--tree-indent': treeIndent(item.getItemMeta().level),
-                })}
+                className={`group absolute top-0 right-1 left-1 flex translate-y-row items-center rounded ${rowTint} ${selection?.path === node.path && selection.source === source ? selectedRow : ''}`}
+                style={treeRowPosition(row.start, item.getItemMeta().level)}
               >
                 <FileMenu
                   repo={repo}
@@ -203,47 +198,40 @@ export function ChangesTree({
                           source: node.status === UNTRACKED ? 'file' : target,
                         });
                     }}
-                    className={`relative flex min-w-0 flex-1 items-center gap-1.5 pr-2 pl-indent text-left text-sm ${compact ? 'h-tree-compact' : 'h-tree-comfortable'} ${clickable} ${focus}`}
+                    className={`relative flex min-w-0 flex-1 items-center gap-1.5 pr-2 pl-indent text-left text-sm ${treeRowHeightClass(compact)} ${clickable} ${focus}`}
                   >
-                    {selection?.path === node.path &&
-                      selection.source === target && <span className={pill} />}
-                    {node.directory ? (
-                      item.isExpanded() ? (
-                        <ChevronDown className="size-3 shrink-0 text-muted dark:text-muted-dark" />
-                      ) : (
-                        <ChevronRight className="size-3 shrink-0 text-muted dark:text-muted-dark" />
-                      )
-                    ) : (
-                      <span className="size-3 shrink-0" />
-                    )}
-                    <FileIcon
+                    <TreeRowContent
                       name={node.name}
                       directory={node.directory}
-                      expanded={item.isExpanded()}
-                    />
-                    <span className="truncate">{node.name}</span>
-                    <span className="ml-auto flex shrink-0 items-center gap-1">
-                      <LineCount
-                        lines={
-                          node.directory
-                            ? item.isExpanded()
-                              ? undefined
-                              : folders[item.getId()]
-                            : lines?.[node.path]
-                        }
-                        className={`group-focus-within:invisible group-hover:invisible ${node.directory ? 'opacity-75' : ''}`}
-                      />
-                      <StatusBadge
-                        status={node.status}
-                        partial={node.directory && node.partial}
-                      />
-                    </span>
+                      expanded={expanded}
+                      selected={
+                        selection?.path === node.path &&
+                        selection.source === target
+                      }
+                    >
+                      <span className="ml-auto flex shrink-0 items-center gap-1">
+                        <LineCount
+                          lines={rowLines({
+                            id: item.getId(),
+                            node: node,
+                            expanded: expanded,
+                            folders: folders,
+                            lines: lines,
+                          })}
+                          className={`group-focus-within:invisible group-hover:invisible ${node.directory ? 'opacity-75' : ''}`}
+                        />
+                        <StatusBadge
+                          status={node.status}
+                          partial={node.directory && node.partial}
+                        />
+                      </span>
+                    </TreeRowContent>
                   </button>
                 </FileMenu>
                 <div className={slot}>
                   <Button
                     variant="icon"
-                    className={`${rowAction} ${discardTint}`}
+                    className={`${iconButton} ${discardIcon}`}
                     disabled={disabled}
                     aria-label={
                       node.directory
@@ -274,7 +262,7 @@ export function ChangesTree({
                   </Button>
                   <Button
                     variant="icon"
-                    className={`${rowAction} ${source === 'staged' ? 'text-modified dark:text-modified-dark' : 'text-added dark:text-added-dark'}`}
+                    className={`${iconButton} ${source === 'staged' ? 'text-modified dark:text-modified-dark' : addedInk}`}
                     disabled={disabled}
                     aria-label={`${source === 'staged' ? 'Unstage' : 'Stage'} ${node.path}`}
                     title={`${source === 'staged' ? 'Unstage' : 'Stage'} ${node.path}`}
@@ -296,7 +284,7 @@ export function ChangesTree({
               </div>
             );
           })}
-        </div>
+        </VirtualCanvas>
       </div>
     </>
   );
@@ -407,13 +395,10 @@ export function FilesTree({ repo, status }: { repo: string; status: Status }) {
         item.getItemName().toLowerCase().includes(filter.toLowerCase()) ||
         item.isFolder(),
     );
-  const parent = useRef<HTMLDivElement>(null);
-  const virtual = useVirtualizer({
-    count: items.length,
-    getScrollElement: () => parent.current,
-    estimateSize: () => treeRowHeight(compact),
-    overscan: TREE_OVERSCAN,
-  });
+  const { parent, virtual } = useTreeVirtualizer(
+    items.length,
+    treeRowHeight(compact),
+  );
   useRevealInTree({
     repo: repo,
     tree: 'files',
@@ -429,10 +414,7 @@ export function FilesTree({ repo, status }: { repo: string; status: Status }) {
       aria-label="All files"
       className="min-h-0 flex-1 overflow-auto"
     >
-      <div
-        className="relative h-virtual"
-        style={dynamic({ '--virtual-height': `${virtual.getTotalSize()}px` })}
-      >
+      <VirtualCanvas height={virtual.getTotalSize()}>
         {virtual.getVirtualItems().map((row) => {
           const item = items[row.index];
           const node = item.getItemData();
@@ -458,34 +440,22 @@ export function FilesTree({ repo, status }: { repo: string; status: Status }) {
                       ),
                     });
                 }}
-                className={`absolute top-0 right-1 left-1 flex translate-y-row items-center gap-1.5 rounded pr-2 pl-indent text-left text-sm hover:bg-hover dark:hover:bg-hover-dark ${compact ? 'h-tree-compact' : 'h-tree-comfortable'} ${node.ignored ? 'opacity-55' : ''} ${selection?.path === node.path ? 'bg-selected dark:bg-selected-dark' : ''} ${clickable} ${focus}`}
-                style={dynamic({
-                  '--row-offset': `${row.start}px`,
-                  '--tree-indent': treeIndent(item.getItemMeta().level),
-                })}
+                className={`${treeRowButton} ${treeRowHeightClass(compact)} ${node.ignored ? 'opacity-55' : ''} ${selection?.path === node.path ? selectedRow : ''} ${clickable} ${focus}`}
+                style={treeRowPosition(row.start, item.getItemMeta().level)}
               >
-                {selection?.path === node.path && <span className={pill} />}
-                {node.directory ? (
-                  item.isExpanded() ? (
-                    <ChevronDown className="size-3 shrink-0 text-muted dark:text-muted-dark" />
-                  ) : (
-                    <ChevronRight className="size-3 shrink-0 text-muted dark:text-muted-dark" />
-                  )
-                ) : (
-                  <span className="size-3 shrink-0" />
-                )}
-                <FileIcon
+                <TreeRowContent
                   name={node.name}
                   directory={node.directory}
                   expanded={item.isExpanded()}
-                />
-                <span className="truncate">{node.name}</span>
-                <StatusBadge status={node.ignored ? '' : node.status} />
+                  selected={selection?.path === node.path}
+                >
+                  <StatusBadge status={node.ignored ? '' : node.status} />
+                </TreeRowContent>
               </button>
             </FileMenu>
           );
         })}
-      </div>
+      </VirtualCanvas>
       {items.length === 0 && <State title="No files" />}
     </div>
   );

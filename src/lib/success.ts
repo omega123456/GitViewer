@@ -1,5 +1,6 @@
 import { shortHash } from './git';
 import { folderName } from './paths';
+import { plural, pluralWord, truncateList, type ListLayout } from './text';
 import type { Applied, Pruned, Stash, Status } from './types';
 export interface Before {
   status?: Status;
@@ -17,10 +18,11 @@ export interface Success {
   unapply?: { target: string; base: string; tree: string };
   show?: string;
 }
-const LISTED_NAMES = 5;
-function plural(count: number, noun: string) {
-  return `${count} ${noun}${count === 1 ? '' : 's'}`;
-}
+const NAME_LIST: ListLayout = {
+  limit: 5,
+  separator: ', ',
+  overflowSeparator: ' ',
+};
 function synced(
   action: string,
   commits: number | null,
@@ -63,19 +65,17 @@ function synced(
       };
 }
 export function listNames(names: string[]) {
-  const shown = names.slice(0, LISTED_NAMES).join(', ');
-  const hidden = names.length - LISTED_NAMES;
-  return hidden > 0 ? `${shown} and ${hidden} more` : shown;
+  return truncateList(names, NAME_LIST);
 }
 export function localBranches(count: number) {
-  return `${count} local branch${count === 1 ? '' : 'es'}`;
+  return plural(count, 'local branch', 'local branches');
 }
 function pruned(
   { deleted, kept }: Pruned,
   status: Status | undefined,
 ): Success {
   const key = 'branch_prune';
-  const reason = `Kept ${listNames(kept)}: ${kept.length === 1 ? 'it has' : 'they have'} commits that are not in ${status?.branch ?? 'the current branch'}.`;
+  const reason = `Kept ${listNames(kept)}: ${pluralWord(kept.length, 'it has', 'they have')} commits that are not in ${status?.branch ?? 'the current branch'}.`;
   if (!deleted.length)
     return {
       key: key,

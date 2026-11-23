@@ -1,10 +1,15 @@
 pub mod detect;
 
 use crate::error::{Error, Result};
-use std::{collections::HashSet, path::Path, process::Stdio};
+use std::{
+    collections::HashSet,
+    path::Path,
+    process::{ExitStatus, Stdio},
+};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    process::Command,
+    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
+    process::{Child, ChildStderr, ChildStdin, ChildStdout, Command},
+    task::JoinHandle,
 };
 
 pub const NUL: char = '\0';
@@ -21,6 +26,12 @@ pub const EMPTY_FORMAT: &str = "--format=";
 pub const EXIT_SUCCESS: i32 = 0;
 pub const EXIT_DIFFERENT: i32 = 1;
 pub const EXIT_FATAL: i32 = 128;
+pub const SUCCESS_OR_DIFFERENT: [i32; 2] = [EXIT_SUCCESS, EXIT_DIFFERENT];
+pub const PINNED_DIFF_FLAGS: [&str; 3] = ["--no-ext-diff", "--no-textconv", "--no-color"];
+pub const DIFF_PREFIXES: [&str; 2] = ["--src-prefix=a/", "--dst-prefix=b/"];
+const PATHSPEC_FROM_STDIN: [&str; 2] = ["--pathspec-from-file=-", "--pathspec-file-nul"];
+const LOCAL_BRANCHES: &str = "refs/heads/";
+const REMOTE_BRANCHES: &str = "refs/remotes/";
 const EXIT_USAGE: i32 = 129;
 const PROGRESS_CHUNK_BYTES: usize = 4096;
 const EXIT_UNKNOWN: i32 = -1;
@@ -43,6 +54,43 @@ pub fn commit_of(revision: &str) -> String {
 pub fn object_at(revision: &str, path: &str) -> String {
     format!("{revision}:{path}")
 }
+pub fn index_object(path: &str) -> String {
+    object_at("", path)
+}
+pub fn local_branch(name: &str) -> String {
+    format!("{LOCAL_BRANCHES}{name}")
+}
+pub fn remote_branch(name: &str) -> String {
+    format!("{REMOTE_BRANCHES}{name}")
+}
+pub fn range(from: &str, to: &str) -> String {
+    format!("{from}..{to}")
+}
+pub fn symmetric_range(from: &str, to: &str) -> String {
+    format!("{from}...{to}")
+}
+
+pub struct RemoteBranch<'name> {
+    pub remote: &'name str,
+    pub branch: &'name str,
+}
+pub fn split_remote(name: &str) -> Option<RemoteBranch<'_>> {
+    let (remote, branch) = name.split_once(REMOTE_SEPARATOR)?;
+    Some(RemoteBranch { remote, branch })
+}
+pub fn without_remote(name: &str) -> &str {
+    split_remote(name).map_or(name, |remote| remote.branch)
+}
+
+pub fn nul_terminated<'path>(paths: impl IntoIterator<Item = &'path str>) -> Vec<u8> {
+    paths
+        .into_iter()
+        .flat_map(|path| path.bytes().chain([NUL_BYTE]))
+        .collect()
+}
+pub fn nul_fields(text: &str) -> impl Iterator<Item = &str> {
+    text.split(NUL).filter(|field| !field.is_empty())
+}
 
 #[derive(Debug)]
 pub struct Output {
@@ -51,6 +99,16 @@ pub struct Output {
     pub stderr: String,
 }
 impl Output {
+    fn new(status: ExitStatus, bytes: Vec<u8>, stderr: &[u8]) -> Self {
+        Self {
+            code: status.code().unwrap_or(EXIT_UNKNOWN),
+            bytes,
+            stderr: String::from_utf8_lossy(stderr).into_owned(),
+        }
+    }
+    pub fn succeeded(&self) -> bool {
+        self.code == EXIT_SUCCESS
+    }
     pub fn text(&self) -> String {
         String::from_utf8_lossy(&self.bytes).into_owned()
     }
@@ -82,31 +140,58 @@ pub async fn run_binary(
 ) -> Result<Output> {
     execute(command(binary, root, arguments), input).await
 }
-async fn execute(mut command: Command, input: Option<&[u8]>) -> Result<Output> {
+pub struct Piped {
+    pub child: Child,
+    pub stdin: ChildStdin,
+    pub stdout: ChildStdout,
+    pub stderr: ChildStderr,
+}
+fn pipe<Stream>(stream: Option<Stream>, name: &str) -> Result<Stream> {
+    stream.ok_or_else(|| Error::unexpected(format!("Git {name} unavailable")))
+}
+pub fn spawn_piped(command: &mut Command) -> Result<Piped> {
     let mut child = command
         .spawn()
         .map_err(|error| Error::new("missing_git", error.to_string()))?;
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or(Error::new("unexpected", "Git stdin unavailable"))?;
+    Ok(Piped {
+        stdin: pipe(child.stdin.take(), "stdin")?,
+        stdout: pipe(child.stdout.take(), "stdout")?,
+        stderr: pipe(child.stderr.take(), "stderr")?,
+        child,
+    })
+}
+pub fn collect<Stream: AsyncRead + Unpin + Send + 'static>(
+    mut stream: Stream,
+) -> JoinHandle<std::io::Result<Vec<u8>>> {
+    tokio::spawn(async move {
+        let mut bytes = Vec::new();
+        stream.read_to_end(&mut bytes).await.map(|_| bytes)
+    })
+}
+pub fn feed(mut stdin: ChildStdin, input: Vec<u8>) -> JoinHandle<std::io::Result<()>> {
+    tokio::spawn(async move { stdin.write_all(&input).await })
+}
+pub async fn finish<Value>(task: JoinHandle<std::io::Result<Value>>) -> Result<Value> {
+    Ok(task.await.map_err(Error::from)??)
+}
+async fn execute(mut command: Command, input: Option<&[u8]>) -> Result<Output> {
+    let piped = spawn_piped(&mut command)?;
     let data = input.map(Vec::from).unwrap_or_default();
-    let writer = tokio::spawn(async move { stdin.write_all(&data).await });
-    let output = child.wait_with_output().await?;
+    let writer = feed(piped.stdin, data);
+    let stdout = collect(piped.stdout);
+    let stderr = collect(piped.stderr);
+    let mut child = piped.child;
+    let status = child.wait().await?;
+    let output = Output::new(status, finish(stdout).await?, &finish(stderr).await?);
     let write_result = writer.await.map_err(Error::from)?;
-    let code = output.status.code().unwrap_or(EXIT_UNKNOWN);
-    if code == EXIT_SUCCESS {
+    if output.succeeded() {
         write_result?;
     }
-    if code == EXIT_USAGE {
+    if output.code == EXIT_USAGE {
         let arguments: Vec<_> = command.as_std().get_args().collect();
         tracing::error!(args = ?arguments, "Git rejected application arguments");
     }
-    Ok(Output {
-        code,
-        bytes: output.stdout,
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    })
+    Ok(output)
 }
 fn report<F: Fn(&str)>(progress: &F, segment: &[u8]) {
     let text = String::from_utf8_lossy(segment);
@@ -116,22 +201,11 @@ fn report<F: Fn(&str)>(progress: &F, segment: &[u8]) {
     }
 }
 pub async fn stream<F: Fn(&str)>(root: &Path, arguments: &[&str], progress: F) -> Result<Output> {
-    let mut child = command("git", root, arguments)
-        .spawn()
-        .map_err(|error| Error::new("missing_git", error.to_string()))?;
-    drop(child.stdin.take());
-    let mut stdout = child
-        .stdout
-        .take()
-        .ok_or(Error::new("unexpected", "Git stdout unavailable"))?;
-    let mut stderr = child
-        .stderr
-        .take()
-        .ok_or(Error::new("unexpected", "Git stderr unavailable"))?;
-    let collector = tokio::spawn(async move {
-        let mut bytes = Vec::new();
-        stdout.read_to_end(&mut bytes).await.map(|_| bytes)
-    });
+    let piped = spawn_piped(&mut command("git", root, arguments))?;
+    drop(piped.stdin);
+    let collector = collect(piped.stdout);
+    let mut stderr = piped.stderr;
+    let mut child = piped.child;
     let mut raw: Vec<u8> = Vec::new();
     let mut reported = 0;
     let mut chunk = [0u8; PROGRESS_CHUNK_BYTES];
@@ -151,11 +225,7 @@ pub async fn stream<F: Fn(&str)>(root: &Path, arguments: &[&str], progress: F) -
     }
     report(&progress, &raw[reported..]);
     let status = child.wait().await?;
-    Ok(Output {
-        code: status.code().unwrap_or(EXIT_UNKNOWN),
-        bytes: collector.await.map_err(Error::from)??,
-        stderr: String::from_utf8_lossy(&raw).into_owned(),
-    })
+    Ok(Output::new(status, finish(collector).await?, &raw))
 }
 pub async fn text(root: &Path, arguments: &[&str]) -> Result<String> {
     Ok(run(root, arguments, None)
@@ -163,22 +233,86 @@ pub async fn text(root: &Path, arguments: &[&str]) -> Result<String> {
         .accept(&[EXIT_SUCCESS])?
         .text())
 }
+pub async fn nul_list(root: &Path, arguments: &[&str]) -> Result<Vec<String>> {
+    Ok(nul_fields(&text(root, arguments).await?)
+        .map(String::from)
+        .collect())
+}
+pub async fn succeeded(root: &Path, arguments: &[&str]) -> Result<bool> {
+    Ok(run(root, arguments, None)
+        .await?
+        .accept(&SUCCESS_OR_DIFFERENT)?
+        .succeeded())
+}
+pub async fn is_ancestor(root: &Path, earlier: &str, later: &str) -> Result<bool> {
+    succeeded(root, &["merge-base", "--is-ancestor", earlier, later]).await
+}
+pub async fn ref_exists(root: &Path, reference: &str) -> Result<bool> {
+    Ok(
+        run(root, &["rev-parse", "--verify", "--quiet", reference], None)
+            .await?
+            .succeeded(),
+    )
+}
+pub async fn merge_conflicts(root: &Path, ours: &str, theirs: &str) -> Result<Option<String>> {
+    let merged = run(
+        root,
+        &["merge-tree", "--write-tree", "--name-only", ours, theirs],
+        None,
+    )
+    .await?
+    .accept(&SUCCESS_OR_DIFFERENT)?;
+    if merged.succeeded() {
+        return Ok(None);
+    }
+    Ok(Some(merged.text()))
+}
+pub async fn run_with_pathspec<'path>(
+    root: &Path,
+    arguments: &[&str],
+    paths: impl IntoIterator<Item = &'path str>,
+) -> Result<Output> {
+    let mut command = arguments.to_vec();
+    command.extend(PATHSPEC_FROM_STDIN);
+    run(root, &command, Some(&nul_terminated(paths)))
+        .await?
+        .accept(&[EXIT_SUCCESS])
+}
+pub async fn apply_checked(root: &Path, arguments: &[&str], patch: &[u8]) -> Result<Output> {
+    let mut check = arguments.to_vec();
+    check.push("--check");
+    let checked = run(root, &check, Some(patch)).await?;
+    if !checked.succeeded() {
+        return Ok(checked);
+    }
+    run(root, arguments, Some(patch))
+        .await?
+        .accept(&[EXIT_SUCCESS])
+}
+pub async fn untracked_in_stash(root: &Path, stash: &str, listing: &[&str]) -> Result<Vec<String>> {
+    let tree = stash_untracked(stash);
+    let mut arguments = vec!["ls-tree", "-r", "-z"];
+    arguments.extend_from_slice(listing);
+    arguments.push(&tree);
+    let output = run(root, &arguments, None).await?;
+    if !output.succeeded() {
+        return Ok(Vec::new());
+    }
+    Ok(nul_fields(&output.text()).map(String::from).collect())
+}
 pub async fn ignored<'a>(
     root: &Path,
     paths: impl IntoIterator<Item = &'a str>,
 ) -> Result<HashSet<String>> {
-    let input: Vec<u8> = paths
-        .into_iter()
-        .flat_map(|path| path.bytes().chain([0]))
-        .collect();
-    Ok(run(root, &["check-ignore", "--stdin", "-z"], Some(&input))
-        .await?
-        .accept(&[0, 1])?
-        .text()
-        .split(NUL)
-        .filter(|path| !path.is_empty())
-        .map(String::from)
-        .collect())
+    let input = nul_terminated(paths);
+    Ok(nul_fields(
+        &run(root, &["check-ignore", "--stdin", "-z"], Some(&input))
+            .await?
+            .accept(&SUCCESS_OR_DIFFERENT)?
+            .text(),
+    )
+    .map(String::from)
+    .collect())
 }
 
 pub fn command(binary: &str, root: &Path, arguments: &[&str]) -> Command {

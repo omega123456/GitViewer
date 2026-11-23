@@ -1,12 +1,13 @@
 use crate::{
     diff,
     error::{Error, Result},
+    media::{is_image, mime},
     repo::Registry,
 };
 use tauri::Manager;
 
 fn content_kind(path: &str) -> &'static str {
-    if diff::is_image(path) {
+    if is_image(path) {
         return "Image";
     }
     "File"
@@ -51,24 +52,4 @@ pub async fn serve<R: tauri::Runtime>(
     )
     .await?;
     Ok((bytes, mime(path)))
-}
-
-pub fn mime(path: &str) -> &'static str {
-    match path
-        .rsplit('.')
-        .next()
-        .unwrap_or_default()
-        .to_lowercase()
-        .as_str()
-    {
-        "svg" => "image/svg+xml",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "bmp" => "image/bmp",
-        "ico" => "image/x-icon",
-        "avif" => "image/avif",
-        "png" => "image/png",
-        _ => "text/plain; charset=utf-8",
-    }
 }

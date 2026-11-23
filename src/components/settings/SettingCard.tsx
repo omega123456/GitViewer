@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { mutedLabel } from '../shared/styles';
 export const card =
   'rounded-card border border-card-stroke bg-card dark:border-card-stroke-dark dark:bg-card-dark';
 export function SettingGroup({
@@ -35,9 +36,7 @@ export function SettingCard({
       <span className="flex size-4 shrink-0">{icon}</span>
       <span className="grid min-w-45 flex-1 text-sm">
         {title}
-        <small className="text-label text-muted dark:text-muted-dark">
-          {description}
-        </small>
+        <small className={mutedLabel}>{description}</small>
       </span>
       {children && (
         <span className="flex shrink-0 items-center gap-2">{children}</span>

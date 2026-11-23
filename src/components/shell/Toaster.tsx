@@ -48,6 +48,44 @@ function Glyph({ tone, children }: { tone: Tone; children: ReactNode }) {
     </span>
   );
 }
+function NoticeCard({
+  tone,
+  glyph,
+  heading,
+  text,
+  dismissLabel,
+  onDismiss,
+  children,
+}: {
+  tone: Tone;
+  glyph: ReactNode;
+  heading: string;
+  text?: string;
+  dismissLabel: string;
+  onDismiss: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <div className={`${card} ${tones[tone].card}`}>
+      <Glyph tone={tone}>{glyph}</Glyph>
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex flex-col gap-0.5">
+          <p className={title}>{heading}</p>
+          {text !== undefined && <p className={description}>{text}</p>}
+        </div>
+        {children}
+      </div>
+      <Button
+        variant="icon"
+        aria-label={dismissLabel}
+        className={closer}
+        onClick={onDismiss}
+      >
+        <X className="size-3" />
+      </Button>
+    </div>
+  );
+}
 const none: Failure[] = [];
 const quiet: Notice[] = [];
 function recovery(scope: string, failure: Failure, kind: Recovery) {
@@ -84,43 +122,33 @@ function FailureCard({
   const described = describe(failure.error);
   const action = recovery(scope, failure, described.recovery);
   return (
-    <div className={`${card} ${tones.critical.card}`}>
-      <Glyph tone="critical">!</Glyph>
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <div className="flex flex-col gap-0.5">
-          <p className={title}>{failure.title ?? described.title}</p>
-          <p className={description}>
-            {[failure.lead, described.summary].filter(Boolean).join(' ')}
-          </p>
-        </div>
-        <Details
-          message={failure.error.message}
-          onToggle={remeasure}
-          actions={
-            action && (
-              <Button
-                variant="standard"
-                onClick={() => {
-                  dismiss();
-                  action.run();
-                }}
-              >
-                {action.again && <RotateCw className="size-3" />}
-                {action.label}
-              </Button>
-            )
-          }
-        />
-      </div>
-      <Button
-        variant="icon"
-        aria-label="Dismiss error"
-        className={closer}
-        onClick={dismiss}
-      >
-        <X className="size-3" />
-      </Button>
-    </div>
+    <NoticeCard
+      tone="critical"
+      glyph="!"
+      heading={failure.title ?? described.title}
+      text={[failure.lead, described.summary].filter(Boolean).join(' ')}
+      dismissLabel="Dismiss error"
+      onDismiss={dismiss}
+    >
+      <Details
+        message={failure.error.message}
+        onToggle={remeasure}
+        actions={
+          action && (
+            <Button
+              variant="standard"
+              onClick={() => {
+                dismiss();
+                action.run();
+              }}
+            >
+              {action.again && <RotateCw className="size-3" />}
+              {action.label}
+            </Button>
+          )
+        }
+      />
+    </NoticeCard>
   );
 }
 function SuccessCard({ scope, initial }: { scope: string; initial: Notice }) {
@@ -139,9 +167,10 @@ function SuccessCard({ scope, initial }: { scope: string; initial: Notice }) {
         ? () => showWorktree(show)
         : null;
   return (
-    <div className={`${card} ${tones[tone].card}`}>
-      <Glyph tone={tone}>
-        {pending ? (
+    <NoticeCard
+      tone={tone}
+      glyph={
+        pending ? (
           <Spinner className="size-2.5" />
         ) : warning ? (
           '!'
@@ -149,48 +178,37 @@ function SuccessCard({ scope, initial }: { scope: string; initial: Notice }) {
           'i'
         ) : (
           <Check className="size-2.5" strokeWidth={3} />
-        )}
-      </Glyph>
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <div className="flex flex-col gap-0.5">
-          <p className={title}>{notice.title}</p>
-          {notice.description && (
-            <p className={description}>{notice.description}</p>
-          )}
+        )
+      }
+      heading={notice.title}
+      text={notice.description || undefined}
+      dismissLabel="Dismiss"
+      onDismiss={dismiss}
+    >
+      {action && (
+        <div className="flex">
+          <Button
+            variant="standard"
+            onClick={() => {
+              dismiss();
+              void action();
+            }}
+          >
+            {show ? (
+              <>
+                <FolderGit2 className="size-3" />
+                Show main
+              </>
+            ) : (
+              <>
+                <Undo2 className="size-3" />
+                Undo
+              </>
+            )}
+          </Button>
         </div>
-        {action && (
-          <div className="flex">
-            <Button
-              variant="standard"
-              onClick={() => {
-                dismiss();
-                void action();
-              }}
-            >
-              {show ? (
-                <>
-                  <FolderGit2 className="size-3" />
-                  Show main
-                </>
-              ) : (
-                <>
-                  <Undo2 className="size-3" />
-                  Undo
-                </>
-              )}
-            </Button>
-          </div>
-        )}
-      </div>
-      <Button
-        variant="icon"
-        aria-label="Dismiss"
-        className={closer}
-        onClick={dismiss}
-      >
-        <X className="size-3" />
-      </Button>
-    </div>
+      )}
+    </NoticeCard>
   );
 }
 export function Toaster() {

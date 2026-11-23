@@ -25,6 +25,7 @@ import { SwipeCompare } from './SwipeCompare';
 import { ZoomControls } from './ZoomControls';
 import { imageUrl } from './url';
 import { scopeKey } from '../../lib/git';
+import { stepIndex } from '../../lib/list';
 const FALLBACK_IMAGE_WIDTH = 600;
 const MINIMUM_ZOOM_WIDTH = 100;
 const ZOOM_STEP = 100;
@@ -62,7 +63,7 @@ export function ImageDiff({
       key: 'Mod+Alt+i',
       run: () =>
         update(view, {
-          mode: order[(order.indexOf(mode) + 1) % order.length],
+          mode: order[stepIndex(order.indexOf(mode), 1, order.length)],
         }),
     },
     {

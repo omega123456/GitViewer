@@ -2,27 +2,16 @@ import { memo, useMemo } from 'react';
 import { perform, useBackend } from '../../lib/query';
 import { revertFiles } from '../../lib/revert';
 import { Button } from '../shared/Button';
-import {
-  CheckCircle2,
-  Layers,
-  Minus,
-  Plus,
-  SearchX,
-  Trash2,
-} from 'lucide-react';
+import { CheckCircle2, Minus, Plus, SearchX, Trash2 } from 'lucide-react';
 import type { Entry, Status } from '../../lib/types';
 import { useDeferredFilter } from '../../stores/filter';
-import { useSelection } from '../../stores/selection';
 import { useSidebarMode } from '../../stores/layout';
 import { sumLines } from '../shared/LineCount';
 import { State } from '../states/State';
 import { ChangesTree } from './FileTree';
 import { groupEntries, inSection } from './nodes';
-const iconButton = 'size-6';
-const viewTint =
-  'text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark';
-const discardTint =
-  'text-muted hover:text-deleted dark:text-muted-dark dark:hover:text-deleted-dark';
+import { addedInk, discardIcon, iconButton } from '../shared/styles';
+import { ViewAllButton } from '../shared/ViewAllButton';
 export const ChangesSection = memo(function ChangesSection({
   repo,
   status,
@@ -97,17 +86,12 @@ export const ChangesSection = memo(function ChangesSection({
               total={totals.staged}
               actions={
                 <>
-                  <Button
-                    variant="icon"
-                    className={`${iconButton} ${viewTint}`}
-                    aria-label="All staged changes"
-                    title="All staged changes"
-                    onClick={() =>
-                      useSelection.getState().viewAll(repo, 'staged')
-                    }
-                  >
-                    <Layers className="size-4" />
-                  </Button>
+                  <ViewAllButton
+                    repo={repo}
+                    stack="staged"
+                    label="All staged changes"
+                    look="group"
+                  />
                   <Button
                     variant="icon"
                     className={`${iconButton} ml-2 text-modified dark:text-modified-dark`}
@@ -126,7 +110,7 @@ export const ChangesSection = memo(function ChangesSection({
                   </Button>
                   <Button
                     variant="icon"
-                    className={`${iconButton} ${discardTint}`}
+                    className={`${iconButton} ${discardIcon}`}
                     disabled={disabled}
                     aria-label="Discard all staged changes"
                     title="Discard all staged changes"
@@ -151,20 +135,15 @@ export const ChangesSection = memo(function ChangesSection({
               total={totals.unstaged}
               actions={
                 <>
+                  <ViewAllButton
+                    repo={repo}
+                    stack="unstaged"
+                    label="All changes"
+                    look="group"
+                  />
                   <Button
                     variant="icon"
-                    className={`${iconButton} ${viewTint}`}
-                    aria-label="All changes"
-                    title="All changes"
-                    onClick={() =>
-                      useSelection.getState().viewAll(repo, 'unstaged')
-                    }
-                  >
-                    <Layers className="size-4" />
-                  </Button>
-                  <Button
-                    variant="icon"
-                    className={`${iconButton} ml-2 text-added dark:text-added-dark`}
+                    className={`${iconButton} ml-2 ${addedInk}`}
                     disabled={disabled}
                     aria-label="Stage all"
                     title="Stage all"
@@ -180,7 +159,7 @@ export const ChangesSection = memo(function ChangesSection({
                   </Button>
                   <Button
                     variant="icon"
-                    className={`${iconButton} ${discardTint}`}
+                    className={`${iconButton} ${discardIcon}`}
                     disabled={disabled}
                     aria-label="Discard all changes"
                     title="Discard all changes"

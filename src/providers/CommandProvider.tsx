@@ -13,7 +13,7 @@ import { runShortcut } from '../lib/keyboard';
 import { useBackend } from '../lib/query';
 import { closeRepository, openRepository } from '../lib/repository';
 import { usePalette } from '../stores/palette';
-import { activeView, useTabs } from '../stores/tabs';
+import { activeView, tabById, useTabs } from '../stores/tabs';
 export function CommandProvider({ children }: { children: ReactNode }) {
   const environment = useBackend('env', {});
   const supported = environment.data?.supported ?? false;
@@ -66,7 +66,7 @@ export function CommandProvider({ children }: { children: ReactNode }) {
       key: 'Mod+Shift+w',
       disabled: !active,
       run: () => {
-        const tab = useTabs.getState().tabs.find((tab) => tab.id === active);
+        const tab = tabById(active);
         if (tab) return closeRepository(tab);
       },
     },

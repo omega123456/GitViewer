@@ -1,6 +1,8 @@
-import { confirm, message } from '@tauri-apps/plugin-dialog';
+import { message } from '@tauri-apps/plugin-dialog';
+import { confirmAction } from './dialog';
 import { perform } from './query';
 import type { MergePreview } from './types';
+import { plural, truncateList, type ListLayout } from './text';
 
 export interface MergeFraming {
   title: string;
@@ -9,19 +11,18 @@ export interface MergeFraming {
 
 const branchMergeFraming: MergeFraming = { title: 'Merge branch', lead: '' };
 
-const LISTED_CONFLICTS = 3;
-function listPaths(conflicts: string[]) {
-  const shown = conflicts.slice(0, LISTED_CONFLICTS).join('\n');
-  const hidden = conflicts.length - LISTED_CONFLICTS;
-  return hidden > 0 ? `${shown}\nand ${hidden} more` : shown;
-}
+const CONFLICT_LIST: ListLayout = {
+  limit: 3,
+  separator: '\n',
+  overflowSeparator: '\n',
+};
 
 function question(preview: MergePreview, name: string, current: string) {
   const { changed, conflicts } = preview;
   if (preview.outcome !== 'conflict')
-    return `Merge ${name} into ${current}? GitViewer checked the result: ${changed} ${changed === 1 ? 'file changes' : 'files change'} and nothing conflicts. This will ${preview.outcome === 'fastForward' ? `fast-forward ${current}.` : `create a merge commit on ${current}.`}`;
+    return `Merge ${name} into ${current}? GitViewer checked the result: ${plural(changed, 'file changes', 'files change')} and nothing conflicts. This will ${preview.outcome === 'fastForward' ? `fast-forward ${current}.` : `create a merge commit on ${current}.`}`;
   const clean = Math.max(changed - conflicts.length, 0);
-  return `Merge ${name} into ${current}? ${clean} ${clean === 1 ? 'file merges' : 'files merge'} cleanly, ${conflicts.length} will conflict:\n\n${listPaths(conflicts)}\n\nGitViewer will stage the clean files and leave the conflicting ones marked in your working tree. You can abort the merge afterwards.`;
+  return `Merge ${name} into ${current}? ${plural(clean, 'file merges', 'files merge')} cleanly, ${conflicts.length} will conflict:\n\n${truncateList(conflicts, CONFLICT_LIST)}\n\nGitViewer will stage the clean files and leave the conflicting ones marked in your working tree. You can abort the merge afterwards.`;
 }
 
 function framedQuestion(
@@ -51,11 +52,10 @@ export async function mergeBranch(
   }
   const conflicting = preview.outcome === 'conflict';
   if (
-    await confirm(framedQuestion(framing, preview, name, current), {
+    await confirmAction(framedQuestion(framing, preview, name, current), {
       title: framing.title,
       kind: conflicting ? 'warning' : 'info',
       okLabel: conflicting ? 'Merge anyway' : 'Merge',
-      cancelLabel: 'Cancel',
     })
   )
     await perform('branch_merge', { repo, name });

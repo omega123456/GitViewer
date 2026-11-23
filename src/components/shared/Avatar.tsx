@@ -1,13 +1,4 @@
-const palette = [
-  'bg-lane-1',
-  'bg-lane-2',
-  'bg-lane-3',
-  'bg-lane-4',
-  'bg-lane-5',
-  'bg-lane-6',
-  'bg-lane-7',
-  'bg-lane-8',
-];
+import { laneColours } from './lanes';
 export function initials(author: string) {
   const words = author.trim().split(/\s+/).filter(Boolean);
   return (words[0]?.[0] ?? '?')
@@ -22,7 +13,7 @@ export function Avatar({ author, small }: { author: string; small?: boolean }) {
   return (
     <span
       aria-hidden="true"
-      className={`flex shrink-0 items-center justify-center rounded-full font-sans font-semibold text-white ${palette[seed % palette.length]} ${small ? 'size-4' : 'size-5'} text-badge`}
+      className={`flex shrink-0 items-center justify-center rounded-full font-sans font-semibold text-white ${laneColours[seed % laneColours.length].background} ${small ? 'size-4' : 'size-5'} text-badge`}
     >
       {initials(author)}
     </span>

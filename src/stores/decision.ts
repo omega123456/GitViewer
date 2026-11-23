@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { without, withEntry } from '../lib/record';
 export type DecisionSlot = 'branch' | 'stash';
 export interface Decision {
   slot: DecisionSlot;
@@ -18,9 +19,7 @@ export function answer(repo: string, approved: boolean) {
   const current = useDecision.getState().pending[repo];
   if (!current) return;
   useDecision.setState((state) => ({
-    pending: Object.fromEntries(
-      Object.entries(state.pending).filter(([key]) => key !== repo),
-    ),
+    pending: without(state.pending, repo),
   }));
   current.settle(approved);
 }
@@ -28,7 +27,7 @@ export function ask(repo: string, decision: Decision) {
   answer(repo, false);
   return new Promise<boolean>((settle) =>
     useDecision.setState((state) => ({
-      pending: { ...state.pending, [repo]: { ...decision, settle } },
+      pending: withEntry(state.pending, repo, { ...decision, settle }),
     })),
   );
 }

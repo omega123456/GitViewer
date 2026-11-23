@@ -1,7 +1,7 @@
 use crate::{
     error::{Error, Result},
     git,
-    settings::DEFAULT_PROMPT,
+    settings::{Ai, DEFAULT_PROMPT},
 };
 use async_openai::{config::OpenAIConfig, error::OpenAIError, Client};
 use reqwest::StatusCode;
@@ -21,13 +21,6 @@ const LAST_REASONING_TIER: usize = 3;
 const THINK_OPEN: [&str; 3] = ["<think>", "<thinking>", "<reasoning>"];
 const THINK_CLOSE: [&str; 3] = ["</think>", "</thinking>", "</reasoning>"];
 static REASONING_TIER: AtomicUsize = AtomicUsize::new(0);
-const PINNED: [&str; 5] = [
-    "--no-ext-diff",
-    "--no-textconv",
-    "--no-color",
-    "--src-prefix=a/",
-    "--dst-prefix=b/",
-];
 const NOISE: [&str; 8] = [
     ".lock",
     "lock.yaml",
@@ -126,6 +119,9 @@ impl Endpoint {
             timeout: TIMEOUT,
         }
     }
+    pub fn configured(ai: &Ai) -> Result<Self> {
+        Ok(Self::new(&ai.base_url, &key()?.unwrap_or_default()))
+    }
 }
 
 #[cfg(feature = "test-utils")]
@@ -196,7 +192,8 @@ async fn patch(root: &Path, staged: bool) -> Result<String> {
     } else {
         vec!["diff-files", "-p"]
     };
-    arguments.extend(PINNED);
+    arguments.extend(git::PINNED_DIFF_FLAGS);
+    arguments.extend(git::DIFF_PREFIXES);
     git::text(root, &arguments).await
 }
 

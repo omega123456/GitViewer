@@ -1,6 +1,6 @@
 use crate::{
     error::{Error, Result},
-    git,
+    fs, git,
     repo::Repo,
     stash,
     status::Entry,
@@ -46,11 +46,7 @@ fn parse(main: bool, record: &str) -> Worktree {
             "worktree" => {
                 let path = canonical(value);
                 worktree.missing = !path.exists();
-                worktree.name = path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned();
+                worktree.name = fs::file_name_of(&path);
                 worktree.id = path.to_string_lossy().into_owned();
             }
             "HEAD" => worktree.oid = value.into(),
@@ -115,19 +111,8 @@ fn free(path: &Path) -> bool {
     std::fs::read_dir(path).map_or(!path.exists(), |mut entries| entries.next().is_none())
 }
 async fn remote(root: &Path, name: &str) -> Result<bool> {
-    let verify = |prefix: &str| {
-        let full = format!("{prefix}{name}");
-        async move {
-            git::run(root, &["rev-parse", "--verify", "--quiet", &full], None)
-                .await
-                .map(|output| output.code == git::EXIT_SUCCESS)
-        }
-    };
-    Ok(!verify("refs/heads/").await? && verify("refs/remotes/").await?)
-}
-fn local(name: &str) -> &str {
-    name.split_once(git::REMOTE_SEPARATOR)
-        .map_or(name, |(_, rest)| rest)
+    let local = git::ref_exists(root, &git::local_branch(name)).await?;
+    Ok(!local && git::ref_exists(root, &git::remote_branch(name)).await?)
 }
 async fn label(repo: &Repo, mode: &str, name: &str) -> Result<String> {
     if name.is_empty() {
@@ -143,7 +128,7 @@ async fn label(repo: &Repo, mode: &str, name: &str) -> Result<String> {
         );
     }
     let branch = if mode == "existing" && remote(&repo.root, name).await? {
-        local(name)
+        git::without_remote(name)
     } else {
         name
     };
@@ -158,13 +143,7 @@ pub async fn target(repo: &Repo, mode: &str, name: &str, path: &str) -> Result<T
             label,
         });
     }
-    let stem = format!(
-        "{}-{label}",
-        repo.project
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-    );
+    let stem = format!("{}-{label}", fs::file_name_of(&repo.project));
     let parent = repo.project.parent().unwrap_or(&repo.project);
     let path = (1..)
         .map(|number| match number {
@@ -188,7 +167,7 @@ pub async fn add(repo: &Repo, path: &str, mode: &str, branch: &str, base: &str) 
         "detached" => arguments.extend(["--detach", path, reference(base)?]),
         "new" => arguments.extend(["-b", reference(branch)?, path, reference(base)?]),
         _ if remote(&repo.root, reference(branch)?).await? => {
-            arguments.extend(["--track", "-b", local(branch), path, branch])
+            arguments.extend(["--track", "-b", git::without_remote(branch), path, branch])
         }
         _ => arguments.extend([path, branch]),
     }
@@ -209,7 +188,11 @@ pub async fn summary(source: &Repo, target: &str) -> Result<Summary> {
     Ok(Summary {
         ahead: count(
             &source.root,
-            &["rev-list", "--count", &format!("{}..HEAD", object(target)?)],
+            &[
+                "rev-list",
+                "--count",
+                &git::range(object(target)?, git::HEAD),
+            ],
         )
         .await?,
         orphans: if detached {
@@ -290,7 +273,7 @@ async fn patch(root: &Path, base: &str, tree: &str) -> Result<Vec<u8>> {
     .bytes)
 }
 async fn changed(root: &Path, base: &str, tree: &str) -> Result<HashSet<String>> {
-    Ok(git::text(
+    Ok(git::nul_list(
         root,
         &[
             "diff-tree",
@@ -303,52 +286,42 @@ async fn changed(root: &Path, base: &str, tree: &str) -> Result<HashSet<String>>
         ],
     )
     .await?
-    .split(git::NUL)
-    .filter(|path| !path.is_empty())
-    .map(String::from)
+    .into_iter()
     .collect())
 }
-async fn patched(root: &Path, flags: &[&str], patch: &[u8]) -> Result<git::Output> {
+fn apply_arguments<'flag>(flags: &[&'flag str]) -> Vec<&'flag str> {
     let mut arguments = vec!["apply", "--binary", "--whitespace=nowarn"];
     arguments.extend_from_slice(flags);
-    git::run(root, &arguments, Some(patch)).await
+    arguments
+}
+async fn patched(root: &Path, flags: &[&str], patch: &[u8]) -> Result<git::Output> {
+    git::run(root, &apply_arguments(flags), Some(patch)).await
+}
+async fn patched_cleanly(root: &Path, flags: &[&str], patch: &[u8]) -> Result<bool> {
+    Ok(git::apply_checked(root, &apply_arguments(flags), patch)
+        .await?
+        .succeeded())
 }
 async fn unstage(target: &Repo, paths: &HashSet<String>) -> Result<()> {
-    let list: Vec<u8> = paths
-        .iter()
-        .flat_map(|path| path.bytes().chain([0]))
-        .collect();
-    git::run(
+    git::run_with_pathspec(
         &target.root,
-        &[
-            "restore",
-            "--staged",
-            "--pathspec-from-file=-",
-            "--pathspec-file-nul",
-        ],
-        Some(&list),
+        &["restore", "--staged"],
+        paths.iter().map(String::as_str),
     )
-    .await?
-    .accept(&[git::EXIT_SUCCESS])?;
+    .await?;
     Ok(())
 }
 async fn merged(target: &Repo, patch: &[u8], temporary: &str) -> Result<()> {
-    if patched(&target.root, &["--index", "--check"], patch)
-        .await?
-        .code
-        == git::EXIT_SUCCESS
-    {
-        patched(&target.root, &["--index"], patch)
-            .await?
-            .accept(&[git::EXIT_SUCCESS])?;
-    } else if patched(&target.root, &["--3way"], patch).await?.code != git::EXIT_SUCCESS {
+    let applied = patched_cleanly(&target.root, &["--index"], patch).await?
+        || patched(&target.root, &["--3way"], patch).await?.succeeded();
+    if !applied {
         return Err(Error::refused("The worktree's changes conflict with main."));
     }
     for flags in [&["--index"][..], &[]] {
         let mut arguments = vec!["stash", "apply"];
         arguments.extend_from_slice(flags);
         arguments.push(temporary);
-        if git::run(&target.root, &arguments, None).await?.code == git::EXIT_SUCCESS {
+        if git::run(&target.root, &arguments, None).await?.succeeded() {
             return Ok(());
         }
         if target.refresh().await?.conflicted {
@@ -378,13 +351,10 @@ async fn stashed(target: &Repo, patch: &[u8], paths: &HashSet<String>) -> Result
     stash::restore(target, &temporary)
         .await
         .map_err(|failure| {
-            Error::new(
-                "unexpected",
-                format!(
-                    "Changes remain recoverable in stash {temporary}. {}",
-                    failure.message
-                ),
-            )
+            Error::unexpected(format!(
+                "Changes remain recoverable in stash {temporary}. {}",
+                failure.message
+            ))
         })?;
     stash::remove(target, &temporary).await?;
     Err(Error::refused(format!(
@@ -428,15 +398,12 @@ pub async fn apply(source: &Repo, target: &Repo, smart: bool) -> Result<Applied>
         stashed(target, &patch, &paths).await?;
         return Ok(applied);
     }
-    if patched(&target.root, &["--check"], &patch).await?.code == git::EXIT_SUCCESS {
-        patched(&target.root, &[], &patch)
-            .await?
-            .accept(&[git::EXIT_SUCCESS])?;
+    if patched_cleanly(&target.root, &[], &patch).await? {
         return Ok(applied);
     }
     let output = patched(&target.root, &["--3way"], &patch)
         .await?
-        .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?;
+        .accept(&git::SUCCESS_OR_DIFFERENT)?;
     applied.conflicts = target
         .refresh()
         .await?
@@ -445,7 +412,7 @@ pub async fn apply(source: &Repo, target: &Repo, smart: bool) -> Result<Applied>
         .filter(|entry| matches!(entry, Entry::Unmerged { .. }))
         .count();
     if applied.conflicts == 0 {
-        if output.code != git::EXIT_SUCCESS {
+        if !output.succeeded() {
             return Err(Error::git(output.message()));
         }
         unstage(target, &paths).await?;
@@ -455,17 +422,10 @@ pub async fn apply(source: &Repo, target: &Repo, smart: bool) -> Result<Applied>
 pub async fn unapply(target: &Repo, base: &str, tree: &str) -> Result<()> {
     target.writable().await?;
     let patch = patch(&target.root, base, tree).await?;
-    if patched(&target.root, &["-R", "--check"], &patch)
-        .await?
-        .code
-        != 0
-    {
+    if !patched_cleanly(&target.root, &["-R"], &patch).await? {
         return Err(Error::refused(
             "Main changed since the apply. Undo it by hand.",
         ));
     }
-    patched(&target.root, &["-R"], &patch)
-        .await?
-        .accept(&[git::EXIT_SUCCESS])?;
     Ok(())
 }

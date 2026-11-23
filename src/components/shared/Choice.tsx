@@ -1,9 +1,9 @@
 import { RadioGroup } from 'radix-ui';
 import { chooseOption } from '../../lib/options';
-import { clickable, focus } from './styles';
+import { choiceTrack, clickable, focus } from './styles';
 const looks = {
   segmented: {
-    root: 'inline-flex gap-0.5 rounded-card border border-control-stroke bg-control p-0.5 dark:border-control-stroke-dark dark:bg-control-dark',
+    root: choiceTrack,
     item: 'h-6.5 rounded px-3 hover:bg-hover aria-checked:bg-accent aria-checked:text-on-accent dark:hover:bg-hover-dark dark:aria-checked:bg-accent-dark dark:aria-checked:text-on-accent-dark',
   },
   radio: {

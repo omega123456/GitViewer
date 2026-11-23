@@ -4,7 +4,7 @@ use gitviewer_lib::{
     git::{self, detect},
     graph::{lanes, Commit},
     lock::lock_recovering,
-    settings, status,
+    media, settings, status,
 };
 
 #[test]
@@ -162,8 +162,8 @@ fn diffs_preserve_ranges_words_modes_and_newlines() {
             .unwrap()
             .binary
     );
-    assert!(diff::is_image("example.PNG"));
-    assert!(!diff::is_image("example.rs"));
+    assert!(media::is_image("example.PNG"));
+    assert!(!media::is_image("example.rs"));
     let h = diff::parse("@@ -0,0 +1 @@\n+hello\n", "x", "staged").unwrap();
     assert_eq!(h.hunks[0].new_count, 1);
 }

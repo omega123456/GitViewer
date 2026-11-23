@@ -2,6 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { markedTokens } from '../../lib/highlight';
 import type { DiffLine } from '../../lib/types';
 import type { Row } from './rows';
+import { stepIndex } from '../../lib/list';
 export interface Hit {
   index: number;
   start: number;
@@ -164,8 +165,7 @@ export function useFind(
       if (!latestHits.length) return;
       reveal.current = false;
       const currentIndex = Math.min(current, latestHits.length - 1);
-      const next =
-        (currentIndex + direction + latestHits.length) % latestHits.length;
+      const next = stepIndex(currentIndex, direction, latestHits.length);
       setCurrent(next);
       scroll(latestHits[next].index);
     },

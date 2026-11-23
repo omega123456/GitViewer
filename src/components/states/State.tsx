@@ -1,5 +1,6 @@
 import type { ComponentType, ReactNode } from 'react';
 import { FolderGit2 } from 'lucide-react';
+import { addedInk, removedInk } from '../shared/styles';
 export function State({
   title,
   icon: Icon = FolderGit2,
@@ -16,8 +17,8 @@ export function State({
   const tones = {
     muted: 'text-muted',
     accent: 'text-accent',
-    added: 'text-added dark:text-added-dark',
-    deleted: 'text-deleted dark:text-deleted-dark',
+    added: addedInk,
+    deleted: removedInk,
     error: 'text-error-ink dark:text-error-ink-dark',
   };
   const error = tone === 'error';

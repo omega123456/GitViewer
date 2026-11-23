@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { perform } from '../lib/query';
 import { useErrors } from './errors';
+import { repoStateUpdater } from './repo-state';
 import { type CommitMode, useTabs } from './tabs';
 export type CommitPhase = 'idle' | 'committing' | 'pushing';
 export interface CommitState {
@@ -18,14 +19,6 @@ interface CommitStore {
   ask: (repo: string, mode: CommitMode) => void;
   dismiss: (repo: string) => void;
   run: (repo: string, request: CommitRequest) => Promise<void>;
-}
-function update(repo: string, patch: Partial<CommitState>) {
-  useCommit.setState((state) => ({
-    repos: {
-      ...state.repos,
-      [repo]: { ...(state.repos[repo] ?? idle), ...patch },
-    },
-  }));
 }
 export const useCommit = create<CommitStore>(() => ({
   repos: {},
@@ -63,6 +56,7 @@ export const useCommit = create<CommitStore>(() => ({
     update(repo, { phase: 'idle' });
   },
 }));
+const update = repoStateUpdater(useCommit, idle);
 export function useCommitState(repo: string) {
   return useCommit((state) => state.repos[repo]) ?? idle;
 }

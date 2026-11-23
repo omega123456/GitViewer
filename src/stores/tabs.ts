@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { withEntry, withoutAll } from '../lib/record';
 export type CommitMode = 'commit' | 'commitPush';
 export interface Tab {
   id: string;
@@ -33,11 +34,6 @@ function joined(tabs: Tab[], id: string, name: string, member: string) {
 function touched(recent: string[], id: string) {
   return [id, ...recent.filter((entry) => entry !== id)];
 }
-function without<T>(record: Record<string, T>, keys: string[]) {
-  return Object.fromEntries(
-    Object.entries(record).filter(([key]) => !keys.includes(key)),
-  );
-}
 export const useTabs = create<Tabs>((set) => ({
   tabs: [],
   active: '',
@@ -71,7 +67,7 @@ export const useTabs = create<Tabs>((set) => ({
               : members[0];
         return { ...tab, members, view };
       }),
-      messages: without(state.messages, [member]),
+      messages: withoutAll(state.messages, [member]),
     })),
   close: (id) =>
     set((state) => {
@@ -83,16 +79,16 @@ export const useTabs = create<Tabs>((set) => ({
           state.active === id
             ? (state.tabs.find((tab) => tab.id !== id)?.id ?? '')
             : state.active,
-        messages: without(state.messages, members),
-        modes: without(state.modes, members),
+        messages: withoutAll(state.messages, members),
+        modes: withoutAll(state.modes, members),
       };
     }),
   activate: (active) =>
     set((state) => ({ active: active, recent: touched(state.recent, active) })),
   setMessage: (id, message) =>
-    set((state) => ({ messages: { ...state.messages, [id]: message } })),
+    set((state) => ({ messages: withEntry(state.messages, id, message) })),
   setCommitMode: (id, commitMode) =>
-    set((state) => ({ modes: { ...state.modes, [id]: commitMode } })),
+    set((state) => ({ modes: withEntry(state.modes, id, commitMode) })),
 }));
 export function useMessage(id: string) {
   return useTabs((state) => state.messages[id] ?? '');
@@ -106,8 +102,27 @@ export function tabMessage(id: string) {
 export function useCommitMode(id: string) {
   return useTabs((state) => state.modes[id] ?? 'commit');
 }
-function viewOf(state: Pick<Tabs, 'tabs' | 'active'>) {
-  return state.tabs.find((tab) => tab.id === state.active)?.view ?? '';
+type TabSelection = Pick<Tabs, 'tabs' | 'active'>;
+function activeTabOf(state: TabSelection) {
+  return state.tabs.find((tab) => tab.id === state.active);
+}
+export function activeTab() {
+  return activeTabOf(useTabs.getState());
+}
+export function useActiveTab() {
+  return useTabs(activeTabOf);
+}
+export function tabById(id: string) {
+  return useTabs.getState().tabs.find((tab) => tab.id === id);
+}
+function projectIn(tabs: Tab[], repo: string) {
+  return tabs.find((tab) => tab.members.includes(repo));
+}
+export function projectOf(repo: string) {
+  return projectIn(useTabs.getState().tabs, repo);
+}
+function viewOf(state: TabSelection) {
+  return activeTabOf(state)?.view ?? '';
 }
 export function activeView() {
   return viewOf(useTabs.getState());
@@ -116,9 +131,7 @@ export function useActiveView() {
   return useTabs(viewOf);
 }
 export function useProject(repo: string) {
-  return useTabs((state) =>
-    state.tabs.find((tab) => tab.members.includes(repo)),
-  );
+  return useTabs((state) => projectIn(state.tabs, repo));
 }
 export function recentTabs({ tabs, recent, active }: Tabs) {
   const rank = (tab: Tab) =>

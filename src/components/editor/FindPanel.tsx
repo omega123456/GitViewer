@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowDown, ArrowUp, X } from 'lucide-react';
 import {
   closeSearchPanel,
   findNext,
@@ -19,12 +18,13 @@ import {
 } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { platform } from '@tauri-apps/plugin-os';
-import { matches as pressed, shortcutLabel } from '../../lib/keyboard';
+import { matches as pressed } from '../../lib/keyboard';
+import { plural } from '../../lib/text';
 import { Button } from '../shared/Button';
 import { TextInput } from '../shared/TextInput';
 import { field } from '../shared/styles';
 import { findHost, finding, openFind } from './setup';
-import { FIND_NEXT_SHORTCUT, FIND_PREVIOUS_SHORTCUT } from '../diff/find';
+import { FindControls } from '../diff/FindControls';
 const replaceShortcut = () => (platform() === 'macos' ? 'Ctrl+h' : 'Mod+h');
 interface Match {
   from: number;
@@ -44,6 +44,11 @@ function nearest(query: SearchQuery, state: EditorState) {
   if (!after.done) return after.value;
   const first = query.getCursor(state).next();
   return first.done ? undefined : first.value;
+}
+function matchStatus(count: number, current: number) {
+  if (!count) return 'No results';
+  if (current >= 0) return `${current + 1} of ${count}`;
+  return plural(count, 'result');
 }
 export function FindPanel({
   view,
@@ -109,63 +114,20 @@ function Panel({ view, state }: { view: EditorView; state: EditorState }) {
   return (
     <div role="search" className="flex flex-col gap-1.5 px-2 py-1">
       <div className="flex h-7 items-center gap-2">
-        <div className="w-64 shrink-0">
-          <TextInput
-            ref={searchField}
-            aria-label="Find in file"
-            placeholder="Find in file"
-            className={`${field} h-7 text-sm`}
-            value={query.search}
-            onChange={(event) => update(event.target.value, query.replace)}
-            onKeyDown={(event) =>
-              keys(event, () =>
-                (event.shiftKey ? findPrevious : findNext)(view),
-              )
-            }
-          />
-        </div>
-        <span
-          role="status"
-          className="min-w-16 shrink-0 text-label text-muted tabular-nums dark:text-muted-dark"
-        >
-          {query.search &&
-            (!matches.length
-              ? 'No results'
-              : current >= 0
-                ? `${current + 1} of ${matches.length}`
-                : `${matches.length} ${matches.length === 1 ? 'result' : 'results'}`)}
-        </span>
-        <div className="flex items-center gap-1 text-muted dark:text-muted-dark">
-          <Button
-            variant="icon"
-            className="size-control"
-            title={`Previous match (${shortcutLabel(FIND_PREVIOUS_SHORTCUT)})`}
-            aria-label="Previous match"
-            disabled={!matches.length}
-            onClick={() => findPrevious(view)}
-          >
-            <ArrowUp className="size-4" />
-          </Button>
-          <Button
-            variant="icon"
-            className="size-control"
-            title={`Next match (${shortcutLabel(FIND_NEXT_SHORTCUT)})`}
-            aria-label="Next match"
-            disabled={!matches.length}
-            onClick={() => findNext(view)}
-          >
-            <ArrowDown className="size-4" />
-          </Button>
-        </div>
-        <Button
-          variant="icon"
-          className="ml-auto size-control text-muted dark:text-muted-dark"
-          title="Close find"
-          aria-label="Close find"
-          onClick={close}
-        >
-          <X className="size-4" />
-        </Button>
+        <FindControls
+          inputRef={searchField}
+          query={query.search}
+          status={query.search && matchStatus(matches.length, current)}
+          hasMatches={matches.length > 0}
+          tint="text-muted dark:text-muted-dark"
+          onSearch={(search) => update(search, query.replace)}
+          onKeyDown={(event) =>
+            keys(event, () => (event.shiftKey ? findPrevious : findNext)(view))
+          }
+          onPrevious={() => findPrevious(view)}
+          onNext={() => findNext(view)}
+          onClose={close}
+        />
       </div>
       {replace && (
         <div className="flex h-7 items-center gap-2">

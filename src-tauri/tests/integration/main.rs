@@ -2,6 +2,7 @@ mod core;
 mod workflows;
 
 mod edit;
+mod helpers;
 mod ipc;
 mod lines;
 

@@ -1,18 +1,12 @@
 use crate::{
     diff::resolve,
     error::{Error, Result},
-    git,
+    fs, git,
     repo::Repo,
     status::Entry,
 };
 use std::collections::{HashMap, HashSet};
 
-fn pathspec<'a>(paths: impl IntoIterator<Item = &'a String>) -> Vec<u8> {
-    paths
-        .into_iter()
-        .flat_map(|path| path.bytes().chain([0]))
-        .collect()
-}
 pub async fn files(repo: &Repo, paths: &[String], action: &str) -> Result<()> {
     let status = repo.writable().await?;
     if paths.is_empty() {
@@ -41,39 +35,19 @@ pub async fn files(repo: &Repo, paths: &[String], action: &str) -> Result<()> {
             }
         }
     }
-    let input = pathspec(&selected);
+    let input = || selected.iter().map(String::as_str);
     match action {
         "stage" => {
-            git::run(
-                &repo.root,
-                &["add", "--pathspec-from-file=-", "--pathspec-file-nul"],
-                Some(&input),
-            )
-            .await?
-            .accept(&[git::EXIT_SUCCESS])?;
+            git::run_with_pathspec(&repo.root, &["add"], input()).await?;
         }
         "unstage" => {
             let unborn = status.oid == "(initial)";
             let arguments = if unborn {
-                vec![
-                    "rm",
-                    "--cached",
-                    "--force",
-                    "--ignore-unmatch",
-                    "--pathspec-from-file=-",
-                    "--pathspec-file-nul",
-                ]
+                vec!["rm", "--cached", "--force", "--ignore-unmatch"]
             } else {
-                vec![
-                    "restore",
-                    "--staged",
-                    "--pathspec-from-file=-",
-                    "--pathspec-file-nul",
-                ]
+                vec!["restore", "--staged"]
             };
-            git::run(&repo.root, &arguments, Some(&input))
-                .await?
-                .accept(&[git::EXIT_SUCCESS])?;
+            git::run_with_pathspec(&repo.root, &arguments, input()).await?;
         }
         "revert" => {
             let index = |path: &str| entries.get(path).map(|entry| entry.index());
@@ -81,20 +55,12 @@ pub async fn files(repo: &Repo, paths: &[String], action: &str) -> Result<()> {
                 .iter()
                 .partition(|path| matches!(index(path), Some(git::UNTRACKED | "A")));
             if !tracked.is_empty() {
-                git::run(
+                git::run_with_pathspec(
                     &repo.root,
-                    &[
-                        "restore",
-                        "--source=HEAD",
-                        "--staged",
-                        "--worktree",
-                        "--pathspec-from-file=-",
-                        "--pathspec-file-nul",
-                    ],
-                    Some(&pathspec(tracked)),
+                    &["restore", "--source=HEAD", "--staged", "--worktree"],
+                    tracked.iter().map(|path| path.as_str()),
                 )
-                .await?
-                .accept(&[git::EXIT_SUCCESS])?;
+                .await?;
             }
             let indexed: Vec<&String> = added
                 .iter()
@@ -102,26 +68,15 @@ pub async fn files(repo: &Repo, paths: &[String], action: &str) -> Result<()> {
                 .filter(|path| index(path) == Some("A"))
                 .collect();
             if !indexed.is_empty() {
-                git::run(
+                git::run_with_pathspec(
                     &repo.root,
-                    &[
-                        "rm",
-                        "--cached",
-                        "--force",
-                        "--pathspec-from-file=-",
-                        "--pathspec-file-nul",
-                    ],
-                    Some(&pathspec(indexed)),
+                    &["rm", "--cached", "--force"],
+                    indexed.iter().map(|path| path.as_str()),
                 )
-                .await?
-                .accept(&[git::EXIT_SUCCESS])?;
+                .await?;
             }
             for path in added {
-                match std::fs::remove_file(checked.resolve(path)?) {
-                    Ok(()) => {}
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(error) => return Err(error.into()),
-                }
+                fs::remove_if_present(&checked.resolve(path)?)?;
             }
         }
         "discard" => {
@@ -134,18 +89,7 @@ pub async fn files(repo: &Repo, paths: &[String], action: &str) -> Result<()> {
                     "Untracked files cannot be recovered by Git; discard them in your file manager",
                 ));
             }
-            git::run(
-                &repo.root,
-                &[
-                    "restore",
-                    "--worktree",
-                    "--pathspec-from-file=-",
-                    "--pathspec-file-nul",
-                ],
-                Some(&input),
-            )
-            .await?
-            .accept(&[git::EXIT_SUCCESS])?;
+            git::run_with_pathspec(&repo.root, &["restore", "--worktree"], input()).await?;
         }
         _ => return Err(Error::refused("Unknown file action")),
     }
@@ -156,10 +100,8 @@ pub async fn commit(repo: &Repo, message: &str) -> Result<String> {
     if message.trim().is_empty() {
         return Err(Error::refused("Write a commit message first"));
     }
-    let staged = git::run(&repo.root, &["diff", "--cached", "--quiet"], None)
-        .await?
-        .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?;
-    if staged.code == git::EXIT_SUCCESS {
+    let nothing_staged = git::succeeded(&repo.root, &["diff", "--cached", "--quiet"]).await?;
+    if nothing_staged {
         return Err(Error::refused("Nothing is staged"));
     }
     git::run(

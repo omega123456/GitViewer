@@ -1,43 +1,22 @@
-import { useEffect } from 'react';
-import { ArrowDown, ArrowUp, Search, X } from 'lucide-react';
-import { shortcutLabel, type Action } from '../../lib/keyboard';
-import { Button } from '../shared/Button';
-import { TextInput } from '../shared/TextInput';
-import { field } from '../shared/styles';
-import {
-  FIND_NEXT_SHORTCUT,
-  FIND_PREVIOUS_SHORTCUT,
-  FIND_SHORTCUT,
-  type Find,
-} from './find';
+import { useEffect, type KeyboardEvent } from 'react';
+import type { Action } from '../../lib/keyboard';
+import type { Find } from './find';
+import { findActionSet, FindControls } from './FindControls';
+const NEXT = 1;
+const PREVIOUS = -1;
 export function findActions(find: Find, unavailable: boolean): Action[] {
-  const stepless = unavailable || !find.open || !find.count;
-  return [
-    {
-      id: 'find',
-      icon: <Search className="size-3.5" />,
-      label: 'Find in file',
-      key: FIND_SHORTCUT,
-      run: find.reveal,
-      disabled: unavailable,
-    },
-    {
-      id: 'find-next',
-      icon: <ArrowDown className="size-3.5" />,
-      label: 'Next match',
-      key: FIND_NEXT_SHORTCUT,
-      run: () => find.step(1),
-      disabled: stepless,
-    },
-    {
-      id: 'find-previous',
-      icon: <ArrowUp className="size-3.5" />,
-      label: 'Previous match',
-      key: FIND_PREVIOUS_SHORTCUT,
-      run: () => find.step(-1),
-      disabled: stepless,
-    },
-  ];
+  const actions = findActionSet({
+    reveal: find.reveal,
+    next: () => find.step(NEXT),
+    previous: () => find.step(PREVIOUS),
+    revealDisabled: unavailable,
+    stepDisabled: unavailable || !find.open || !find.count,
+  });
+  return [actions.find, actions.next, actions.previous];
+}
+function findStatus(find: Find) {
+  if (!find.count) return 'No results';
+  return `${find.selected + 1} of ${find.count}`;
 }
 export function FindBar({
   find,
@@ -55,68 +34,34 @@ export function FindBar({
     find.close();
     onClose();
   };
+  const keys = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      find.step(event.shiftKey ? PREVIOUS : NEXT);
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      close();
+    }
+  };
   return (
     <div
       role="search"
       className="flex h-9 shrink-0 items-center gap-2 border-b border-line bg-sub px-2 dark:border-line-dark dark:bg-sub-dark"
     >
-      <div className="w-64 shrink-0">
-        <TextInput
-          ref={input}
-          aria-label="Find in file"
-          placeholder="Find in file"
-          className={`${field} h-7 text-sm`}
-          value={find.query}
-          onChange={(event) => find.search(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              find.step(event.shiftKey ? -1 : 1);
-            } else if (event.key === 'Escape') {
-              event.preventDefault();
-              close();
-            }
-          }}
-        />
-      </div>
-      <span
-        role="status"
-        className="min-w-16 shrink-0 text-label text-muted tabular-nums dark:text-muted-dark"
-      >
-        {find.query &&
-          (find.count ? `${find.selected + 1} of ${find.count}` : 'No results')}
-      </span>
-      <div className="flex items-center gap-1 text-muted">
-        <Button
-          variant="icon"
-          className="size-control"
-          title={`Previous match (${shortcutLabel(FIND_PREVIOUS_SHORTCUT)})`}
-          aria-label="Previous match"
-          disabled={!find.count}
-          onClick={() => find.step(-1)}
-        >
-          <ArrowUp className="size-4" />
-        </Button>
-        <Button
-          variant="icon"
-          className="size-control"
-          title={`Next match (${shortcutLabel(FIND_NEXT_SHORTCUT)})`}
-          aria-label="Next match"
-          disabled={!find.count}
-          onClick={() => find.step(1)}
-        >
-          <ArrowDown className="size-4" />
-        </Button>
-      </div>
-      <Button
-        variant="icon"
-        className="ml-auto size-control text-muted"
-        title="Close find"
-        aria-label="Close find"
-        onClick={close}
-      >
-        <X className="size-4" />
-      </Button>
+      <FindControls
+        inputRef={input}
+        query={find.query}
+        status={find.query && findStatus(find)}
+        hasMatches={Boolean(find.count)}
+        tint="text-muted"
+        onSearch={find.search}
+        onKeyDown={keys}
+        onPrevious={() => find.step(PREVIOUS)}
+        onNext={() => find.step(NEXT)}
+        onClose={close}
+      />
     </div>
   );
 }

@@ -2,7 +2,15 @@ import type { ReactNode } from 'react';
 import { Select as RadixSelect } from 'radix-ui';
 import { ChevronDown } from 'lucide-react';
 import { chooseOption } from '../../lib/options';
-import { clickable, focus, flyout, pill, selectItem, standard } from './styles';
+import {
+  clickable,
+  focus,
+  flyout,
+  pill,
+  selectItem,
+  standard,
+  selectedRow,
+} from './styles';
 export function Select<T extends string>({
   value,
   options = [],
@@ -74,7 +82,7 @@ export function Select<T extends string>({
                   <RadixSelect.Item
                     key={option}
                     value={option}
-                    className={`${selectItem} ${mono ? 'font-mono text-diff' : ''} ${option === value ? 'bg-selected dark:bg-selected-dark' : ''}`}
+                    className={`${selectItem} ${mono ? 'font-mono text-diff' : ''} ${option === value ? selectedRow : ''}`}
                   >
                     {option === value && <span className={pill} />}
                     <span className="min-w-0 truncate">

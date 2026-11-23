@@ -3,13 +3,14 @@ import type { TreeInstance } from '@headless-tree/core';
 import type { Entry, Lines, Source, Status, TreeEntry } from '../../lib/types';
 import type { Group } from '../../stores/selection';
 import { UNTRACKED, UNMODIFIED } from '../../lib/git';
+import { addedInk, removedInk } from '../shared/styles';
 export const treeRoot = '\0';
 export function statusLetter(status: string) {
   return status === UNTRACKED ? 'U' : status;
 }
 export function statusClass(status: string) {
-  if (status === 'A') return 'text-added dark:text-added-dark';
-  if (status === 'D') return 'text-deleted dark:text-deleted-dark';
+  if (status === 'A') return addedInk;
+  if (status === 'D') return removedInk;
   if (status === 'C') return 'text-deleted opacity-50 dark:text-deleted-dark';
   if (status === 'M') return 'text-modified dark:text-modified-dark';
   return 'text-untracked dark:text-untracked-dark';

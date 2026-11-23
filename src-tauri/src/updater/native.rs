@@ -3,7 +3,6 @@ use crate::{
     error::{Error, Result},
     settings::{self, Settings},
 };
-use tauri::Manager;
 use tauri_plugin_updater::UpdaterExt;
 
 const CHECK_TIMEOUT_SECONDS: i64 = 30;
@@ -56,7 +55,7 @@ fn failure(error: tauri_plugin_updater::Error) -> Error {
 
 type Configuration = (Availability, Option<Box<dyn Backend>>, Settings);
 pub fn configure<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Configuration> {
-    let settings = settings::read(&app.path().app_config_dir()?.join("settings.json"));
+    let settings = settings::read(&settings::settings_path(app)?);
     if cfg!(debug_assertions) {
         return Ok((Availability::Development, None, settings));
     }

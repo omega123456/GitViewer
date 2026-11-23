@@ -7,7 +7,7 @@ import {
 } from '../../stores/layout';
 import { Section } from '../shared/Section';
 import { dynamic } from '../shared/styles';
-import { percentBelow, ResizeHandle } from '../shell/ResizeHandle';
+import { SectionResizeHandle } from '../shell/ResizeHandle';
 import { FilesTree } from './FileTree';
 export const FilesSection = memo(function FilesSection({
   repo,
@@ -21,15 +21,10 @@ export const FilesSection = memo(function FilesSection({
   return (
     <>
       {filesOpen && (
-        <ResizeHandle
+        <SectionResizeHandle
           label="Resize files section"
-          orientation="vertical"
-          min={sectionHeightBounds.min}
-          max={sectionHeightBounds.max}
-          step={sectionHeightBounds.step}
+          bounds={sectionHeightBounds}
           value={filesHeight}
-          className="h-1.5 shrink-0 cursor-row-resize border-y border-line hover:bg-accent focus-visible:bg-accent dark:border-line-dark"
-          measure={percentBelow}
           onChange={(next) =>
             useLayout.getState().update(repo, { filesHeight: next })
           }

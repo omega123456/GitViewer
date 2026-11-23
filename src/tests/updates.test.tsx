@@ -8,10 +8,8 @@ import {
 import userEvent from '@testing-library/user-event';
 import { expect, it } from 'vitest';
 import { QueryProvider } from '../providers/QueryProvider';
-import {
-  UpdatesSection,
-  updateStatus,
-} from '../components/settings/UpdatesSection';
+import { UpdatesSection } from '../components/settings/UpdatesSection';
+import { updateStatus } from '../lib/updates';
 import { UpdateBanner } from '../components/states/UpdateBanner';
 import { update, settings } from './fixtures';
 import { calls, emit, mockCommand } from './harness';

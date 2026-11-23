@@ -86,8 +86,8 @@ fn is_default(name: &str, remote: bool, remote_defaults: &[&str]) -> bool {
     }
     remote_defaults
         .iter()
-        .filter_map(|target| target.split_once(git::REMOTE_SEPARATOR))
-        .any(|(_, local)| local == name)
+        .filter_map(|target| git::split_remote(target))
+        .any(|target| target.branch == name)
 }
 pub async fn switch(repo: &Repo, name: &str) -> Result<()> {
     repo.writable().await?;
@@ -99,9 +99,9 @@ pub async fn switch(repo: &Repo, name: &str) -> Result<()> {
     let mut target = name;
     let mut arguments = vec!["checkout"];
     if branch.remote {
-        let (_, local) = name
-            .split_once(git::REMOTE_SEPARATOR)
-            .ok_or_else(|| Error::refused("Invalid remote branch"))?;
+        let local = git::split_remote(name)
+            .ok_or_else(|| Error::refused("Invalid remote branch"))?
+            .branch;
         if let Some(existing) = branches
             .iter()
             .find(|branch| !branch.remote && branch.name == local)
@@ -157,12 +157,14 @@ pub async fn delete(repo: &Repo, name: &str) -> Result<()> {
     Ok(())
 }
 async fn delete_remote(repo: &Repo, name: &str) -> Result<()> {
-    let (remote, branch) = name
-        .split_once(git::REMOTE_SEPARATOR)
-        .ok_or_else(|| Error::refused("Invalid remote branch"))?;
-    git::run(&repo.root, &["push", remote, "--delete", branch], None)
-        .await?
-        .accept(&[git::EXIT_SUCCESS])?;
+    let target = git::split_remote(name).ok_or_else(|| Error::refused("Invalid remote branch"))?;
+    git::run(
+        &repo.root,
+        &["push", target.remote, "--delete", target.branch],
+        None,
+    )
+    .await?
+    .accept(&[git::EXIT_SUCCESS])?;
     Ok(())
 }
 async fn local_remotes_only(repo: &Repo) -> Result<()> {
@@ -218,7 +220,7 @@ pub async fn prune(repo: &Repo, names: Vec<String>) -> Result<Pruned> {
         arguments.extend(chunk.iter().map(String::as_str));
         git::run(&repo.root, &arguments, None)
             .await?
-            .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?;
+            .accept(&git::SUCCESS_OR_DIFFERENT)?;
     }
     let remaining: Vec<String> = list(repo)
         .await?
@@ -239,7 +241,7 @@ async fn distance(repo: &Repo, from: Option<String>, to: Option<String>) -> Resu
     };
     let count = git::text(
         &repo.root,
-        &["rev-list", "--count", &format!("{from}..{to}")],
+        &["rev-list", "--count", &git::range(&from, &to)],
     )
     .await?;
     Ok(count.trim().parse().ok())
@@ -285,22 +287,8 @@ pub async fn sync<F: Fn(&str)>(repo: &Repo, action: &str, progress: F) -> Result
                 .as_deref()
                 .ok_or_else(|| Error::refused("No upstream configured"))?;
             let upstream = resolve(repo, upstream_name).await?;
-            let ancestor = git::run(
-                &repo.root,
-                &["merge-base", "--is-ancestor", git::HEAD, &upstream],
-                None,
-            )
-            .await?
-            .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?;
-            if ancestor.code == git::EXIT_DIFFERENT {
-                let ahead = git::run(
-                    &repo.root,
-                    &["merge-base", "--is-ancestor", &upstream, git::HEAD],
-                    None,
-                )
-                .await?
-                .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?;
-                if ahead.code == git::EXIT_SUCCESS {
+            if !git::is_ancestor(&repo.root, git::HEAD, &upstream).await? {
+                if git::is_ancestor(&repo.root, &upstream, git::HEAD).await? {
                     return Ok(Some(0));
                 }
                 return Err(Error::new(
@@ -320,7 +308,7 @@ pub async fn sync<F: Fn(&str)>(repo: &Repo, action: &str, progress: F) -> Result
 async fn push_remote(repo: &Repo) -> Result<String> {
     let configured = git::run(&repo.root, &["config", "--get", "remote.pushDefault"], None)
         .await?
-        .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?
+        .accept(&git::SUCCESS_OR_DIFFERENT)?
         .text();
     if !configured.trim().is_empty() {
         return Ok(configured.trim().into());
@@ -347,32 +335,16 @@ async fn mergeable(repo: &Repo, name: &str) -> Result<()> {
     if branch.current {
         return Err(Error::refused("Choose a different branch"));
     }
-    if git::run(&repo.root, &["merge-base", name, git::HEAD], None)
-        .await?
-        .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?
-        .code
-        == 1
-    {
+    if !git::succeeded(&repo.root, &["merge-base", name, git::HEAD]).await? {
         return Err(Error::refused(format!(
             "{name} shares no history with {current}"
         )));
     }
     Ok(())
 }
-async fn ancestor(repo: &Repo, earlier: &str, later: &str) -> Result<bool> {
-    Ok(git::run(
-        &repo.root,
-        &["merge-base", "--is-ancestor", earlier, later],
-        None,
-    )
-    .await?
-    .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?
-    .code
-        == 0)
-}
 pub async fn merge_preview(repo: &Repo, name: &str) -> Result<MergePreview> {
     mergeable(repo, name).await?;
-    if ancestor(repo, name, git::HEAD).await? {
+    if git::is_ancestor(&repo.root, name, git::HEAD).await? {
         return Ok(MergePreview {
             outcome: "upToDate".into(),
             changed: 0,
@@ -381,33 +353,29 @@ pub async fn merge_preview(repo: &Repo, name: &str) -> Result<MergePreview> {
     }
     let changed = git::text(
         &repo.root,
-        &["diff", "--name-only", &format!("HEAD...{name}")],
+        &[
+            "diff",
+            "--name-only",
+            &git::symmetric_range(git::HEAD, name),
+        ],
     )
     .await?
     .lines()
     .count();
-    if ancestor(repo, git::HEAD, name).await? {
+    if git::is_ancestor(&repo.root, git::HEAD, name).await? {
         return Ok(MergePreview {
             outcome: "fastForward".into(),
             changed,
             conflicts: Vec::new(),
         });
     }
-    let merged = git::run(
-        &repo.root,
-        &["merge-tree", "--write-tree", "--name-only", git::HEAD, name],
-        None,
-    )
-    .await?
-    .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?;
-    if merged.code == git::EXIT_SUCCESS {
+    let Some(text) = git::merge_conflicts(&repo.root, git::HEAD, name).await? else {
         return Ok(MergePreview {
             outcome: "commit".into(),
             changed,
             conflicts: Vec::new(),
         });
-    }
-    let text = merged.text();
+    };
     Ok(MergePreview {
         outcome: "conflict".into(),
         changed,
@@ -426,7 +394,7 @@ pub async fn merge(repo: &Repo, name: &str) -> Result<bool> {
     mergeable(repo, name).await?;
     let output = git::run(&repo.root, &["merge", "--no-edit", name], None)
         .await?
-        .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?;
+        .accept(&git::SUCCESS_OR_DIFFERENT)?;
     let conflicted = merging(repo).await?;
     if output.code == git::EXIT_DIFFERENT && !conflicted {
         return Err(Error::git(output.message()));
@@ -434,15 +402,7 @@ pub async fn merge(repo: &Repo, name: &str) -> Result<bool> {
     Ok(!conflicted)
 }
 async fn merging(repo: &Repo) -> Result<bool> {
-    Ok(git::run(
-        &repo.root,
-        &["rev-parse", "-q", "--verify", "MERGE_HEAD"],
-        None,
-    )
-    .await?
-    .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?
-    .code
-        == 0)
+    git::succeeded(&repo.root, &["rev-parse", "-q", "--verify", "MERGE_HEAD"]).await
 }
 pub async fn abort(repo: &Repo) -> Result<()> {
     if !merging(repo).await? {
@@ -454,14 +414,7 @@ pub async fn abort(repo: &Repo) -> Result<()> {
     Ok(())
 }
 async fn local_exists(repo: &Repo, name: &str) -> Result<bool> {
-    Ok(git::run(
-        &repo.root,
-        &["rev-parse", "--verify", &format!("refs/heads/{name}")],
-        None,
-    )
-    .await?
-    .code
-        == 0)
+    git::ref_exists(&repo.root, &git::local_branch(name)).await
 }
 pub async fn default_branch(repo: &Repo) -> Result<String> {
     let head = git::run(
@@ -470,11 +423,9 @@ pub async fn default_branch(repo: &Repo) -> Result<String> {
         None,
     )
     .await?;
-    if head.code == git::EXIT_SUCCESS {
+    if head.succeeded() {
         let remote = head.text().trim().to_owned();
-        let local = remote
-            .split_once(git::REMOTE_SEPARATOR)
-            .map_or(remote.as_str(), |(_, name)| name);
+        let local = git::without_remote(&remote);
         if local_exists(repo, local).await? {
             return Ok(local.into());
         }

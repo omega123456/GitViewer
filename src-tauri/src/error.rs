@@ -18,6 +18,12 @@ impl Error {
     pub fn refused(message: impl Into<String>) -> Self {
         Self::new("refused", message)
     }
+    pub fn unexpected(message: impl Into<String>) -> Self {
+        Self::new("unexpected", message)
+    }
+    fn unexpected_from(error: impl std::fmt::Display) -> Self {
+        Self::unexpected(error.to_string())
+    }
     pub fn git(message: String) -> Self {
         let lower = message.to_lowercase();
         let category = if [
@@ -49,35 +55,35 @@ impl Error {
 }
 impl From<std::io::Error> for Error {
     fn from(error: std::io::Error) -> Self {
-        Self::new("unexpected", error.to_string())
+        Self::unexpected_from(error)
     }
 }
 impl From<serde_json::Error> for Error {
     fn from(error: serde_json::Error) -> Self {
-        Self::new("unexpected", error.to_string())
+        Self::unexpected_from(error)
     }
 }
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl From<tauri::Error> for Error {
     fn from(error: tauri::Error) -> Self {
-        Self::new("unexpected", error.to_string())
+        Self::unexpected_from(error)
     }
 }
 impl From<notify::Error> for Error {
     fn from(error: notify::Error) -> Self {
-        Self::new("unexpected", error.to_string())
+        Self::unexpected_from(error)
     }
 }
 impl From<tokio::task::JoinError> for Error {
     fn from(error: tokio::task::JoinError) -> Self {
-        Self::new("unexpected", error.to_string())
+        Self::unexpected_from(error)
     }
 }
 
 impl From<tauri_plugin_opener::Error> for Error {
     fn from(error: tauri_plugin_opener::Error) -> Self {
-        Self::new("unexpected", error.to_string())
+        Self::unexpected_from(error)
     }
 }
 
@@ -119,7 +125,7 @@ impl From<keyring::Error> for Error {
     fn from(error: keyring::Error) -> Self {
         match error {
             keyring::Error::NoEntry => Self::refused("No API key is stored"),
-            _ => Self::new("unexpected", format!("Keychain access failed: {error}")),
+            _ => Self::unexpected(format!("Keychain access failed: {error}")),
         }
     }
 }

@@ -1,16 +1,12 @@
 import { useMemo, useRef } from 'react';
-import {
-  ArrowLeftRight,
-  CheckCircle2,
-  ChevronDown,
-  Layers,
-} from 'lucide-react';
+import { ArrowLeftRight, CheckCircle2, ChevronDown } from 'lucide-react';
 import { useActions } from '../../lib/actions';
 import { useBackend } from '../../lib/query';
 import type { Comparison, Status } from '../../lib/types';
 import { useLayout, useTabLayout, type TabLayout } from '../../stores/layout';
 import { useCurrentSelection, useSelection } from '../../stores/selection';
 import { Button } from '../shared/Button';
+import { ViewAllButton } from '../shared/ViewAllButton';
 import { CheckBox } from '../shared/CheckBox';
 import { TextInput } from '../shared/TextInput';
 import { field } from '../shared/styles';
@@ -192,15 +188,12 @@ export function CompareSection({
         <span className="ml-auto rounded-full bg-chrome px-1.5 font-mono dark:bg-chrome-dark">
           {data?.files.length ?? 0}
         </span>
-        <Button
-          variant="icon"
-          className="size-6"
-          aria-label="All changes between branches"
-          title="All changes between branches"
-          onClick={() => useSelection.getState().viewAll(repo, 'compare')}
-        >
-          <Layers className="size-4 text-muted dark:text-muted-dark" />
-        </Button>
+        <ViewAllButton
+          repo={repo}
+          stack="compare"
+          label="All changes between branches"
+          look="section"
+        />
       </h3>
       {same ? (
         <SameRefState />

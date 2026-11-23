@@ -56,6 +56,7 @@ import {
   rectangularSelection,
 } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
+import { fileName } from '../../lib/paths';
 export const themeSlot = new Compartment();
 export const languageSlot = new Compartment();
 export const baseSlot = new Compartment();
@@ -325,10 +326,7 @@ export const changes = StateField.define<Changes>({
   },
 });
 export function describeLanguage(path: string) {
-  return LanguageDescription.matchFilename(
-    languages,
-    path.slice(path.lastIndexOf('/') + 1),
-  );
+  return LanguageDescription.matchFilename(languages, fileName(path));
 }
 export function createState({
   text,

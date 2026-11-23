@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { useTabs } from './tabs';
+import { without } from '../lib/record';
+import { projectOf } from './tabs';
 export type SidebarMode = 'working' | 'history' | 'compare';
 export interface TabLayout {
   mode: SidebarMode;
@@ -55,10 +56,7 @@ export const stashFilesHeightBounds: ResizeBounds = {
 };
 const projectWide = ['width', 'historyWidth', 'blameWidth'] as const;
 function siblingsOf(id: string) {
-  return (
-    useTabs.getState().tabs.find((tab) => tab.members.includes(id))
-      ?.members ?? [id]
-  );
+  return projectOf(id)?.members ?? [id];
 }
 export function projectWidths(id: string) {
   const layout = useLayout.getState().tabs[id] ?? layoutDefaults;
@@ -83,12 +81,7 @@ export const useLayout = create<Layout>((set) => ({
       tabs[id] = { ...layoutDefaults, ...tabs[id], ...patch };
       return { tabs };
     }),
-  forget: (id) =>
-    set((state) => ({
-      tabs: Object.fromEntries(
-        Object.entries(state.tabs).filter(([key]) => key !== id),
-      ),
-    })),
+  forget: (id) => set((state) => ({ tabs: without(state.tabs, id) })),
 }));
 export function useTabLayout(id: string) {
   return useLayout((state) => state.tabs[id] ?? layoutDefaults);

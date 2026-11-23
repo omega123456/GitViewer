@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { platform } from '@tauri-apps/plugin-os';
+import { isEditableTarget } from './browser';
 export interface Action {
   id: string;
   label: string;
@@ -23,10 +24,7 @@ export function matches(event: KeyboardEvent, key: string): boolean {
 }
 export function runShortcut(event: KeyboardEvent, actions: Action[]) {
   if (event.defaultPrevented) return;
-  const editable =
-    event.target instanceof HTMLElement &&
-    (event.target.isContentEditable ||
-      ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName));
+  const editable = isEditableTarget(event.target);
   const action = actions.find(
     (action) =>
       !action.disabled &&

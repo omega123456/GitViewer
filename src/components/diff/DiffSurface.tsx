@@ -11,7 +11,7 @@ import {
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { markedTokens } from '../../lib/highlight';
 import type { Hunk, DiffLine, Source } from '../../lib/types';
-import { dynamic, focusInset } from '../shared/styles';
+import { dynamic, focusInset, gutterCell } from '../shared/styles';
 import type { Expansion } from './expansion';
 import { BlankGapRow, GapRow } from './GapRow';
 import { HunkHeader } from './HunkHeader';
@@ -113,7 +113,7 @@ export function DiffSurface({
     <div
       className={`flex min-w-0 flex-1 overflow-hidden ${line?.kind === 'add' ? 'bg-add dark:bg-add-dark' : line?.kind === 'remove' ? 'bg-remove dark:bg-remove-dark' : ''}`}
     >
-      <span className="w-11 shrink-0 select-none bg-gutter px-2 text-right text-label text-faint dark:bg-gutter-dark dark:text-faint-dark">
+      <span className={`select-none ${gutterCell}`}>
         {old ? line?.old : (line?.new ?? line?.old)}
       </span>
       <code

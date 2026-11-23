@@ -82,10 +82,5 @@ pub async fn files(repo: &Repo, ignored: bool) -> Result<Vec<String>> {
     if !ignored {
         args.push("--exclude-standard");
     }
-    let text = git::text(&repo.root, &args).await?;
-    Ok(text
-        .split(git::NUL)
-        .filter(|path| !path.is_empty())
-        .map(Into::into)
-        .collect())
+    git::nul_list(&repo.root, &args).await
 }

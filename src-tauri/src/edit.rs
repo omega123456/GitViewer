@@ -1,4 +1,4 @@
-use crate::{diff, error::Result, repo::Repo};
+use crate::{diff, error::Result, fs, repo::Repo};
 use serde::Serialize;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
@@ -27,20 +27,16 @@ fn version(bytes: &[u8]) -> String {
 }
 
 fn current(path: &Path) -> Result<Option<Vec<u8>>> {
-    match std::fs::read(path) {
-        Ok(bytes) => Ok(Some(bytes)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error.into()),
-    }
+    Ok(fs::read_optional(path)?)
 }
 
 fn open(bytes: Vec<u8>) -> Option<Opened> {
-    if bytes.len() > diff::size_limit(false) || bytes.contains(&0) {
+    if bytes.len() > diff::size_limit(false) || fs::is_binary(&bytes) {
         return None;
     }
     let version = version(&bytes);
     let raw = String::from_utf8(bytes).ok()?;
-    if raw.lines().count() > diff::LINE_LIMIT {
+    if diff::over_line_limit(&raw) {
         return None;
     }
     let bom = raw.starts_with(BOM);

@@ -1,12 +1,14 @@
 use crate::{
     error::{Error, Result},
-    git,
+    fs, git,
+    media::is_image,
     repo::Repo,
 };
 use serde::{Deserialize, Serialize};
 use similar::{ChangeTag, DiffTag, TextDiff};
 use std::ops::Range;
 
+pub mod quote;
 pub mod stack;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -217,12 +219,12 @@ fn range(value: &str) -> Result<(u32, u32)> {
         .next()
         .unwrap_or_default()
         .parse()
-        .map_err(|_| Error::new("unexpected", "Malformed diff range"))?;
+        .map_err(|_| Error::unexpected("Malformed diff range"))?;
     let count = parts
         .next()
         .unwrap_or("1")
         .parse()
-        .map_err(|_| Error::new("unexpected", "Malformed diff count"))?;
+        .map_err(|_| Error::unexpected("Malformed diff count"))?;
     Ok((start, count))
 }
 pub fn parse(text: &str, path: &str, source: &str) -> Result<Diff> {
@@ -237,7 +239,7 @@ pub fn parse(text: &str, path: &str, source: &str) -> Result<Diff> {
         if value.starts_with("@@ ") {
             let parts: Vec<&str> = value.split_whitespace().collect();
             if parts.len() < HUNK_HEADER_PARTS {
-                return Err(Error::new("unexpected", "Malformed hunk header"));
+                return Err(Error::unexpected("Malformed hunk header"));
             }
             let (old_start, old_count) = range(parts[1])?;
             let (new_start, new_count) = range(parts[2])?;
@@ -596,7 +598,7 @@ pub struct Comparison {
     pub files: Vec<ChangedFile>,
 }
 async fn tree_diff(repo: &Repo, listing: &str, base: &str, target: &str) -> Result<Vec<String>> {
-    Ok(git::text(
+    git::nul_list(
         &repo.root,
         &[
             "diff-tree",
@@ -608,11 +610,7 @@ async fn tree_diff(repo: &Repo, listing: &str, base: &str, target: &str) -> Resu
             target,
         ],
     )
-    .await?
-    .split(git::NUL)
-    .filter(|field| !field.is_empty())
-    .map(String::from)
-    .collect())
+    .await
 }
 pub async fn compare(
     repo: &Repo,
@@ -624,7 +622,7 @@ pub async fn compare(
     let target = resolve(repo, target).await?;
     if merge_base {
         let common = git::run(&repo.root, &["merge-base", &base, &target], None).await?;
-        if common.code != git::EXIT_SUCCESS {
+        if !common.succeeded() {
             return Err(Error::refused(
                 "These branches have no common commit. Turn off \"Since branches diverged\" to compare them directly.",
             ));
@@ -725,17 +723,33 @@ async fn location(
     };
     let spec = git::object_at(&reference, original.as_deref().unwrap_or(path));
     let exists = git::run(&repo.root, &["cat-file", "-e", &spec], None).await?;
-    if exists.code != git::EXIT_SUCCESS {
-        if exists.stderr.contains("does not exist")
-            || exists.stderr.contains("not in")
-            || exists.stderr.contains("invalid object name")
-            || exists.stderr.contains("Not a valid object name")
-        {
-            return Ok(Blob::Absent);
-        }
-        return Err(Error::git(exists.message()));
+    if exists.succeeded() {
+        return Ok(Blob::Object(spec));
     }
-    Ok(Blob::Object(spec))
+    if missing_object(&exists.stderr) {
+        return Ok(Blob::Absent);
+    }
+    Err(Error::git(exists.message()))
+}
+async fn object_bytes(repo: &Repo, spec: &str) -> Result<Vec<u8>> {
+    Ok(git::run(&repo.root, &["show", spec], None)
+        .await?
+        .accept(&[git::EXIT_SUCCESS])?
+        .bytes)
+}
+async fn object_size(repo: &Repo, spec: &str) -> Result<usize> {
+    git::text(&repo.root, &["cat-file", "-s", spec])
+        .await?
+        .trim()
+        .parse()
+        .map_err(|_| Error::unexpected("Invalid Git object size"))
+}
+async fn blob_bytes(repo: &Repo, blob: &Blob) -> Result<Vec<u8>> {
+    match blob {
+        Blob::Absent => Ok(Vec::new()),
+        Blob::Object(spec) => object_bytes(repo, spec).await,
+        Blob::Working(path) => Ok(fs::read_if_present(path)?),
+    }
 }
 
 pub async fn bytes(
@@ -746,18 +760,11 @@ pub async fn bytes(
     base: &str,
     old: bool,
 ) -> Result<Vec<u8>> {
-    match location(repo, path, source, revision, base, old).await? {
-        Blob::Absent => Ok(Vec::new()),
-        Blob::Object(spec) => Ok(git::run(&repo.root, &["show", &spec], None)
-            .await?
-            .accept(&[git::EXIT_SUCCESS])?
-            .bytes),
-        Blob::Working(path) => match std::fs::read(path) {
-            Ok(bytes) => Ok(bytes),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-            Err(error) => Err(error.into()),
-        },
-    }
+    blob_bytes(
+        repo,
+        &location(repo, path, source, revision, base, old).await?,
+    )
+    .await
 }
 pub async fn size(
     repo: &Repo,
@@ -769,32 +776,17 @@ pub async fn size(
 ) -> Result<usize> {
     match location(repo, path, source, revision, base, old).await? {
         Blob::Absent => Ok(0),
-        Blob::Object(spec) => git::text(&repo.root, &["cat-file", "-s", &spec])
-            .await?
-            .trim()
-            .parse()
-            .map_err(|_| Error::new("unexpected", "Invalid Git object size")),
-        Blob::Working(path) => match std::fs::metadata(path) {
-            Ok(metadata) => Ok(usize::try_from(metadata.len()).unwrap_or(usize::MAX)),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
-            Err(error) => Err(error.into()),
-        },
+        Blob::Object(spec) => object_size(repo, &spec).await,
+        Blob::Working(path) => Ok(fs::size_if_present(&path)?),
     }
-}
-pub fn is_image(path: &str) -> bool {
-    matches!(
-        path.rsplit('.')
-            .next()
-            .unwrap_or_default()
-            .to_lowercase()
-            .as_str(),
-        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "ico" | "svg" | "avif"
-    )
 }
 pub const LINE_LIMIT: usize = 50000;
 pub const BYTES_PER_MEGABYTE: usize = 1024 * 1024;
 pub const BLOB_SIZE_LIMIT: usize = 20 * BYTES_PER_MEGABYTE;
 const TEXT_SIZE_LIMIT: usize = 2 * BYTES_PER_MEGABYTE;
+pub fn over_line_limit(text: &str) -> bool {
+    fs::count_lines(text) > LINE_LIMIT
+}
 pub fn size_limit(image: bool) -> usize {
     if image {
         BLOB_SIZE_LIMIT
@@ -814,11 +806,11 @@ pub async fn text(
         return Ok(None);
     }
     let bytes = bytes(repo, path, source, revision, base, old).await?;
-    if bytes.contains(&0) {
+    if fs::is_binary(&bytes) {
         return Ok(None);
     }
     let text = String::from_utf8_lossy(&bytes);
-    if text.lines().count() > LINE_LIMIT {
+    if over_line_limit(&text) {
         return Ok(None);
     }
     Ok(Some(text.into_owned()))
@@ -845,7 +837,7 @@ async fn object_sizes(repo: &Repo, specs: &[&str]) -> Result<Vec<Option<usize>>>
     .await?
     .accept(&[git::EXIT_SUCCESS])?
     .text();
-    let invalid = || Error::new("unexpected", "Invalid Git object size");
+    let invalid = || Error::unexpected("Invalid Git object size");
     let mut rest = text.as_str();
     specs
         .iter()
@@ -869,49 +861,27 @@ async fn object_sizes(repo: &Repo, specs: &[&str]) -> Result<Vec<Option<usize>>>
         })
         .collect()
 }
-enum Side {
-    Working(std::path::PathBuf),
-    Object(String),
-    Absent,
-}
-async fn measure(repo: &Repo, side: &Side, size: Option<usize>) -> Result<usize> {
+async fn measure(repo: &Repo, side: &Blob, size: Option<usize>) -> Result<usize> {
     match (side, size) {
-        (Side::Absent, _) => Ok(0),
-        (Side::Object(_), Some(size)) => Ok(size),
-        (Side::Object(spec), None) => {
+        (Blob::Absent, _) => Ok(0),
+        (Blob::Object(_), Some(size)) => Ok(size),
+        (Blob::Object(spec), None) => {
             let exists = git::run(&repo.root, &["cat-file", "-e", spec], None).await?;
-            if exists.code == git::EXIT_SUCCESS {
-                return git::text(&repo.root, &["cat-file", "-s", spec])
-                    .await?
-                    .trim()
-                    .parse()
-                    .map_err(|_| Error::new("unexpected", "Invalid Git object size"));
+            if exists.succeeded() {
+                return object_size(repo, spec).await;
             }
             if missing_object(&exists.stderr) {
                 return Ok(0);
             }
             Err(Error::git(exists.message()))
         }
-        (Side::Working(path), _) => match std::fs::metadata(path) {
-            Ok(metadata) => Ok(usize::try_from(metadata.len()).unwrap_or(usize::MAX)),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
-            Err(error) => Err(error.into()),
-        },
+        (Blob::Working(path), _) => Ok(fs::size_if_present(path)?),
     }
 }
-async fn side_bytes(repo: &Repo, side: &Side, size: usize) -> Result<Vec<u8>> {
+async fn side_bytes(repo: &Repo, side: &Blob, size: usize) -> Result<Vec<u8>> {
     match side {
-        Side::Object(_) if size == 0 => Ok(Vec::new()),
-        Side::Absent => Ok(Vec::new()),
-        Side::Object(spec) => Ok(git::run(&repo.root, &["show", spec], None)
-            .await?
-            .accept(&[git::EXIT_SUCCESS])?
-            .bytes),
-        Side::Working(path) => match std::fs::read(path) {
-            Ok(bytes) => Ok(bytes),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-            Err(error) => Err(error.into()),
-        },
+        Blob::Object(_) if size == 0 => Ok(Vec::new()),
+        _ => blob_bytes(repo, side).await,
     }
 }
 pub async fn read(
@@ -951,19 +921,22 @@ pub async fn read(
         None
     };
     let (old, new) = match source {
-        "file" => (Side::Absent, Side::Working(full)),
+        "file" => (Blob::Absent, Blob::Working(full)),
         _ if untracked => (
-            Side::Absent,
-            Side::Object(git::object_at(&git::stash_untracked(&sha), path)),
+            Blob::Absent,
+            Blob::Object(git::object_at(&git::stash_untracked(&sha), path)),
         ),
-        "unstaged" => (Side::Object(format!(":{path}")), Side::Working(full)),
+        "unstaged" => (Blob::Object(git::index_object(path)), Blob::Working(full)),
         "staged" => (
-            Side::Object(format!("HEAD:{}", original.as_deref().unwrap_or(path))),
-            Side::Object(format!(":{path}")),
+            Blob::Object(git::object_at(
+                git::HEAD,
+                original.as_deref().unwrap_or(path),
+            )),
+            Blob::Object(git::index_object(path)),
         ),
         _ => (
-            Side::Object(git::object_at(&parent, path)),
-            Side::Object(git::object_at(&sha, path)),
+            Blob::Object(git::object_at(&parent, path)),
+            Blob::Object(git::object_at(&sha, path)),
         ),
     };
     let rooted = matches!(source, "commit" | "stash") && !untracked;
@@ -972,18 +945,18 @@ pub async fn read(
         specs.push(parent.as_str());
     }
     for side in [&old, &new] {
-        if let Side::Object(spec) = side {
+        if let Blob::Object(spec) = side {
             specs.push(spec.as_str());
         }
     }
     let mut sizes = object_sizes(repo, &specs).await?.into_iter();
     let root = rooted && sizes.next().flatten().is_none();
     let old_size = match old {
-        Side::Object(_) => sizes.next().flatten(),
+        Blob::Object(_) => sizes.next().flatten(),
         _ => None,
     };
     let new_size = match new {
-        Side::Object(_) => sizes.next().flatten(),
+        Blob::Object(_) => sizes.next().flatten(),
         _ => None,
     };
     result.old_size = measure(repo, &old, old_size).await?;
@@ -999,11 +972,11 @@ pub async fn read(
     }
     if source == "file" || untracked {
         let new = side_bytes(repo, &new, result.new_size).await?;
-        if new.contains(&0) {
+        if fs::is_binary(&new) {
             result.binary = true;
         } else {
             let content = String::from_utf8_lossy(&new);
-            if !override_limit && content.lines().count() > LINE_LIMIT {
+            if !override_limit && over_line_limit(&content) {
                 result.too_large = true;
             } else {
                 result.content = Some(content.into_owned());
@@ -1019,28 +992,17 @@ pub async fn read(
         return Ok(result);
     }
     let context = format!("--unified={}", context.min(MAX_CONTEXT_LINES));
-    let mut arguments = vec![
-        "diff",
-        "--no-ext-diff",
-        "--no-textconv",
-        "--no-color",
-        "--find-renames",
-        &context,
-    ];
+    let mut arguments = vec!["diff"];
+    arguments.extend(git::PINNED_DIFF_FLAGS);
+    arguments.extend(["--find-renames", &context]);
     if source == "staged" {
         arguments.push("--cached");
     } else if source == "unstaged" {
         arguments.splice(0..1, ["diff-files", "-p"]);
     } else if root {
-        arguments = vec![
-            "show",
-            "--root",
-            git::EMPTY_FORMAT,
-            "--no-ext-diff",
-            "--no-textconv",
-            &context,
-            &sha,
-        ];
+        arguments = vec!["show", "--root", git::EMPTY_FORMAT];
+        arguments.extend(git::PINNED_DIFF_FLAGS);
+        arguments.extend([context.as_str(), sha.as_str()]);
     } else {
         arguments.extend([parent.as_str(), sha.as_str()]);
     }
@@ -1049,7 +1011,7 @@ pub async fn read(
         arguments.push(original);
     }
     let output = git::text(&repo.root, &arguments).await?;
-    if !override_limit && output.lines().count() > LINE_LIMIT {
+    if !override_limit && over_line_limit(&output) {
         result.too_large = true;
         return Ok(result);
     }
@@ -1062,19 +1024,15 @@ pub fn patch(path: &str, hunk: &Hunk) -> Result<String> {
     if path.contains(['\n', '\r', git::NUL]) {
         return Err(Error::refused("Hunk actions are unavailable for paths containing control characters; use file staging"));
     }
-    let quote = |prefix: &str| {
-        format!(
-            "\"{prefix}/{}\"",
-            path.replace('\\', "\\\\")
-                .replace('"', "\\\"")
-                .replace('\t', "\\t")
-        )
-    };
-    let old_path = quote("a");
-    let new_path = quote("b");
+    let old_path = quote::always_quoted(quote::OLD_PREFIX, path);
+    let new_path = quote::always_quoted(quote::NEW_PREFIX, path);
     let mut patch = format!(
-        "diff --git {old_path} {new_path}\n--- {old_path}\n+++ {new_path}\n@@ -{},{} +{},{} @@\n",
-        hunk.old_start, hunk.old_count, hunk.new_start, hunk.new_count
+        "{}\n--- {old_path}\n+++ {new_path}\n@@ -{},{} +{},{} @@\n",
+        quote::diff_header(&old_path, &new_path),
+        hunk.old_start,
+        hunk.old_count,
+        hunk.new_start,
+        hunk.new_count
     );
     for line in &hunk.lines {
         patch.push(match line.kind.as_str() {
@@ -1125,12 +1083,7 @@ pub async fn apply_hunk(
     if action != "stage" {
         arguments.push("--reverse");
     }
-    let mut check = arguments.clone();
-    check.push("--check");
-    git::run(&repo.root, &check, Some(patch.as_bytes()))
-        .await?
-        .accept(&[git::EXIT_SUCCESS])?;
-    git::run(&repo.root, &arguments, Some(patch.as_bytes()))
+    git::apply_checked(&repo.root, &arguments, patch.as_bytes())
         .await?
         .accept(&[git::EXIT_SUCCESS])?;
     Ok(())
