@@ -36,7 +36,10 @@ const aliases: Record<string, string> = {
 function languageOf(path: string) {
   const extension = path.split('.').pop()?.toLowerCase() ?? '';
   const language = aliases[extension] ?? extension;
-  return language in bundledLanguages ? (language as BundledLanguage) : null;
+  return isBundledLanguage(language) ? language : null;
+}
+function isBundledLanguage(language: string): language is BundledLanguage {
+  return language in bundledLanguages;
 }
 interface Running extends Job {
   language: BundledLanguage | null;
@@ -86,15 +89,15 @@ export function highlightWorker(reply: (message: Reply) => void) {
   }
   async function pump() {
     busy = true;
-    while (queue.length) {
-      const job = queue.shift()!;
+    let job = queue.shift();
+    while (job) {
       try {
         const lines = await tokenize(job);
         if (live.has(job.id)) {
           const start = job.start;
           job.start += chunkLines;
           const done = job.start >= job.lines.length;
-          reply({ id: job.id, start, lines, done });
+          reply({ id: job.id, start: start, lines: lines, done: done });
           if (done) live.delete(job.id);
           else queue.push(job);
         }
@@ -102,6 +105,7 @@ export function highlightWorker(reply: (message: Reply) => void) {
         if (live.delete(job.id)) reply({ id: job.id, failed: true });
       }
       await pause();
+      job = queue.shift();
     }
     busy = false;
   }
@@ -117,7 +121,9 @@ export function highlightWorker(reply: (message: Reply) => void) {
       queue.push({ ...message, language: languageOf(message.path), start: 0 });
       if (!busy) void pump();
     },
-    languages: () => ready?.getLoadedLanguages() ?? [],
+    languages() {
+      return ready?.getLoadedLanguages() ?? [];
+    },
   };
 }
 if (typeof window === 'undefined') {

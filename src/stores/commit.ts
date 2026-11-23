@@ -36,7 +36,7 @@ export const useCommit = create<CommitStore>(() => ({
     const staged =
       stage.length === 0 ||
       (await perform('files_action', {
-        repo,
+        repo: repo,
         paths: stage,
         action: 'stage',
       })) !== undefined;
@@ -49,7 +49,7 @@ export const useCommit = create<CommitStore>(() => ({
     useTabs.getState().setMessage(repo, '');
     if (mode === 'commitPush') {
       update(repo, { phase: 'pushing' });
-      const pushed = await perform('sync', { repo, action: 'push' });
+      const pushed = await perform('sync', { repo: repo, action: 'push' });
       if (pushed === undefined) {
         useErrors.getState().relabel(repo, 'sync', {
           title: 'Push failed',

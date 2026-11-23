@@ -11,7 +11,12 @@ import type { Action } from '../../lib/keyboard';
 import { runs, useCurrentActivity } from '../../stores/activity';
 import { ask } from '../../stores/decision';
 import { useErrors } from '../../stores/errors';
-import { useLayout, useLayoutFields } from '../../stores/layout';
+import {
+  useLayout,
+  useLayoutField,
+  sectionHeightBounds,
+  stashFilesHeightBounds,
+} from '../../stores/layout';
 import { useReveal } from '../../stores/reveal';
 import { useSelection, useWorkingSelection } from '../../stores/selection';
 import { Button } from '../shared/Button';
@@ -28,6 +33,7 @@ import {
 } from '../shared/styles';
 import { VirtualList } from '../shared/VirtualList';
 import { percentBelow, ResizeHandle } from '../shell/ResizeHandle';
+import { scopeKey } from '../../lib/git';
 export const StashSection = memo(function StashSection({
   repo,
   disabled,
@@ -36,15 +42,12 @@ export const StashSection = memo(function StashSection({
   disabled: boolean;
 }) {
   const query = useBackend('stashes', { repo });
-  const { stashOpen, stashHeight, stashFilesHeight } = useLayoutFields(
-    repo,
-    'stashOpen',
-    'stashHeight',
-    'stashFilesHeight',
-  );
+  const stashOpen = useLayoutField(repo, 'stashOpen');
+  const stashHeight = useLayoutField(repo, 'stashHeight');
+  const stashFilesHeight = useLayoutField(repo, 'stashFilesHeight');
   const selection = useWorkingSelection(repo);
   const [selected, setSelected] = useState('');
-  const revealing = useReveal((s) => s.targets[repo]);
+  const revealing = useReveal((state) => state.targets[repo]);
   useEffect(() => {
     if (
       revealing &&
@@ -57,12 +60,14 @@ export const StashSection = memo(function StashSection({
   const activity = useCurrentActivity(repo);
   const files = useBackend(
     'commit_files',
-    { repo, revision: selected, source: 'stash' },
+    { repo: repo, revision: selected, source: 'stash' },
     Boolean(selected),
   );
   const show = (path: string, revision: string) => {
     useLayout.getState().update(repo, { mode: 'working' });
-    useSelection.getState().select(repo, { path, source: 'stash', revision });
+    useSelection
+      .getState()
+      .select(repo, { path: path, source: 'stash', revision: revision });
   };
   const apply = async (hash: string, pop: boolean) => {
     if (
@@ -75,7 +80,12 @@ export const StashSection = memo(function StashSection({
     )
       return;
     try {
-      await attempt('stash_apply', { repo, hash, pop, smart: false });
+      await attempt('stash_apply', {
+        repo: repo,
+        hash: hash,
+        pop: pop,
+        smart: false,
+      });
       useErrors.getState().resolve(repo, 'stash_apply');
     } catch (error) {
       const failure = normalizeError(error);
@@ -89,7 +99,12 @@ export const StashSection = memo(function StashSection({
           confirm: pop ? 'Pop and combine' : 'Apply and combine',
         })
       )
-        await perform('stash_apply', { repo, hash, pop, smart: true });
+        await perform('stash_apply', {
+          repo: repo,
+          hash: hash,
+          pop: pop,
+          smart: true,
+        });
     }
   };
   const drop = async (hash: string) => {
@@ -130,7 +145,7 @@ export const StashSection = memo(function StashSection({
       run: () => drop(selected),
     },
   ];
-  useActions(`${repo}:stashes`, actions);
+  useActions(scopeKey(repo, 'stashes'), actions);
   if (query.error)
     return (
       <ErrorRow
@@ -146,9 +161,9 @@ export const StashSection = memo(function StashSection({
         <ResizeHandle
           label="Resize stash section"
           orientation="vertical"
-          min={20}
-          max={60}
-          step={2}
+          min={sectionHeightBounds.min}
+          max={sectionHeightBounds.max}
+          step={sectionHeightBounds.step}
           value={stashHeight}
           className="h-1.5 shrink-0 cursor-row-resize border-y border-line hover:bg-accent focus-visible:bg-accent dark:border-line-dark"
           measure={percentBelow}
@@ -277,9 +292,9 @@ export const StashSection = memo(function StashSection({
               <ResizeHandle
                 label="Resize stash files"
                 orientation="vertical"
-                min={20}
-                max={80}
-                step={2}
+                min={stashFilesHeightBounds.min}
+                max={stashFilesHeightBounds.max}
+                step={stashFilesHeightBounds.step}
                 value={stashFilesHeight}
                 className="h-1.5 shrink-0 cursor-row-resize border-y border-line hover:bg-accent focus-visible:bg-accent dark:border-line-dark"
                 measure={percentBelow}

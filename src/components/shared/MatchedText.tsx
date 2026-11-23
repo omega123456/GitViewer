@@ -37,7 +37,7 @@ function matchRuns(
     const current = runs.at(-1);
     const startsRun = current === undefined || current.matched !== matched;
     if (startsRun) {
-      runs.push({ text: text[index], matched });
+      runs.push({ text: text[index], matched: matched });
       continue;
     }
     current.text += text[index];

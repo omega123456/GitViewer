@@ -22,7 +22,7 @@ pub async fn list(repo: &Repo, path: &str) -> Result<Vec<TreeEntry>> {
     let mut entries = Vec::new();
     for result in std::fs::read_dir(directory)? {
         let entry = result?;
-        if entry.file_name() == ".git" {
+        if entry.file_name() == git::DOT_GIT {
             continue;
         }
         let name = entry
@@ -45,17 +45,20 @@ pub async fn list(repo: &Repo, path: &str) -> Result<Vec<TreeEntry>> {
     if entries.is_empty() {
         return Ok(entries);
     }
-    let ignored = git::ignored(&repo.root, entries.iter().map(|e| e.path.as_str())).await?;
+    let ignored = git::ignored(&repo.root, entries.iter().map(|entry| entry.path.as_str())).await?;
     let prefix = if path.is_empty() {
         String::new()
     } else {
-        format!("{path}/")
+        format!("{path}{}", git::PATH_SEPARATOR)
     };
     let mut decorations = HashMap::new();
     for change in &status.entries {
         if let Some(relative) = change.path().strip_prefix(&prefix) {
-            let name = relative.split('/').next().unwrap_or_default();
-            let code = if change.worktree() != "." {
+            let name = relative
+                .split(git::PATH_SEPARATOR)
+                .next()
+                .unwrap_or_default();
+            let code = if change.worktree() != git::UNMODIFIED {
                 change.worktree()
             } else {
                 change.index()
@@ -81,7 +84,7 @@ pub async fn files(repo: &Repo, ignored: bool) -> Result<Vec<String>> {
     }
     let text = git::text(&repo.root, &args).await?;
     Ok(text
-        .split('\0')
+        .split(git::NUL)
         .filter(|path| !path.is_empty())
         .map(Into::into)
         .collect())

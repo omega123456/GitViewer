@@ -10,8 +10,8 @@ import { GeneralSection } from './GeneralSection';
 import { SettingsNav, panes } from './SettingsNav';
 import { UpdatesSection } from './UpdatesSection';
 export function SettingsSurface({ settings }: { settings: SettingsResponse }) {
-  const open = usePalette((s) => s.settings);
-  const pane = useSettingsNav((s) => s.pane);
+  const open = usePalette((state) => state.settings);
+  const pane = useSettingsNav((state) => state.pane);
   return (
     <Modal
       hideChrome

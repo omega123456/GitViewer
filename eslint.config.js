@@ -35,6 +35,39 @@ export default tseslint.config(
     },
   },
   {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/tests/**'],
+    rules: {
+      'id-length': ['error', { min: 2, properties: 'never' }],
+      'no-magic-numbers': 'off',
+      '@typescript-eslint/no-magic-numbers': [
+        'error',
+        {
+          ignore: [0, 1, -1],
+          ignoreArrayIndexes: true,
+          ignoreDefaultValues: true,
+          ignoreEnums: true,
+          ignoreNumericLiteralTypes: true,
+          ignoreReadonlyClassProperties: true,
+          ignoreTypeIndexes: true,
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'TSNonNullExpression',
+          message: 'Narrow the value with a guard instead of asserting it.',
+        },
+        {
+          selector:
+            'TSAsExpression:not([typeAnnotation.typeName.name="const"]), TSTypeAssertion',
+          message: 'Get the value in the right shape at its source.',
+        },
+      ],
+      'object-shorthand': ['error', 'consistent'],
+    },
+  },
+  {
     files: ['*.{js,mjs,ts}', 'e2e/**'],
     languageOptions: { globals: globals.node },
   },

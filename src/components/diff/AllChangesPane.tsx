@@ -22,6 +22,7 @@ import {
 import { useActions } from '../../lib/actions';
 import { perform, useBackend } from '../../lib/query';
 import type {
+  Comparison,
   Diff,
   DiffStack,
   Selection,
@@ -60,13 +61,19 @@ import { FullFileButton } from './DiffToolbar';
 import { canEdit } from './editable';
 import { useExpansion, type Openings } from './expansion';
 import { runHunkAction } from './hunks';
-import { diffRows } from './rows';
+import {
+  DIFF_CONTEXT_LINES,
+  DIVIDER_ROW_HEIGHT,
+  LINE_ROW_HEIGHT,
+  diffRows,
+  rowHeight,
+} from './rows';
 import { viewStack } from './stack';
 import { useTokens } from './tokens';
 import { scrollPage } from './scroll';
-const context = 3;
+import { shortHash, scopeKey, UNTRACKED } from '../../lib/git';
 const settle = 150;
-const shut: Openings = {};
+const noOpenings: Openings = {};
 interface Batch {
   data?: DiffStack;
   error: Error | null;
@@ -82,15 +89,42 @@ function note(data: Diff | undefined, error: Error | null) {
     return 'No content change.';
   return null;
 }
+const FILE_HEADER_HEIGHT = 35;
+const FILE_NOTE_HEIGHT = 128;
+const FILE_OVERSCAN = 2;
 function estimate(data: Diff | undefined, open: boolean) {
-  const header = 35;
+  const header = FILE_HEADER_HEIGHT;
   if (!open) return header;
-  if (!data || data.image || note(data, null)) return header + 128;
+  if (!data || data.image || note(data, null)) return header + FILE_NOTE_HEIGHT;
   const lines =
     data.content !== null
       ? data.content.split('\n').length
       : data.hunks.reduce((sum, hunk) => sum + hunk.lines.length, 0);
-  return header + lines * 20 + data.hunks.length * 24;
+  return (
+    header + lines * LINE_ROW_HEIGHT + data.hunks.length * DIVIDER_ROW_HEIGHT
+  );
+}
+function commitEntries(
+  commit: Selection | undefined,
+  statuses: Record<string, string>,
+) {
+  if (!commit) return [];
+  return Object.entries(statuses).map(([path, badge]) => ({
+    selection: { ...commit, path },
+    badge: badge,
+  }));
+}
+function compareEntries(compared: Comparison | undefined) {
+  if (!compared) return [];
+  return compared.files.map((file) => ({
+    selection: {
+      path: file.path,
+      source: 'compare' as const,
+      base: compared.base,
+      revision: compared.target,
+    },
+    badge: file.status,
+  }));
 }
 const titles = {
   staged: 'Staged changes',
@@ -123,7 +157,7 @@ export const AllChangesPane = memo(function AllChangesPane({
   const stashed = commit?.source === 'stash';
   const files = useBackend(
     'commit_files',
-    { repo, revision: commit?.revision ?? '', source: commit?.source },
+    { repo: repo, revision: commit?.revision ?? '', source: commit?.source },
     stack === 'commit',
   );
   const comparison = useComparison(repo, status, stack === 'compare');
@@ -131,27 +165,16 @@ export const AllChangesPane = memo(function AllChangesPane({
   const entries = useMemo(
     () =>
       stack === 'commit'
-        ? Object.entries(files.data?.statuses ?? {}).map(([path, badge]) => ({
-            selection: { ...commit!, path },
-            badge,
-          }))
+        ? commitEntries(commit, files.data?.statuses ?? {})
         : stack === 'compare'
-          ? (compared?.files ?? []).map((file) => ({
-              selection: {
-                path: file.path,
-                source: 'compare' as const,
-                base: compared!.base,
-                revision: compared!.target,
-              },
-              badge: file.status,
-            }))
+          ? compareEntries(compared)
           : groupEntries(status, stack, filter).map((entry) => ({
               selection: {
                 path: entry.path,
                 source:
                   stack === 'staged'
                     ? ('staged' as const)
-                    : entry.index === '?'
+                    : entry.index === UNTRACKED
                       ? ('file' as const)
                       : ('unstaged' as const),
               },
@@ -163,7 +186,9 @@ export const AllChangesPane = memo(function AllChangesPane({
     const byPath = new Map(
       entries.map((entry) => [entry.selection.path, entry]),
     );
-    return treeOrder([...byPath.keys()]).map((path) => byPath.get(path)!);
+    return treeOrder([...byPath.keys()]).flatMap(
+      (path) => byPath.get(path) ?? [],
+    );
   }, [entries]);
   const listing =
     stack === 'commit'
@@ -180,7 +205,7 @@ export const AllChangesPane = memo(function AllChangesPane({
   const stackArgs = viewStack(repo, stack, commit, compared);
   const stacked = useBackend(
     'diff_stack',
-    stackArgs ?? { repo, source: 'unstaged' },
+    stackArgs ?? { repo: repo, source: 'unstaged' },
     Boolean(stackArgs),
   );
   const settled = stacked.isSuccess && !stacked.isFetching;
@@ -188,7 +213,7 @@ export const AllChangesPane = memo(function AllChangesPane({
     () => ({
       data: stacked.data,
       error: stacked.error,
-      settled,
+      settled: settled,
       version: stacked.dataUpdatedAt,
     }),
     [stacked.data, stacked.error, settled, stacked.dataUpdatedAt],
@@ -211,7 +236,7 @@ export const AllChangesPane = memo(function AllChangesPane({
         batch.data?.files[ordered[index].selection.path],
         !closed[ordered[index].selection.path],
       ),
-    overscan: 2,
+    overscan: FILE_OVERSCAN,
   });
   const searchable = useMemo(
     () =>
@@ -256,7 +281,7 @@ export const AllChangesPane = memo(function AllChangesPane({
     () => foundByPath(find.found, searchable),
     [find.found, searchable],
   );
-  useActions(`${repo}:diff`, findActions(find, false));
+  useActions(scopeKey(repo, 'diff'), findActions(find, false));
   const laidOut = (virtual.scrollRect?.height ?? 0) > 0;
   useEffect(() => {
     if (laidOut && ordered.length) eager.current = false;
@@ -272,7 +297,7 @@ export const AllChangesPane = memo(function AllChangesPane({
         </span>
         {commit?.revision && (
           <span className="font-mono text-badge text-muted">
-            {commit.revision.slice(0, 7)}
+            {shortHash(commit.revision)}
           </span>
         )}
         {stack === 'compare' && (
@@ -406,7 +431,8 @@ function useGate(
       },
       { root: scroller.current, rootMargin: '400px' },
     );
-    observer.observe(box.current!);
+    const element = box.current;
+    if (element) observer.observe(element);
     return () => {
       clearTimeout(timer);
       observer.disconnect();
@@ -463,7 +489,7 @@ const FileDiff = memo(function FileDiff({
   const missing = batch.settled && !entry;
   const fallback = useBackend(
     'diff',
-    { repo, ...selection, context },
+    { repo: repo, ...selection, context: DIFF_CONTEXT_LINES },
     missing && near,
   );
   const data = entry ?? (missing ? fallback.data : undefined);
@@ -476,16 +502,18 @@ const FileDiff = memo(function FileDiff({
       setOpenings((all) => ({
         ...all,
         [path]:
-          typeof action === 'function' ? action(all[path] ?? shut) : action,
+          typeof action === 'function'
+            ? action(all[path] ?? noOpenings)
+            : action,
       })),
     [path, setOpenings],
   );
   const expansion = useExpansion(repo, selection, data, [
-    opening ?? shut,
+    opening ?? noOpenings,
     setOpening,
   ]);
   const tokens = useTokens(repo, selection, data, near);
-  const mode = useDiffView((s) => s.mode) ?? settings.diffMode;
+  const mode = useDiffView((state) => state.mode) ?? settings.diffMode;
   const split = mode === 'split' && data?.content === null;
   const rows = useMemo(
     () => (data ? diffRows(data, split, expansion.reveal) : []),
@@ -499,8 +527,10 @@ const FileDiff = memo(function FileDiff({
     };
   }, [data]);
   const hunkAction = useCallback(
-    (hunk: number, action: string) =>
-      void runHunkAction(repo, selection, data!, hunk, action),
+    (hunk: number, action: string) => {
+      if (!data) return;
+      void runHunkAction(repo, selection, data, hunk, action);
+    },
     [repo, selection, data],
   );
   const message = note(data, error);
@@ -522,11 +552,8 @@ const FileDiff = memo(function FileDiff({
   useLayoutEffect(() => {
     setInner(body.current?.offsetTop ?? 0);
   }, [surface]);
-  const cut = selection.path.lastIndexOf('/') + 1;
-  const reserved = rows.reduce(
-    (sum, row) => sum + (row.hunk === undefined && !row.gap ? 20 : 24),
-    0,
-  );
+  const nameStart = selection.path.lastIndexOf('/') + 1;
+  const reserved = rows.reduce((sum, row) => sum + rowHeight(row), 0);
   return (
     <div ref={box} className="border-b border-line dark:border-line-dark">
       <div className="sticky top-0 z-10 flex h-8.5 items-center gap-1 bg-sub pr-3 dark:bg-sub-dark">
@@ -542,8 +569,12 @@ const FileDiff = memo(function FileDiff({
             <ChevronRight className="size-3.5 shrink-0 text-muted" />
           )}
           <span className="truncate" title={selection.path}>
-            <span className="text-muted">{selection.path.slice(0, cut)}</span>
-            <span className="font-semibold">{selection.path.slice(cut)}</span>
+            <span className="text-muted">
+              {selection.path.slice(0, nameStart)}
+            </span>
+            <span className="font-semibold">
+              {selection.path.slice(nameStart)}
+            </span>
           </span>
           <DiffSourcePill selection={selection} />
           {Boolean(added) && (
@@ -569,7 +600,7 @@ const FileDiff = memo(function FileDiff({
         <Button
           title="Open in system application"
           onClick={() =>
-            void perform('system_open', { repo, path: selection.path })
+            void perform('system_open', { repo: repo, path: selection.path })
           }
         >
           <ExternalLink className="size-4" />
@@ -590,13 +621,13 @@ const FileDiff = memo(function FileDiff({
         )}
       </div>
       {open &&
-        (message ? (
+        (message || !data ? (
           <p
             className={`px-3 py-2 text-xs text-muted ${data ? '' : 'min-h-32'}`}
           >
             {message}
           </p>
-        ) : !mounted && !data!.image ? (
+        ) : !mounted && !data.image ? (
           <p
             className="h-virtual px-3 py-2 text-xs text-muted"
             style={dynamic({ '--virtual-height': `${reserved}px` })}
@@ -605,13 +636,13 @@ const FileDiff = memo(function FileDiff({
           </p>
         ) : (
           <div ref={body}>
-            {data!.image ? (
+            {data.image ? (
               <div className="flex flex-col">
                 <ImageDiff
                   repo={repo}
-                  view={`${repo}:${selection.path}`}
+                  view={scopeKey(repo, selection.path)}
                   selection={selection}
-                  diff={data!}
+                  diff={data}
                   version={version}
                 />
               </div>
@@ -620,8 +651,8 @@ const FileDiff = memo(function FileDiff({
                 ref={handle}
                 found={marked}
                 rows={rows}
-                hunks={data!.hunks}
-                patches={data!.patches}
+                hunks={data.hunks}
+                patches={data.patches}
                 split={split}
                 wrap={false}
                 whitespace={false}

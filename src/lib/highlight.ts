@@ -41,10 +41,16 @@ export function tokenize(
 ) {
   const id = ++next;
   pending.set(id, { lines, receive });
-  const job: Request = { type: 'job', id, path, dark, lines };
+  const job: Request = {
+    type: 'job',
+    id: id,
+    path: path,
+    dark: dark,
+    lines: lines,
+  };
   connect().postMessage(job);
   return () => {
-    const cancel: Request = { type: 'cancel', id };
+    const cancel: Request = { type: 'cancel', id: id };
     if (pending.delete(id)) worker?.postMessage(cancel);
   };
 }
@@ -60,11 +66,14 @@ export function highlight(content: string, path: string, dark: boolean) {
   });
 }
 
-export function markedTokens<
-  T extends { content: string },
-  K extends string = 'changed',
->(tokens: T[], marks: [number, number][], flag = 'changed' as K) {
-  const result: (T & Record<K, boolean>)[] = [];
+type MarkFlag = 'changed' | 'found' | 'current';
+export type MarkedToken<T> = T & Partial<Record<MarkFlag, boolean>>;
+export function markedTokens<T extends { content: string }>(
+  tokens: T[],
+  marks: [number, number][],
+  flag: MarkFlag = 'changed',
+) {
+  const result: MarkedToken<T>[] = [];
   let start = 0;
   let mark = 0;
   for (const token of tokens) {
@@ -79,7 +88,7 @@ export function markedTokens<
         ...token,
         content: token.content.slice(offset - start, stop - start),
         [flag]: inside,
-      } as T & Record<K, boolean>);
+      });
       offset = stop;
     }
     start = end;

@@ -32,5 +32,5 @@ export const rowTint =
 export function dynamic(
   values: Record<`--${string}`, string | number>,
 ): CSSProperties {
-  return values as CSSProperties;
+  return values;
 }

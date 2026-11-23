@@ -1,4 +1,7 @@
-use crate::error::{Error, Result};
+use crate::{
+    error::{Error, Result},
+    git,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -86,11 +89,16 @@ pub struct Status {
     pub fetched: Option<String>,
 }
 
+const UNTRACKED_PATH_START: usize = 2;
+const ORDINARY_FIELDS: usize = 9;
+const RENAMED_FIELDS: usize = 10;
+const UNMERGED_FIELDS: usize = 11;
+const STATE_CODES: usize = 2;
 pub fn parse(bytes: &[u8]) -> Result<Status> {
     let mut status = Status::default();
     let text = std::str::from_utf8(bytes)
         .map_err(|_| Error::new("unsupported", "A repository path is not valid UTF-8"))?;
-    let mut records = text.split('\0').filter(|s| !s.is_empty());
+    let mut records = text.split(git::NUL).filter(|record| !record.is_empty());
     while let Some(record) = records.next() {
         if let Some(header) = record.strip_prefix("# ") {
             if let Some(value) = header.strip_prefix("branch.head ") {
@@ -106,26 +114,26 @@ pub fn parse(bytes: &[u8]) -> Result<Status> {
                 let mut counts = value.split_whitespace();
                 status.ahead = counts
                     .next()
-                    .and_then(|v| v.trim_start_matches('+').parse().ok());
+                    .and_then(|count| count.trim_start_matches('+').parse().ok());
                 status.behind = counts
                     .next()
-                    .and_then(|v| v.trim_start_matches('-').parse().ok());
+                    .and_then(|count| count.trim_start_matches('-').parse().ok());
             }
             continue;
         }
         let kind = record.as_bytes()[0];
         if kind == b'?' {
             status.entries.push(Entry::Untracked {
-                path: record[2..].into(),
-                index: "?".into(),
-                worktree: "?".into(),
+                path: record[UNTRACKED_PATH_START..].into(),
+                index: git::UNTRACKED.into(),
+                worktree: git::UNTRACKED.into(),
             });
             continue;
         }
         let fields = match kind {
-            b'1' => 9,
-            b'2' => 10,
-            b'u' => 11,
+            b'1' => ORDINARY_FIELDS,
+            b'2' => RENAMED_FIELDS,
+            b'u' => UNMERGED_FIELDS,
             _ => {
                 return Err(Error::new(
                     "unexpected",
@@ -134,7 +142,7 @@ pub fn parse(bytes: &[u8]) -> Result<Status> {
             }
         };
         let parts: Vec<&str> = record.splitn(fields, ' ').collect();
-        if parts.len() != fields || parts[1].len() != 2 {
+        if parts.len() != fields || parts[1].len() != STATE_CODES {
             return Err(Error::new("unexpected", "Malformed status record"));
         }
         let path: String = parts[fields - 1].into();

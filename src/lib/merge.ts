@@ -9,11 +9,11 @@ export interface MergeFraming {
 
 const branchMergeFraming: MergeFraming = { title: 'Merge branch', lead: '' };
 
+const LISTED_CONFLICTS = 3;
 function listPaths(conflicts: string[]) {
-  const shown = conflicts.slice(0, 3).join('\n');
-  return conflicts.length > 3
-    ? `${shown}\nand ${conflicts.length - 3} more`
-    : shown;
+  const shown = conflicts.slice(0, LISTED_CONFLICTS).join('\n');
+  const hidden = conflicts.length - LISTED_CONFLICTS;
+  return hidden > 0 ? `${shown}\nand ${hidden} more` : shown;
 }
 
 function question(preview: MergePreview, name: string, current: string) {

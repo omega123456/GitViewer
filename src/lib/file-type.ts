@@ -1,3 +1,4 @@
+import { keysOf } from './options';
 export type FileCategory =
   | 'folder'
   | 'image'
@@ -498,9 +499,9 @@ const SPECIAL_NAMES = new Map<string, FileCategory>([
 ]);
 
 const BY_EXTENSION = new Map<string, FileCategory>();
-for (const [category, extensions] of Object.entries(EXTENSIONS)) {
-  for (const extension of extensions) {
-    BY_EXTENSION.set(extension, category as ClassifiedCategory);
+for (const category of keysOf(EXTENSIONS)) {
+  for (const extension of EXTENSIONS[category]) {
+    BY_EXTENSION.set(extension, category);
   }
 }
 

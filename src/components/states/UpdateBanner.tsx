@@ -3,33 +3,35 @@ import { useUpdate } from '../../stores/update';
 import { Button } from '../shared/Button';
 import { updateBusy, updateStatus } from '../settings/UpdatesSection';
 export function UpdateBanner() {
-  const { data: state } = useBackend('update_get', {});
-  const dismissed = useUpdate((s) => s.dismissedVersion);
+  const { data: snapshot } = useBackend('update_get', {});
+  const dismissed = useUpdate((state) => state.dismissedVersion);
   if (
-    !state?.available ||
-    (dismissed === state.available.version && !state.canQuitWithoutUpdating)
+    !snapshot?.available ||
+    (dismissed === snapshot.available.version &&
+      !snapshot.canQuitWithoutUpdating)
   )
     return null;
+  const available = snapshot.available;
   return (
     <aside
       aria-label="Application update"
       className="flex shrink-0 flex-wrap items-center gap-3 border-b border-line bg-sub px-3 py-2 text-sm dark:border-line-dark dark:bg-sub-dark"
     >
-      <span>GitViewer {state.available.version} is available</span>
+      <span>GitViewer {snapshot.available.version} is available</span>
       <span role="status" className="text-muted dark:text-muted-dark">
-        {updateStatus(state)}
+        {updateStatus(snapshot)}
       </span>
       <Button
         variant="primary"
-        disabled={updateBusy(state)}
+        disabled={updateBusy(snapshot)}
         onClick={() => void perform('update_install', {})}
       >
         Install and restart
       </Button>
-      {state.canQuitWithoutUpdating && (
+      {snapshot.canQuitWithoutUpdating && (
         <Button
           variant="standard"
-          disabled={updateBusy(state)}
+          disabled={updateBusy(snapshot)}
           onClick={() => void perform('update_quit', {})}
         >
           Quit without updating
@@ -37,7 +39,7 @@ export function UpdateBanner() {
       )}
       <Button
         aria-label="Dismiss update"
-        onClick={() => useUpdate.getState().dismiss(state.available!.version)}
+        onClick={() => useUpdate.getState().dismiss(available.version)}
       >
         Later
       </Button>

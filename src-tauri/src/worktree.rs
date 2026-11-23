@@ -12,6 +12,10 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+const RECORD_SEPARATOR: &str = "\0\0";
+const MIN_OBJECT_ID_LENGTH: usize = 4;
+const MAX_FORCE: u64 = 2;
+
 #[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Worktree {
@@ -36,7 +40,7 @@ fn parse(main: bool, record: &str) -> Worktree {
         main,
         ..Worktree::default()
     };
-    for line in record.split('\0') {
+    for line in record.split(git::NUL) {
         let (key, value) = line.split_once(' ').unwrap_or((line, ""));
         match key {
             "worktree" => {
@@ -63,7 +67,7 @@ fn parse(main: bool, record: &str) -> Worktree {
 pub async fn list(root: &Path) -> Result<Vec<Worktree>> {
     let text = git::text(root, &["worktree", "list", "--porcelain", "-z"]).await?;
     Ok(text
-        .split("\0\0")
+        .split(RECORD_SEPARATOR)
         .filter(|record| !record.is_empty())
         .enumerate()
         .map(|(index, record)| parse(index == 0, record))
@@ -102,7 +106,7 @@ fn reference(name: &str) -> Result<&str> {
     Ok(name)
 }
 fn object(id: &str) -> Result<&str> {
-    if id.len() < 4 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+    if id.len() < MIN_OBJECT_ID_LENGTH || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(Error::refused(format!("Invalid object: {id}")));
     }
     Ok(id)
@@ -116,13 +120,14 @@ async fn remote(root: &Path, name: &str) -> Result<bool> {
         async move {
             git::run(root, &["rev-parse", "--verify", "--quiet", &full], None)
                 .await
-                .map(|output| output.code == 0)
+                .map(|output| output.code == git::EXIT_SUCCESS)
         }
     };
     Ok(!verify("refs/heads/").await? && verify("refs/remotes/").await?)
 }
 fn local(name: &str) -> &str {
-    name.split_once('/').map_or(name, |(_, rest)| rest)
+    name.split_once(git::REMOTE_SEPARATOR)
+        .map_or(name, |(_, rest)| rest)
 }
 async fn label(repo: &Repo, mode: &str, name: &str) -> Result<String> {
     if name.is_empty() {
@@ -162,9 +167,9 @@ pub async fn target(repo: &Repo, mode: &str, name: &str, path: &str) -> Result<T
     );
     let parent = repo.project.parent().unwrap_or(&repo.project);
     let path = (1..)
-        .map(|n| match n {
+        .map(|number| match number {
             1 => parent.join(&stem),
-            _ => parent.join(format!("{stem}-{n}")),
+            _ => parent.join(format!("{stem}-{number}")),
         })
         .find(|candidate| free(candidate))
         .unwrap_or_default();
@@ -178,27 +183,29 @@ pub async fn add(repo: &Repo, path: &str, mode: &str, branch: &str, base: &str) 
     if !Path::new(path).is_absolute() {
         return Err(Error::refused("Choose an absolute folder for the worktree"));
     }
-    let mut args = vec!["worktree", "add"];
+    let mut arguments = vec!["worktree", "add"];
     match mode {
-        "detached" => args.extend(["--detach", path, reference(base)?]),
-        "new" => args.extend(["-b", reference(branch)?, path, reference(base)?]),
+        "detached" => arguments.extend(["--detach", path, reference(base)?]),
+        "new" => arguments.extend(["-b", reference(branch)?, path, reference(base)?]),
         _ if remote(&repo.root, reference(branch)?).await? => {
-            args.extend(["--track", "-b", local(branch), path, branch])
+            arguments.extend(["--track", "-b", local(branch), path, branch])
         }
-        _ => args.extend([path, branch]),
+        _ => arguments.extend([path, branch]),
     }
-    git::run(&repo.root, &args, None).await?.accept(&[0])?;
+    git::run(&repo.root, &arguments, None)
+        .await?
+        .accept(&[git::EXIT_SUCCESS])?;
     Ok(canonical(path).to_string_lossy().into_owned())
 }
-async fn count(root: &Path, args: &[&str]) -> Result<u32> {
-    Ok(git::text(root, args)
+async fn count(root: &Path, arguments: &[&str]) -> Result<u32> {
+    Ok(git::text(root, arguments)
         .await?
         .trim()
         .parse()
         .unwrap_or_default())
 }
 pub async fn summary(source: &Repo, target: &str) -> Result<Summary> {
-    let detached = source.snapshot().await?.branch == "(detached)";
+    let detached = source.snapshot().await?.branch == git::DETACHED_LABEL;
     Ok(Summary {
         ahead: count(
             &source.root,
@@ -211,7 +218,7 @@ pub async fn summary(source: &Repo, target: &str) -> Result<Summary> {
                 &[
                     "rev-list",
                     "--count",
-                    "HEAD",
+                    git::HEAD,
                     "--not",
                     "--branches",
                     "--tags",
@@ -226,10 +233,13 @@ pub async fn summary(source: &Repo, target: &str) -> Result<Summary> {
     })
 }
 pub async fn remove(repo: &Repo, worktree: &str, force: u64) -> Result<()> {
-    let mut args = vec!["worktree", "remove"];
-    args.extend(std::iter::repeat_n("--force", force.min(2) as usize));
-    args.push(worktree);
-    git::run(&repo.root, &args, None).await?.accept(&[0])?;
+    let mut arguments = vec!["worktree", "remove"];
+    let repeats = usize::try_from(force.min(MAX_FORCE)).unwrap_or_default();
+    arguments.extend(std::iter::repeat_n("--force", repeats));
+    arguments.push(worktree);
+    git::run(&repo.root, &arguments, None)
+        .await?
+        .accept(&[git::EXIT_SUCCESS])?;
     Ok(())
 }
 async fn snapshot(source: &Repo) -> Result<String> {
@@ -246,11 +256,11 @@ async fn snapshot(source: &Repo) -> Result<String> {
         }
         git::run_indexed(&source.root, &index, &["add", "-A"])
             .await?
-            .accept(&[0])?;
+            .accept(&[git::EXIT_SUCCESS])?;
         Ok::<_, Error>(
             git::run_indexed(&source.root, &index, &["write-tree"])
                 .await?
-                .accept(&[0])?
+                .accept(&[git::EXIT_SUCCESS])?
                 .text()
                 .trim()
                 .to_string(),
@@ -276,7 +286,7 @@ async fn patch(root: &Path, base: &str, tree: &str) -> Result<Vec<u8>> {
         None,
     )
     .await?
-    .accept(&[0])?
+    .accept(&[git::EXIT_SUCCESS])?
     .bytes)
 }
 async fn changed(root: &Path, base: &str, tree: &str) -> Result<HashSet<String>> {
@@ -293,15 +303,15 @@ async fn changed(root: &Path, base: &str, tree: &str) -> Result<HashSet<String>>
         ],
     )
     .await?
-    .split('\0')
+    .split(git::NUL)
     .filter(|path| !path.is_empty())
     .map(String::from)
     .collect())
 }
 async fn patched(root: &Path, flags: &[&str], patch: &[u8]) -> Result<git::Output> {
-    let mut args = vec!["apply", "--binary", "--whitespace=nowarn"];
-    args.extend_from_slice(flags);
-    git::run(root, &args, Some(patch)).await
+    let mut arguments = vec!["apply", "--binary", "--whitespace=nowarn"];
+    arguments.extend_from_slice(flags);
+    git::run(root, &arguments, Some(patch)).await
 }
 async fn unstage(target: &Repo, paths: &HashSet<String>) -> Result<()> {
     let list: Vec<u8> = paths
@@ -319,26 +329,26 @@ async fn unstage(target: &Repo, paths: &HashSet<String>) -> Result<()> {
         Some(&list),
     )
     .await?
-    .accept(&[0])?;
+    .accept(&[git::EXIT_SUCCESS])?;
     Ok(())
 }
 async fn merged(target: &Repo, patch: &[u8], temporary: &str) -> Result<()> {
     if patched(&target.root, &["--index", "--check"], patch)
         .await?
         .code
-        == 0
+        == git::EXIT_SUCCESS
     {
         patched(&target.root, &["--index"], patch)
             .await?
-            .accept(&[0])?;
-    } else if patched(&target.root, &["--3way"], patch).await?.code != 0 {
+            .accept(&[git::EXIT_SUCCESS])?;
+    } else if patched(&target.root, &["--3way"], patch).await?.code != git::EXIT_SUCCESS {
         return Err(Error::refused("The worktree's changes conflict with main."));
     }
     for flags in [&["--index"][..], &[]] {
-        let mut args = vec!["stash", "apply"];
-        args.extend_from_slice(flags);
-        args.push(temporary);
-        if git::run(&target.root, &args, None).await?.code == 0 {
+        let mut arguments = vec!["stash", "apply"];
+        arguments.extend_from_slice(flags);
+        arguments.push(temporary);
+        if git::run(&target.root, &arguments, None).await?.code == git::EXIT_SUCCESS {
             return Ok(());
         }
         if target.refresh().await?.conflicted {
@@ -352,25 +362,31 @@ async fn merged(target: &Repo, patch: &[u8], temporary: &str) -> Result<()> {
 async fn stashed(target: &Repo, patch: &[u8], paths: &HashSet<String>) -> Result<()> {
     let temporary = stash::save(target, "GitViewer: apply worktree").await?;
     let Err(error) = merged(target, patch, &temporary).await else {
-        stash::drop(target, &temporary).await?;
+        stash::remove(target, &temporary).await?;
         return unstage(target, paths).await;
     };
-    git::run(&target.root, &["reset", "--hard", "--quiet", "HEAD"], None)
-        .await?
-        .accept(&[0])?;
+    git::run(
+        &target.root,
+        &["reset", "--hard", "--quiet", git::HEAD],
+        None,
+    )
+    .await?
+    .accept(&[git::EXIT_SUCCESS])?;
     for path in stash::untracked(target, &temporary).await? {
         let _ = std::fs::remove_file(target.path(&path)?);
     }
-    stash::restore(target, &temporary).await.map_err(|e| {
-        Error::new(
-            "unexpected",
-            format!(
-                "Changes remain recoverable in stash {temporary}. {}",
-                e.message
-            ),
-        )
-    })?;
-    stash::drop(target, &temporary).await?;
+    stash::restore(target, &temporary)
+        .await
+        .map_err(|failure| {
+            Error::new(
+                "unexpected",
+                format!(
+                    "Changes remain recoverable in stash {temporary}. {}",
+                    failure.message
+                ),
+            )
+        })?;
+    stash::remove(target, &temporary).await?;
     Err(Error::refused(format!(
         "Main was left as it was. {}",
         error.message
@@ -381,11 +397,11 @@ pub async fn apply(source: &Repo, target: &Repo, smart: bool) -> Result<Applied>
     let tree = snapshot(source).await?;
     let base = git::run(
         &source.root,
-        &["merge-base", "HEAD", object(&status.oid)?],
+        &["merge-base", git::HEAD, object(&status.oid)?],
         None,
     )
     .await?
-    .accept(&[0])
+    .accept(&[git::EXIT_SUCCESS])
     .map_err(|_| Error::refused("This worktree shares no history with main"))?
     .text()
     .trim()
@@ -412,13 +428,15 @@ pub async fn apply(source: &Repo, target: &Repo, smart: bool) -> Result<Applied>
         stashed(target, &patch, &paths).await?;
         return Ok(applied);
     }
-    if patched(&target.root, &["--check"], &patch).await?.code == 0 {
-        patched(&target.root, &[], &patch).await?.accept(&[0])?;
+    if patched(&target.root, &["--check"], &patch).await?.code == git::EXIT_SUCCESS {
+        patched(&target.root, &[], &patch)
+            .await?
+            .accept(&[git::EXIT_SUCCESS])?;
         return Ok(applied);
     }
     let output = patched(&target.root, &["--3way"], &patch)
         .await?
-        .accept(&[0, 1])?;
+        .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?;
     applied.conflicts = target
         .refresh()
         .await?
@@ -427,7 +445,7 @@ pub async fn apply(source: &Repo, target: &Repo, smart: bool) -> Result<Applied>
         .filter(|entry| matches!(entry, Entry::Unmerged { .. }))
         .count();
     if applied.conflicts == 0 {
-        if output.code != 0 {
+        if output.code != git::EXIT_SUCCESS {
             return Err(Error::git(output.message()));
         }
         unstage(target, &paths).await?;
@@ -446,6 +464,8 @@ pub async fn unapply(target: &Repo, base: &str, tree: &str) -> Result<()> {
             "Main changed since the apply. Undo it by hand.",
         ));
     }
-    patched(&target.root, &["-R"], &patch).await?.accept(&[0])?;
+    patched(&target.root, &["-R"], &patch)
+        .await?
+        .accept(&[git::EXIT_SUCCESS])?;
     Ok(())
 }

@@ -32,7 +32,7 @@ export function useBackend<K extends keyof Commands>(
   return useQuery({
     queryKey: queryKey(command, args),
     queryFn: () => invoke(command, args),
-    enabled,
+    enabled: enabled,
     initialData: initial?.data,
     initialDataUpdatedAt: initial?.updatedAt,
   });
@@ -69,14 +69,24 @@ const references = [
   'blame',
   'merge_preview',
 ];
+function keyCommand(key: readonly unknown[]) {
+  const command = key[1];
+  return typeof command === 'string' ? command : '';
+}
+function keySource(key: readonly unknown[]) {
+  const args = key[2];
+  const hasSource =
+    typeof args === 'object' && args !== null && 'source' in args;
+  return hasSource ? String(args.source) : '';
+}
 function refreshes(name: string, key: readonly unknown[]) {
-  const [, command, args] = key as [unknown, string, { source?: string }?];
+  const command = keyCommand(key);
   if (name === 'repo://files-changed') return listings.includes(command);
   if (name === 'repo://head-changed') return true;
   if (references.includes(command)) return false;
   return !(
     ['diff', 'diff_stack', 'file_lines'].includes(command) &&
-    immutable.includes(String(args?.source))
+    immutable.includes(keySource(key))
   );
 }
 function trimHistory(repo: string) {
@@ -136,7 +146,7 @@ function reportFailure<K extends keyof Commands>(
   failure: GitError,
 ) {
   useErrors.getState().report(scopeOf(args), failure, {
-    command,
+    command: command,
     retry: () => perform(command, args),
   });
 }

@@ -49,6 +49,12 @@ import {
   wrapSlot,
 } from './setup';
 import { FindPanel } from './FindPanel';
+import { scopeKey } from '../../lib/git';
+import {
+  FIND_SHORTCUT,
+  FIND_NEXT_SHORTCUT,
+  FIND_PREVIOUS_SHORTCUT,
+} from '../diff/find';
 const outline =
   'border border-line bg-surface text-ink dark:border-line-dark dark:bg-surface-dark dark:text-ink-dark';
 export default function EditSurface({
@@ -63,7 +69,11 @@ export default function EditSurface({
   toggleWrap: () => void;
 }) {
   const opened = useBackend('file_read', { repo, path });
-  const base = useBackend('file_lines', { repo, path, source: 'staged' });
+  const base = useBackend('file_lines', {
+    repo: repo,
+    path: path,
+    source: 'staged',
+  });
   const ready = useBuffer(repo, path);
   const dark = useDark();
   const seen = useRef(opened.data);
@@ -78,7 +88,7 @@ export default function EditSurface({
       createState({
         text: data.text,
         base: base.data,
-        dark,
+        dark: dark,
         leave: () => stopEditing(repo),
       }),
     );
@@ -152,10 +162,12 @@ function Editor({
     () => describeLanguage(path)?.name ?? 'Plain text',
   );
   useLayoutEffect(() => {
+    const parent = host.current;
+    if (!parent) return;
     const latest = current(repo, path);
     const created = new EditorView({
       state: latest?.state,
-      parent: host.current!,
+      parent: parent,
       dispatchTransactions: (transactions: readonly Transaction[], target) => {
         target.update(transactions);
         track(repo, path, target.state);
@@ -204,12 +216,12 @@ function Editor({
     };
   }, [view, path]);
   const finding = searchPanelOpen(buffer.state);
-  useActions(`${repo}:editor`, [
+  useActions(scopeKey(repo, 'editor'), [
     {
       id: 'find',
       icon: <Search className="size-3.5" />,
       label: 'Find in file',
-      key: 'Mod+f',
+      key: FIND_SHORTCUT,
       run: () => view && openFind(view, false),
       disabled: !view,
     },
@@ -225,7 +237,7 @@ function Editor({
       id: 'find-next',
       icon: <ArrowDown className="size-3.5" />,
       label: 'Next match',
-      key: 'F3',
+      key: FIND_NEXT_SHORTCUT,
       run: () => {
         if (view) findNext(view);
       },
@@ -235,7 +247,7 @@ function Editor({
       id: 'find-previous',
       icon: <ArrowUp className="size-3.5" />,
       label: 'Previous match',
-      key: 'Shift+F3',
+      key: FIND_PREVIOUS_SHORTCUT,
       run: () => {
         if (view) findPrevious(view);
       },

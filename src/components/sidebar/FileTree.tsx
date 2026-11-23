@@ -51,6 +51,8 @@ import {
   type Section,
 } from './nodes';
 import { openEntry, useRevealInTree } from './reveal';
+import { UNTRACKED } from '../../lib/git';
+import { treeRowHeight, TREE_OVERSCAN, treeIndent } from './geometry';
 const rowAction = 'size-6';
 const discardTint =
   'text-muted hover:text-deleted dark:text-muted-dark dark:hover:text-deleted-dark';
@@ -104,7 +106,7 @@ export function ChangesTree({
       if (node && !node.directory)
         useSelection.getState().select(repo, {
           path: node.path,
-          source: node.status === '?' ? 'file' : target,
+          source: node.status === UNTRACKED ? 'file' : target,
         });
     },
     features: [
@@ -123,8 +125,8 @@ export function ChangesTree({
   const virtual = useVirtualizer({
     count: items.length,
     getScrollElement: () => parent.current,
-    estimateSize: () => (compact ? 24 : 28),
-    overscan: 8,
+    estimateSize: () => treeRowHeight(compact),
+    overscan: TREE_OVERSCAN,
   });
   const hasDirectory = useMemo(
     () =>
@@ -183,7 +185,7 @@ export function ChangesTree({
                 className={`group absolute top-0 right-1 left-1 flex translate-y-row items-center rounded ${rowTint} ${selection?.path === node.path && selection.source === source ? 'bg-selected dark:bg-selected-dark' : ''}`}
                 style={dynamic({
                   '--row-offset': `${row.start}px`,
-                  '--tree-indent': `${item.getItemMeta().level * 16 + 6}px`,
+                  '--tree-indent': treeIndent(item.getItemMeta().level),
                 })}
               >
                 <FileMenu
@@ -198,7 +200,7 @@ export function ChangesTree({
                       if (!node.directory)
                         useSelection.getState().select(repo, {
                           path: node.path,
-                          source: node.status === '?' ? 'file' : target,
+                          source: node.status === UNTRACKED ? 'file' : target,
                         });
                     }}
                     className={`relative flex min-w-0 flex-1 items-center gap-1.5 pr-2 pl-indent text-left text-sm ${compact ? 'h-tree-compact' : 'h-tree-comfortable'} ${clickable} ${focus}`}
@@ -278,7 +280,7 @@ export function ChangesTree({
                     title={`${source === 'staged' ? 'Unstage' : 'Stage'} ${node.path}`}
                     onClick={() =>
                       void perform('files_action', {
-                        repo,
+                        repo: repo,
                         paths: node.paths,
                         action: source === 'staged' ? 'unstage' : 'stage',
                       })
@@ -305,7 +307,7 @@ export function FilesTree({ repo, status }: { repo: string; status: Status }) {
   const selection = useWorkingSelection(repo);
   const cache = useRef(new Map<string, TreeEntry>());
   const load = async (path: string) => {
-    const args = { repo, path: path === treeRoot ? '' : path };
+    const args = { repo: repo, path: path === treeRoot ? '' : path };
     const entries = await client.fetchQuery({
       queryKey: queryKey('tree', args),
       queryFn: () => invoke('tree', args),
@@ -409,14 +411,14 @@ export function FilesTree({ repo, status }: { repo: string; status: Status }) {
   const virtual = useVirtualizer({
     count: items.length,
     getScrollElement: () => parent.current,
-    estimateSize: () => (compact ? 24 : 28),
-    overscan: 8,
+    estimateSize: () => treeRowHeight(compact),
+    overscan: TREE_OVERSCAN,
   });
   useRevealInTree({
-    repo,
+    repo: repo,
     tree: 'files',
     instance: tree,
-    items,
+    items: items,
     scroll: (index) => virtual.scrollToIndex(index, { align: 'center' }),
     open: openEntry(tree),
   });
@@ -459,7 +461,7 @@ export function FilesTree({ repo, status }: { repo: string; status: Status }) {
                 className={`absolute top-0 right-1 left-1 flex translate-y-row items-center gap-1.5 rounded pr-2 pl-indent text-left text-sm hover:bg-hover dark:hover:bg-hover-dark ${compact ? 'h-tree-compact' : 'h-tree-comfortable'} ${node.ignored ? 'opacity-55' : ''} ${selection?.path === node.path ? 'bg-selected dark:bg-selected-dark' : ''} ${clickable} ${focus}`}
                 style={dynamic({
                   '--row-offset': `${row.start}px`,
-                  '--tree-indent': `${item.getItemMeta().level * 16 + 6}px`,
+                  '--tree-indent': treeIndent(item.getItemMeta().level),
                 })}
               >
                 {selection?.path === node.path && <span className={pill} />}

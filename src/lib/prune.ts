@@ -8,7 +8,7 @@ const key = 'branch_prune';
 export async function pruneBranches(repo: string, current: string) {
   const { announce, withdraw } = useSuccesses.getState();
   const say = (success: Omit<Success, 'key'>) =>
-    announce(repo, { key, info: true, ...success });
+    announce(repo, { key: key, info: true, ...success });
   say({
     title: 'Checking remote',
     description: 'Looking for local branches with no remote branch.',

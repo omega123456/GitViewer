@@ -1,4 +1,5 @@
 import { useId } from 'react';
+import { middleOf } from '../../lib/geometry';
 import type { Commit } from '../../lib/types';
 const strokes = [
   'stroke-lane-1 dark:stroke-lane-1-dark',
@@ -22,9 +23,20 @@ const fills = [
 ];
 const visibleLanes = 6;
 const fade = 10;
-const x = (lane: number) => 14 + lane * 18;
+const LANE_MARGIN = 14;
+const LANE_SPACING = 18;
+const laneCentre = (lane: number) => LANE_MARGIN + lane * LANE_SPACING;
 const rowHeight = 44;
-const middle = rowHeight / 2;
+const middle = middleOf(rowHeight);
+const LINE_WIDTH = 1.6;
+const DOT_RADIUS = 4;
+const HEAD_DOT_RADIUS = 5;
+const MERGE_DOT_RADIUS = 3.2;
+const HEAD_RING_RADIUS = 8;
+const HEAD_RING_OPACITY = 0.55;
+const ARROW_BASE_INSET = 7;
+const ARROW_TIP_INSET = 1;
+const ARROW_HALF_HEIGHT = 4;
 export function laneCount(commits: Commit[]) {
   return commits.reduce(
     (count, commit) =>
@@ -39,7 +51,7 @@ export function laneCount(commits: Commit[]) {
   );
 }
 export function graphWidth(lanes: number) {
-  return 28 + 18 * (Math.min(lanes, visibleLanes) - 1);
+  return laneCentre(Math.min(lanes, visibleLanes) - 1) + LANE_MARGIN;
 }
 export function LaneGraph({
   commit,
@@ -53,7 +65,7 @@ export function LaneGraph({
   const id = useId();
   const width = graphWidth(lanes);
   const overflow = lanes > visibleLanes;
-  const centre = x(commit.lane);
+  const centre = laneCentre(commit.lane);
   const merge = commit.parents.length > 1;
   return (
     <svg
@@ -78,23 +90,23 @@ export function LaneGraph({
           <path
             d={`M ${centre} 0 L ${centre} ${middle}`}
             className={strokes[commit.color]}
-            strokeWidth={1.6}
+            strokeWidth={LINE_WIDTH}
             fill="none"
           />
         )}
         {commit.segments.map((segment, index) => (
           <path
             key={index}
-            d={`${segment.from === commit.lane ? `M ${centre} ${middle}` : `M ${x(segment.from)} 0 L ${x(segment.from)} ${middle}`} L ${x(segment.to)} ${rowHeight}`}
+            d={`${segment.from === commit.lane ? `M ${centre} ${middle}` : `M ${laneCentre(segment.from)} 0 L ${laneCentre(segment.from)} ${middle}`} L ${laneCentre(segment.to)} ${rowHeight}`}
             className={strokes[segment.color]}
-            strokeWidth={1.6}
+            strokeWidth={LINE_WIDTH}
             fill="none"
           />
         ))}
       </g>
       {commit.lane >= visibleLanes ? (
         <path
-          d={`M ${width - 7} ${middle - 4} L ${width - 1} ${middle} L ${width - 7} ${middle + 4} Z`}
+          d={`M ${width - ARROW_BASE_INSET} ${middle - ARROW_HALF_HEIGHT} L ${width - ARROW_TIP_INSET} ${middle} L ${width - ARROW_BASE_INSET} ${middle + ARROW_HALF_HEIGHT} Z`}
           className={fills[commit.color]}
         />
       ) : (
@@ -103,9 +115,9 @@ export function LaneGraph({
             <circle
               cx={centre}
               cy={middle}
-              r={8}
-              strokeWidth={1.6}
-              opacity={0.55}
+              r={HEAD_RING_RADIUS}
+              strokeWidth={LINE_WIDTH}
+              opacity={HEAD_RING_OPACITY}
               fill="none"
               className={strokes[commit.color]}
             />
@@ -114,15 +126,15 @@ export function LaneGraph({
             <circle
               cx={centre}
               cy={middle}
-              r={3.2}
-              strokeWidth={1.6}
+              r={MERGE_DOT_RADIUS}
+              strokeWidth={LINE_WIDTH}
               className={`fill-sub dark:fill-sub-dark ${strokes[commit.color]}`}
             />
           ) : (
             <circle
               cx={centre}
               cy={middle}
-              r={head ? 5 : 4}
+              r={head ? HEAD_DOT_RADIUS : DOT_RADIUS}
               className={fills[commit.color]}
             />
           )}

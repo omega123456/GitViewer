@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { isScopeOf } from '../lib/git';
 export type ImageMode = 'side by side' | 'swipe' | 'onion skin';
 export interface TabImageView {
   mode: ImageMode;
@@ -20,21 +21,21 @@ interface ImageViews {
 export const useImageViews = create<ImageViews>((set) => ({
   tabs: {},
   update: (id, patch) =>
-    set((s) => ({
+    set((state) => ({
       tabs: {
-        ...s.tabs,
-        [id]: { ...imageViewDefaults, ...s.tabs[id], ...patch },
+        ...state.tabs,
+        [id]: { ...imageViewDefaults, ...state.tabs[id], ...patch },
       },
     })),
   forget: (id) =>
-    set((s) => ({
+    set((state) => ({
       tabs: Object.fromEntries(
-        Object.entries(s.tabs).filter(
-          ([key]) => key !== id && !key.startsWith(`${id}:`),
+        Object.entries(state.tabs).filter(
+          ([key]) => key !== id && !isScopeOf(key, id),
         ),
       ),
     })),
 }));
 export function useTabImageView(id: string) {
-  return useImageViews((s) => s.tabs[id] ?? imageViewDefaults);
+  return useImageViews((state) => state.tabs[id] ?? imageViewDefaults);
 }

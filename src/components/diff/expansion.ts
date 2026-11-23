@@ -32,7 +32,7 @@ export function useExpansion(
   const text = useBackend(
     'file_lines',
     {
-      repo,
+      repo: repo,
       path: selection.path,
       source: selection.source,
       revision: selection.revision,
@@ -53,9 +53,9 @@ export function useExpansion(
     list.length > 0 &&
     list.every((gap) => hidden(gap, reveal) === 0);
   return {
-    reveal,
+    reveal: reveal,
     available: list.length > 0,
-    full,
+    full: full,
     loading: wanted && text.isFetching && text.data === undefined,
     tooLarge: wanted && text.data === null,
     expand: (gap, direction) => {

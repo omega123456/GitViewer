@@ -25,8 +25,8 @@ import { tabSteps } from '../shared/ViewSwitch';
 const strip =
   'size-8 rounded text-muted hover:bg-tab-hover hover:text-ink dark:text-muted-dark dark:hover:bg-tab-hover-dark dark:hover:text-ink-dark';
 export function RepoTabStrip() {
-  const tabs = useTabs((s) => s.tabs);
-  const active = useTabs((s) => s.active);
+  const tabs = useTabs((state) => state.tabs);
+  const active = useTabs((state) => state.active);
   const keydown = (event: KeyboardEvent<HTMLDivElement>) => {
     const step = tabSteps[event.key];
     if (!step) return;
@@ -80,15 +80,20 @@ export function RepoTabStrip() {
 function useTabSignals(tab: Tab) {
   const statuses = useStatuses(tab.members);
   const dirty = tab.members.some((member) => statuses[member]?.entries.length);
-  const failed = useErrors((s) =>
-    tab.members.some((member) => s.scopes[member]?.length),
+  const failed = useErrors((state) =>
+    tab.members.some((member) => state.scopes[member]?.length),
   );
-  const working = useActivity((s) =>
+  const working = useActivity((state) =>
     tab.members.some((member) =>
-      (s.scopes[member] ?? []).some((entry) => entry.visible),
+      (state.scopes[member] ?? []).some((entry) => entry.visible),
     ),
   );
-  return { dirty, failed, working, branch: statuses[tab.view]?.branch };
+  return {
+    dirty: dirty,
+    failed: failed,
+    working: working,
+    branch: statuses[tab.view]?.branch,
+  };
 }
 const dirtyDot = 'size-1.5 rounded-full bg-modified dark:bg-modified-dark';
 const failedDot =

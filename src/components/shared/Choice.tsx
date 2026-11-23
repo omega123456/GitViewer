@@ -1,4 +1,5 @@
 import { RadioGroup } from 'radix-ui';
+import { chooseOption } from '../../lib/options';
 import { clickable, focus } from './styles';
 const looks = {
   segmented: {
@@ -31,7 +32,7 @@ export function Choice<T extends string>({
       value={value}
       aria-label={label}
       orientation="horizontal"
-      onValueChange={(next) => onChange(next as T)}
+      onValueChange={(next) => chooseOption(options, next, onChange)}
       className={look.root}
     >
       {options.map((option) => (

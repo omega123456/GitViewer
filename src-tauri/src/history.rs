@@ -22,17 +22,19 @@ pub struct Session {
     kept: Option<(String, Page)>,
     next: String,
 }
+const PAGE_SIZE: usize = 100;
+const HISTORY_FIELDS: usize = 6;
+const BLAME_HEADER_FIELDS: usize = 3;
+const HISTORY_FORMAT: &str = "--format=%H%x00%P%x00%an%x00%at%x00%D%x00%s%x00";
+const DETAIL_FORMAT: &str = "--format=%H%x00%an%x00%at%x00%s%x00%b";
+const DETAIL_FIELDS: usize = 5;
 impl Session {
     fn start(repo: &Repo, path: &str) -> Result<Self> {
-        let mut args = vec![
-            "log",
-            "--date-order",
-            "--format=%H%x00%P%x00%an%x00%at%x00%D%x00%s%x00",
-        ];
+        let mut arguments = vec!["log", "--date-order", HISTORY_FORMAT];
         if !path.is_empty() {
-            args.extend(["--", path]);
+            arguments.extend(["--", path]);
         }
-        let mut child = git::command("git", &repo.root, &args).spawn()?;
+        let mut child = git::command("git", &repo.root, &arguments).spawn()?;
         child.stdin.take();
         let stdout = child
             .stdout
@@ -69,16 +71,16 @@ impl Session {
         }
         let mut commits = Vec::new();
         let mut eof = false;
-        while commits.len() < 100 {
+        while commits.len() < PAGE_SIZE {
             let mut fields = Vec::new();
-            for _ in 0..6 {
+            for _ in 0..HISTORY_FIELDS {
                 let mut bytes = Vec::new();
-                let count = self.reader.read_until(0, &mut bytes).await?;
+                let count = self.reader.read_until(git::NUL_BYTE, &mut bytes).await?;
                 if count == 0 || (fields.is_empty() && bytes.iter().all(u8::is_ascii_whitespace)) {
                     eof = true;
                     break;
                 }
-                if bytes.last() == Some(&0) {
+                if bytes.last() == Some(&git::NUL_BYTE) {
                     bytes.pop();
                 }
                 fields.push(String::from_utf8_lossy(&bytes).into_owned());
@@ -105,8 +107,8 @@ impl Session {
                 Some(task) => task.await.map_err(Error::from)??,
                 None => String::new(),
             };
-            let unborn =
-                code.code() == Some(128) && stderr.contains("does not have any commits yet");
+            let unborn = code.code() == Some(git::EXIT_FATAL)
+                && stderr.contains("does not have any commits yet");
             if !code.success() && !unborn {
                 return Err(Error::git(stderr));
             }
@@ -115,7 +117,7 @@ impl Session {
         let next = if eof {
             None
         } else {
-            commits.last().map(|c| c.hash.clone())
+            commits.last().map(|commit| commit.hash.clone())
         };
         self.next = next.clone().unwrap_or_default();
         let page = Page {
@@ -153,7 +155,7 @@ pub async fn files(repo: &Repo, revision: &str) -> Result<CommitFiles> {
     let sha = resolve(repo, revision).await?;
     let parents = git::text(&repo.root, &["rev-list", "--parents", "-n", "1", &sha]).await?;
     let parent = parents.split_whitespace().nth(1);
-    let mut args = vec![
+    let mut arguments = vec![
         "diff-tree",
         "--root",
         "--no-commit-id",
@@ -163,12 +165,12 @@ pub async fn files(repo: &Repo, revision: &str) -> Result<CommitFiles> {
         "-z",
     ];
     if let Some(parent) = parent {
-        args.push(parent);
+        arguments.push(parent);
     }
-    args.push(&sha);
-    let output = git::text(&repo.root, &args).await?;
+    arguments.push(&sha);
+    let output = git::text(&repo.root, &arguments).await?;
     let mut files = CommitFiles::default();
-    let mut fields = output.split('\0');
+    let mut fields = output.split(git::NUL);
     let mut counts = String::new();
     while let Some(field) = fields.next() {
         if let Some(raw) = field.strip_prefix(':') {
@@ -179,7 +181,7 @@ pub async fn files(repo: &Repo, revision: &str) -> Result<CommitFiles> {
                 .insert(path.to_owned(), letter.chars().take(1).collect());
         } else {
             counts.push_str(field);
-            counts.push('\0');
+            counts.push(git::NUL);
         }
     }
     files.lines = numstat(&counts);
@@ -195,12 +197,8 @@ pub struct CommitDetail {
 }
 pub async fn detail(repo: &Repo, revision: &str) -> Result<CommitDetail> {
     let sha = resolve(repo, revision).await?;
-    let output = git::text(
-        &repo.root,
-        &["show", "-s", "--format=%H%x00%an%x00%at%x00%s%x00%b", &sha],
-    )
-    .await?;
-    let mut fields = output.splitn(5, '\0');
+    let output = git::text(&repo.root, &["show", "-s", DETAIL_FORMAT, &sha]).await?;
+    let mut fields = output.splitn(DETAIL_FIELDS, git::NUL);
     let mut next = || fields.next().unwrap_or_default().to_owned();
     Ok(CommitDetail {
         hash: next(),
@@ -225,19 +223,19 @@ pub async fn blame(repo: &Repo, path: &str) -> Result<Vec<Blame>> {
     repo.path(path)?;
     let output = git::run(
         &repo.root,
-        &["blame", "--line-porcelain", "HEAD", "--", path],
+        &["blame", "--line-porcelain", git::HEAD, "--", path],
         None,
     )
     .await?;
-    if output.code == 128
+    if output.code == git::EXIT_FATAL
         && ["no such ref", "no such path"]
             .iter()
-            .any(|v| output.message().contains(v))
+            .any(|sign| output.message().contains(sign))
     {
         return Ok(Vec::new());
     }
     let mut result: Vec<Blame> = Vec::new();
-    let text = output.accept(&[0])?.text();
+    let text = output.accept(&[git::EXIT_SUCCESS])?.text();
     let mut hash = String::new();
     let mut author = String::new();
     let mut timestamp = 0;
@@ -245,7 +243,7 @@ pub async fn blame(repo: &Repo, path: &str) -> Result<Vec<Blame>> {
     let mut line = 0;
     for value in text.lines() {
         if let Some(content) = value.strip_prefix('\t') {
-            let block = result.last().is_none_or(|b| b.hash != hash);
+            let block = result.last().is_none_or(|last| last.hash != hash);
             result.push(Blame {
                 hash: hash.clone(),
                 author: author.clone(),
@@ -263,9 +261,11 @@ pub async fn blame(repo: &Repo, path: &str) -> Result<Vec<Blame>> {
             subject = value.into();
         } else {
             let parts: Vec<&str> = value.split_whitespace().collect();
-            if parts.len() >= 3
-                && parts[0].len() == 40
-                && parts[0].chars().all(|c| c.is_ascii_hexdigit())
+            if parts.len() >= BLAME_HEADER_FIELDS
+                && parts[0].len() == git::FULL_HASH_LENGTH
+                && parts[0]
+                    .chars()
+                    .all(|character| character.is_ascii_hexdigit())
             {
                 hash = parts[0].into();
                 line = parts[2].parse().unwrap_or_default();

@@ -17,11 +17,11 @@ export async function runHunkAction(
   )
     return;
   await perform('hunk_action', {
-    repo,
+    repo: repo,
     path: selection.path,
     source: selection.source,
-    hunk,
+    hunk: hunk,
     patch: data.patches[hunk],
-    action,
+    action: action,
   });
 }

@@ -26,23 +26,26 @@ export function current(repo: string, path: string) {
   return useEditor.getState().buffers[repo]?.[path];
 }
 function patch(repo: string, path: string, change: Partial<Buffer>) {
-  useEditor.setState((s) => {
-    const buffer = s.buffers[repo]?.[path];
+  useEditor.setState((state) => {
+    const buffer = state.buffers[repo]?.[path];
     return buffer
       ? {
           buffers: {
-            ...s.buffers,
-            [repo]: { ...s.buffers[repo], [path]: { ...buffer, ...change } },
+            ...state.buffers,
+            [repo]: {
+              ...state.buffers[repo],
+              [path]: { ...buffer, ...change },
+            },
           },
         }
-      : s;
+      : state;
   });
 }
 export function useBuffer(repo: string, path: string) {
-  return useEditor((s) => s.buffers[repo]?.[path]);
+  return useEditor((state) => state.buffers[repo]?.[path]);
 }
 export function useDirty(repo: string, path: string) {
-  return useEditor((s) => Boolean(s.buffers[repo]?.[path]?.dirty));
+  return useEditor((state) => Boolean(state.buffers[repo]?.[path]?.dirty));
 }
 export function isProtected(repo: string, path: string) {
   const buffer = current(repo, path);
@@ -54,14 +57,14 @@ export function openBuffer(
   opened: Opened,
   state: EditorState,
 ) {
-  useEditor.setState((s) => ({
+  useEditor.setState((store) => ({
     buffers: {
-      ...s.buffers,
+      ...store.buffers,
       [repo]: {
-        ...s.buffers[repo],
+        ...store.buffers[repo],
         [path]: {
-          path,
-          state,
+          path: path,
+          state: state,
           saved: state.doc,
           version: opened.version,
           bom: opened.bom,
@@ -83,7 +86,8 @@ export function remember(
 }
 export function track(repo: string, path: string, state: EditorState) {
   const buffer = current(repo, path);
-  if (buffer) patch(repo, path, { state, dirty: !state.doc.eq(buffer.saved) });
+  if (buffer)
+    patch(repo, path, { state: state, dirty: !state.doc.eq(buffer.saved) });
 }
 export function reload(repo: string, path: string, opened: Opened) {
   const buffer = current(repo, path);
@@ -92,7 +96,7 @@ export function reload(repo: string, path: string, opened: Opened) {
     changes: { from: 0, to: buffer.state.doc.length, insert: opened.text },
   }).state;
   patch(repo, path, {
-    state,
+    state: state,
     saved: state.doc,
     version: opened.version,
     bom: opened.bom,
@@ -113,11 +117,14 @@ export function keepEdits(repo: string, path: string) {
     });
 }
 export function drop(repo: string, path?: string) {
-  useEditor.setState((s) => ({
+  useEditor.setState((state) => ({
     buffers:
       path === undefined
-        ? without(s.buffers, repo)
-        : { ...s.buffers, [repo]: without(s.buffers[repo] ?? {}, path) },
+        ? without(state.buffers, repo)
+        : {
+            ...state.buffers,
+            [repo]: without(state.buffers[repo] ?? {}, path),
+          },
   }));
 }
 function without<T>(record: Record<string, T>, key: string) {
@@ -147,8 +154,8 @@ export async function save(repo: string, path: string): Promise<void> {
   patch(repo, path, { saving: true });
   try {
     const result = await attempt('file_write', {
-      repo,
-      path,
+      repo: repo,
+      path: path,
       content: doc.toString(),
       expected: buffer.version,
     });

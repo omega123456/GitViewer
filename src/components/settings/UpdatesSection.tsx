@@ -7,6 +7,7 @@ import { Select } from '../shared/Select';
 import { Toggle } from '../shared/Toggle';
 import { FieldError } from '../states/Errors';
 import { SettingCard, SettingGroup, card } from './SettingCard';
+import { keysOf } from '../../lib/options';
 
 export function updateStatus(state: UpdateSnapshot) {
   if (state.availability === 'development')
@@ -137,14 +138,13 @@ export function UpdatesSection({ settings }: { settings: Settings }) {
             <Select
               label="Check for updates"
               placeholder="Every day"
-              value={intervals[settings.updateCheckInterval]}
-              options={Object.values(intervals)}
-              onChange={(label) =>
+              value={settings.updateCheckInterval}
+              options={keysOf(intervals)}
+              labels={intervals}
+              onChange={(updateCheckInterval) =>
                 void perform('settings_set', {
                   ...settings,
-                  updateCheckInterval: (
-                    Object.keys(intervals) as Settings['updateCheckInterval'][]
-                  ).find((key) => intervals[key] === label)!,
+                  updateCheckInterval,
                 })
               }
             />

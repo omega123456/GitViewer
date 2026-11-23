@@ -26,6 +26,7 @@ import { MatchedText } from '../shared/MatchedText';
 import { Modal } from '../shared/Modal';
 import { RepositorySignals } from './RepoTabStrip';
 import { clickable, focusInset, pill } from '../shared/styles';
+import { isScopeOf, scopeName, UNMODIFIED } from '../../lib/git';
 const groupNames: Record<string, string> = {
   app: 'Application',
   repository: 'Repository',
@@ -128,13 +129,13 @@ function RepositoryLabel({ name, path }: { name: string; path: string }) {
 }
 export function CommandPalette({ repo }: { repo: string }) {
   const scopes = useActionRegistry((state) => state.scopes);
-  const open = usePalette((s) => s.open);
-  const mode = usePalette((s) => s.mode);
+  const open = usePalette((state) => state.open);
+  const mode = usePalette((state) => state.mode);
   const [filter, setFilter] = useState('');
   const [index, setIndex] = useState(0);
   const list = useRef<HTMLDivElement>(null);
   const pointed = useRef(false);
-  const preference = usePalette((s) => s.ignored);
+  const preference = usePalette((state) => state.ignored);
   const settings = useBackend('settings_get', {});
   const ignored = preference ?? settings.data?.searchIgnoredFiles ?? false;
   const files = useBackend(
@@ -144,8 +145,9 @@ export function CommandPalette({ repo }: { repo: string }) {
   );
   const status = useBackend('status', { repo }, open && mode === 'files');
   const tabs = useTabs(useShallow(recentTabs));
-  const active = useTabs((s) => s.active);
-  const views = open && mode === 'repositories' ? tabs.map((t) => t.view) : [];
+  const active = useTabs((state) => state.active);
+  const views =
+    open && mode === 'repositories' ? tabs.map((tab) => tab.view) : [];
   const statuses = useStatuses(views);
   const query = useDeferredValue(filter);
   const matches = useMemo(
@@ -208,7 +210,7 @@ export function CommandPalette({ repo }: { repo: string }) {
                       status={
                         !entry
                           ? ''
-                          : entry.worktree !== '.'
+                          : entry.worktree !== UNMODIFIED
                             ? entry.worktree
                             : entry.index
                       }
@@ -218,21 +220,19 @@ export function CommandPalette({ repo }: { repo: string }) {
                     useLayout.getState().update(repo, { mode: 'working' });
                     useSelection
                       .getState()
-                      .select(repo, { path, source: sourceFor(entry) });
+                      .select(repo, { path: path, source: sourceFor(entry) });
                   },
                 };
               }),
             },
           ]
         : Object.entries(scopes)
-            .filter(
-              ([scope]) => scope === 'app' || scope.startsWith(`${repo}:`),
+            .filter(([scope]) => scope === 'app' || isScopeOf(scope, repo))
+            .map(([scope, actions]) => [scopeName(scope), actions] as const)
+            .sort(
+              ([left], [right]) =>
+                groupOrder.indexOf(left) - groupOrder.indexOf(right),
             )
-            .map(
-              ([scope, actions]) =>
-                [scope.split(':').at(-1)!, actions] as const,
-            )
-            .sort(([a], [b]) => groupOrder.indexOf(a) - groupOrder.indexOf(b))
             .map(([group, actions]) => ({
               name: groupNames[group] ?? group,
               rows: fuzzySearch(filter, actions, (action) => action.label).map(

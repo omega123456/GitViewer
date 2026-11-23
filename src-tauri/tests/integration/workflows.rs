@@ -225,7 +225,7 @@ async fn branches_history_blame_stashes_and_checkout_rollback() {
     let restored = stash::list(&repo).await.unwrap();
     assert_eq!(restored[0].hash, sha);
     assert_eq!(restored[0].message, "On main: local experiment");
-    stash::drop(&repo, &sha).await.unwrap();
+    stash::remove(&repo, &sha).await.unwrap();
     actions::files(&repo, &["file.txt".into()], "discard")
         .await
         .unwrap();
@@ -802,7 +802,7 @@ async fn file_limits_binary_missing_and_conflicted_guards() {
     assert!(actions::files(&repo, &["file.txt".into()], "invalid")
         .await
         .is_err());
-    assert!(stash::drop(&repo, "missing").await.is_err());
+    assert!(stash::remove(&repo, "missing").await.is_err());
     assert!(stash::apply(&repo, "missing", false, false).await.is_err());
     assert!(branch::delete(&repo, "main").await.is_err());
     assert!(branch::delete(&repo, "missing").await.is_err());

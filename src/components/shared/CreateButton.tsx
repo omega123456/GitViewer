@@ -2,8 +2,10 @@ import { DropdownMenu } from 'radix-ui';
 import { Check, ChevronDown } from 'lucide-react';
 import { Button } from './Button';
 import { menu, menuItem } from './styles';
+import { chooseOption, keysOf } from '../../lib/options';
 export const createModes = { switch: 'Create & switch', stay: 'Create only' };
 export type CreateMode = keyof typeof createModes;
+const createModeOptions = keysOf(createModes);
 export function CreateButton({
   mode,
   disabled,
@@ -47,9 +49,11 @@ export function CreateButton({
           >
             <DropdownMenu.RadioGroup
               value={mode}
-              onValueChange={(value) => onMode(value as CreateMode)}
+              onValueChange={(value) =>
+                chooseOption(createModeOptions, value, onMode)
+              }
             >
-              {(Object.keys(createModes) as CreateMode[]).map((option) => (
+              {createModeOptions.map((option) => (
                 <DropdownMenu.RadioItem
                   key={option}
                   value={option}

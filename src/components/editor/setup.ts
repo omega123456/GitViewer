@@ -118,7 +118,7 @@ export function openFind(view: EditorView, replace: boolean) {
 }
 const original = Facet.define<Text, Text>({
   combine: (values) => values[0] ?? Text.empty,
-  compare: (a, b) => a.eq(b),
+  compare: (left, right) => left.eq(right),
 });
 export function baseText(text: string | null | undefined) {
   return original.of(
@@ -240,7 +240,7 @@ function markers(chunks: readonly Chunk[], doc: Text) {
       const kind = chunk.fromA === chunk.toA ? added : modified;
       const first = doc.lineAt(chunk.fromB).number;
       const last = doc.lineAt(chunk.endB).number;
-      return Array.from({ length: last - first + 1 }, (_, index) =>
+      return Array.from({ length: last - first + 1 }, (_slot, index) =>
         kind.range(doc.line(first + index).from),
       );
     }),
@@ -257,12 +257,12 @@ function lineStarts(lines: string[]) {
   return starts;
 }
 function diffLines(
-  a: string,
-  b: string,
+  before: string,
+  after: string,
   budget: number,
 ): readonly DiffChange[] {
-  const linesA = a.split('\n');
-  const linesB = b.split('\n');
+  const linesA = before.split('\n');
+  const linesB = after.split('\n');
   const symbols = new Map<string, string>();
   const encode = (lines: string[]) =>
     lines
@@ -278,24 +278,26 @@ function diffLines(
   const encodedA = encode(linesA);
   const encodedB = encode(linesB);
   if (symbols.size > lastLineSymbol)
-    return [new DiffChange(0, a.length, 0, b.length)];
+    return [new DiffChange(0, before.length, 0, after.length)];
   const startsA = lineStarts(linesA);
   const startsB = lineStarts(linesB);
   return diff(encodedA, encodedB, { timeout: budget }).map(
     (change) =>
       new DiffChange(
-        Math.min(startsA[change.fromA], a.length),
-        Math.min(startsA[change.toA], a.length),
-        Math.min(startsB[change.fromB], b.length),
-        Math.min(startsB[change.toB], b.length),
+        Math.min(startsA[change.fromA], before.length),
+        Math.min(startsA[change.toA], before.length),
+        Math.min(startsB[change.fromB], after.length),
+        Math.min(startsB[change.toB], after.length),
       ),
   );
 }
 const byLine = {
-  override: (a: string, b: string) => diffLines(a, b, buildBudgetMs),
+  override: (before: string, after: string) =>
+    diffLines(before, after, buildBudgetMs),
 };
 const byLineQuickly = {
-  override: (a: string, b: string) => diffLines(a, b, keystrokeBudgetMs),
+  override: (before: string, after: string) =>
+    diffLines(before, after, keystrokeBudgetMs),
 };
 interface Changes {
   chunks: readonly Chunk[];
@@ -303,7 +305,7 @@ interface Changes {
 }
 function build(state: EditorState): Changes {
   const chunks = Chunk.build(state.facet(original), state.doc, byLine);
-  return { chunks, markers: markers(chunks, state.doc) };
+  return { chunks: chunks, markers: markers(chunks, state.doc) };
 }
 export const changes = StateField.define<Changes>({
   create: build,
@@ -319,7 +321,7 @@ export const changes = StateField.define<Changes>({
       transaction.changes,
       byLineQuickly,
     );
-    return { chunks, markers: markers(chunks, transaction.state.doc) };
+    return { chunks: chunks, markers: markers(chunks, transaction.state.doc) };
   },
 });
 export function describeLanguage(path: string) {

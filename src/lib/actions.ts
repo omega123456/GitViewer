@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { create } from 'zustand';
 import type { Action } from './keyboard';
+import { isScopeOf } from './git';
 interface Registry {
   scopes: Record<string, Action[]>;
   set: (scope: string, actions: Action[]) => void;
@@ -19,24 +20,25 @@ export const useActionRegistry = create<Registry>((set) => ({
 }));
 export function registeredActions(repo: string) {
   return Object.entries(useActionRegistry.getState().scopes)
-    .filter(([scope]) => scope === 'app' || scope.startsWith(`${repo}:`))
+    .filter(([scope]) => scope === 'app' || isScopeOf(scope, repo))
     .flatMap(([, actions]) => actions);
+}
+function describeActions(actions: Action[]) {
+  return actions.map(({ id, label, key, disabled }) => ({
+    id,
+    label,
+    key,
+    disabled,
+  }));
 }
 export function useActions(scope: string, actions: Action[]) {
   const latest = useRef(actions);
   useEffect(() => {
     latest.current = actions;
   });
-  const signature = JSON.stringify(
-    actions.map(({ id, label, key, disabled }) => ({
-      id,
-      label,
-      key,
-      disabled,
-    })),
-  );
+  const signature = JSON.stringify(describeActions(actions));
   useEffect(() => {
-    const descriptions = JSON.parse(signature) as Action[];
+    const descriptions = describeActions(latest.current);
     useActionRegistry.getState().set(
       scope,
       descriptions.map((description) => ({

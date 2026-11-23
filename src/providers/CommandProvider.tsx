@@ -17,7 +17,7 @@ import { activeView, useTabs } from '../stores/tabs';
 export function CommandProvider({ children }: { children: ReactNode }) {
   const environment = useBackend('env', {});
   const supported = environment.data?.supported ?? false;
-  const active = useTabs((s) => s.active);
+  const active = useTabs((state) => state.active);
   useActions('app', [
     {
       id: 'open',

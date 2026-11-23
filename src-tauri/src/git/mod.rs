@@ -7,6 +7,43 @@ use tokio::{
     process::Command,
 };
 
+pub const NUL: char = '\0';
+pub const NUL_BYTE: u8 = b'\0';
+pub const FULL_HASH_LENGTH: usize = 40;
+pub const HEAD: &str = "HEAD";
+pub const DOT_GIT: &str = ".git";
+pub const PATH_SEPARATOR: &str = "/";
+pub const REMOTE_SEPARATOR: char = '/';
+pub const UNTRACKED: &str = "?";
+pub const UNMODIFIED: &str = ".";
+pub const DETACHED_LABEL: &str = "(detached)";
+pub const EMPTY_FORMAT: &str = "--format=";
+pub const EXIT_SUCCESS: i32 = 0;
+pub const EXIT_DIFFERENT: i32 = 1;
+pub const EXIT_FATAL: i32 = 128;
+const EXIT_USAGE: i32 = 129;
+const PROGRESS_CHUNK_BYTES: usize = 4096;
+const EXIT_UNKNOWN: i32 = -1;
+
+pub fn first_parent(revision: &str) -> String {
+    format!("{revision}^1")
+}
+pub fn stash_index(stash: &str) -> String {
+    format!("{stash}^2")
+}
+pub fn stash_untracked(stash: &str) -> String {
+    format!("{stash}^3")
+}
+pub fn tree_of(revision: &str) -> String {
+    format!("{revision}^{{tree}}")
+}
+pub fn commit_of(revision: &str) -> String {
+    format!("{revision}^{{commit}}")
+}
+pub fn object_at(revision: &str, path: &str) -> String {
+    format!("{revision}:{path}")
+}
+
 #[derive(Debug)]
 pub struct Output {
     pub code: i32,
@@ -29,21 +66,21 @@ impl Output {
     }
 }
 
-pub async fn run(root: &Path, args: &[&str], input: Option<&[u8]>) -> Result<Output> {
-    run_binary("git", root, args, input).await
+pub async fn run(root: &Path, arguments: &[&str], input: Option<&[u8]>) -> Result<Output> {
+    run_binary("git", root, arguments, input).await
 }
-pub async fn run_indexed(root: &Path, index: &Path, args: &[&str]) -> Result<Output> {
-    let mut command = command("git", root, args);
+pub async fn run_indexed(root: &Path, index: &Path, arguments: &[&str]) -> Result<Output> {
+    let mut command = command("git", root, arguments);
     command.env("GIT_INDEX_FILE", index);
     execute(command, None).await
 }
 pub async fn run_binary(
     binary: &str,
     root: &Path,
-    args: &[&str],
+    arguments: &[&str],
     input: Option<&[u8]>,
 ) -> Result<Output> {
-    execute(command(binary, root, args), input).await
+    execute(command(binary, root, arguments), input).await
 }
 async fn execute(mut command: Command, input: Option<&[u8]>) -> Result<Output> {
     let mut child = command
@@ -57,13 +94,13 @@ async fn execute(mut command: Command, input: Option<&[u8]>) -> Result<Output> {
     let writer = tokio::spawn(async move { stdin.write_all(&data).await });
     let output = child.wait_with_output().await?;
     let write_result = writer.await.map_err(Error::from)?;
-    let code = output.status.code().unwrap_or(-1);
-    if code == 0 {
+    let code = output.status.code().unwrap_or(EXIT_UNKNOWN);
+    if code == EXIT_SUCCESS {
         write_result?;
     }
-    if code == 129 {
-        let args: Vec<_> = command.as_std().get_args().collect();
-        tracing::error!(?args, "Git rejected application arguments");
+    if code == EXIT_USAGE {
+        let arguments: Vec<_> = command.as_std().get_args().collect();
+        tracing::error!(args = ?arguments, "Git rejected application arguments");
     }
     Ok(Output {
         code,
@@ -78,8 +115,8 @@ fn report<F: Fn(&str)>(progress: &F, segment: &[u8]) {
         progress(text);
     }
 }
-pub async fn stream<F: Fn(&str)>(root: &Path, args: &[&str], progress: F) -> Result<Output> {
-    let mut child = command("git", root, args)
+pub async fn stream<F: Fn(&str)>(root: &Path, arguments: &[&str], progress: F) -> Result<Output> {
+    let mut child = command("git", root, arguments)
         .spawn()
         .map_err(|error| Error::new("missing_git", error.to_string()))?;
     drop(child.stdin.take());
@@ -97,7 +134,7 @@ pub async fn stream<F: Fn(&str)>(root: &Path, args: &[&str], progress: F) -> Res
     });
     let mut raw: Vec<u8> = Vec::new();
     let mut reported = 0;
-    let mut chunk = [0u8; 4096];
+    let mut chunk = [0u8; PROGRESS_CHUNK_BYTES];
     loop {
         let read = stderr.read(&mut chunk).await?;
         if read == 0 {
@@ -115,13 +152,16 @@ pub async fn stream<F: Fn(&str)>(root: &Path, args: &[&str], progress: F) -> Res
     report(&progress, &raw[reported..]);
     let status = child.wait().await?;
     Ok(Output {
-        code: status.code().unwrap_or(-1),
+        code: status.code().unwrap_or(EXIT_UNKNOWN),
         bytes: collector.await.map_err(Error::from)??,
         stderr: String::from_utf8_lossy(&raw).into_owned(),
     })
 }
-pub async fn text(root: &Path, args: &[&str]) -> Result<String> {
-    Ok(run(root, args, None).await?.accept(&[0])?.text())
+pub async fn text(root: &Path, arguments: &[&str]) -> Result<String> {
+    Ok(run(root, arguments, None)
+        .await?
+        .accept(&[EXIT_SUCCESS])?
+        .text())
 }
 pub async fn ignored<'a>(
     root: &Path,
@@ -135,13 +175,13 @@ pub async fn ignored<'a>(
         .await?
         .accept(&[0, 1])?
         .text()
-        .split('\0')
+        .split(NUL)
         .filter(|path| !path.is_empty())
         .map(String::from)
         .collect())
 }
 
-pub fn command(binary: &str, root: &Path, args: &[&str]) -> Command {
+pub fn command(binary: &str, root: &Path, arguments: &[&str]) -> Command {
     let mut command = Command::new(binary);
     command
         .current_dir(root)
@@ -153,7 +193,7 @@ pub fn command(binary: &str, root: &Path, args: &[&str]) -> Command {
             "color.ui=false",
         ])
         .args(
-            if args.first().is_some_and(|arg| {
+            if arguments.first().is_some_and(|argument| {
                 [
                     "diff",
                     "diff-files",
@@ -164,14 +204,14 @@ pub fn command(binary: &str, root: &Path, args: &[&str]) -> Command {
                     "blame",
                     "diff-tree",
                 ]
-                .contains(arg)
+                .contains(argument)
             }) {
                 vec!["--literal-pathspecs"]
             } else {
                 Vec::new()
             },
         )
-        .args(args)
+        .args(arguments)
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GCM_INTERACTIVE", "Never")
         .env("LC_ALL", "C")

@@ -32,7 +32,7 @@ export const useErrors = create<Errors>((set, get) => {
     scopes: {},
     report: (scope, error, extra) =>
       edit(scope, (list) =>
-        [...list, { ...extra, id: nextNotice(), error }].slice(-limit),
+        [...list, { ...extra, id: nextNotice(), error: error }].slice(-limit),
       ),
     dismiss: (scope, id) =>
       edit(scope, (list) => list.filter((failure) => failure.id !== id)),

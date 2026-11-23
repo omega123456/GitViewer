@@ -22,6 +22,8 @@ import {
   type Node,
 } from './nodes';
 import { openNode, useRevealInTree } from './reveal';
+import { UNMODIFIED } from '../../lib/git';
+import { revisionRowHeight, TREE_OVERSCAN, treeIndent } from './geometry';
 
 export function RevisionTree({
   repo,
@@ -48,8 +50,8 @@ export function RevisionTree({
       changeNodes(
         paths.map((path) => ({
           kind: 'ordinary',
-          path,
-          index: '.',
+          path: path,
+          index: UNMODIFIED,
           worktree: statuses?.[path] ?? 'M',
         })),
         'unstaged',
@@ -84,8 +86,8 @@ export function RevisionTree({
   const virtual = useVirtualizer({
     count: items.length,
     getScrollElement: () => parent.current,
-    estimateSize: () => (compact ? 22 : 26),
-    overscan: 8,
+    estimateSize: () => revisionRowHeight(compact),
+    overscan: TREE_OVERSCAN,
   });
   const selectedIndex = items.findIndex(
     (item) => item.getItemData().path === selectedPath,
@@ -94,10 +96,10 @@ export function RevisionTree({
     if (selectedIndex >= 0) virtual.scrollToIndex(selectedIndex);
   }, [virtual, selectedIndex]);
   useRevealInTree({
-    repo,
+    repo: repo,
     tree: key,
     instance: tree,
-    items,
+    items: items,
     scroll: (index) => virtual.scrollToIndex(index, { align: 'center' }),
     open: openNode(tree, nodes),
   });
@@ -127,7 +129,7 @@ export function RevisionTree({
               className={`absolute top-0 right-1 left-1 flex translate-y-row items-center gap-1.5 rounded pr-2 pl-indent text-left text-sm hover:bg-hover dark:hover:bg-hover-dark ${compact ? 'h-tree-compact' : 'h-tree-comfortable'} ${selectedPath === node.path ? 'bg-selected dark:bg-selected-dark' : ''} ${clickable} ${focus}`}
               style={dynamic({
                 '--row-offset': `${row.start}px`,
-                '--tree-indent': `${item.getItemMeta().level * 16 + 6}px`,
+                '--tree-indent': treeIndent(item.getItemMeta().level),
               })}
             >
               {selectedPath === node.path && <span className={pill} />}

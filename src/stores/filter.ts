@@ -7,16 +7,17 @@ interface Filter {
 }
 export const useFilterStore = create<Filter>((set) => ({
   text: {},
-  set: (id, value) => set((s) => ({ text: { ...s.text, [id]: value } })),
+  set: (id, value) =>
+    set((state) => ({ text: { ...state.text, [id]: value } })),
   forget: (id) =>
-    set((s) => ({
+    set((state) => ({
       text: Object.fromEntries(
-        Object.entries(s.text).filter(([key]) => key !== id),
+        Object.entries(state.text).filter(([key]) => key !== id),
       ),
     })),
 }));
 export function useFilter(id: string) {
-  return useFilterStore((s) => s.text[id] ?? '');
+  return useFilterStore((state) => state.text[id] ?? '');
 }
 export function useDeferredFilter(id: string) {
   return useDeferredValue(useFilter(id));

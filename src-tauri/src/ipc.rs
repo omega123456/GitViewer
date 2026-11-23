@@ -13,6 +13,8 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 #[cfg(not(feature = "test-utils"))]
 use tauri_plugin_opener::OpenerExt;
 
+const FRONTEND_LOG_LIMIT: usize = 4096;
+
 fn string<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
     args.get(key)
         .and_then(Value::as_str)
@@ -85,7 +87,7 @@ pub async fn dispatch<R: tauri::Runtime>(
     match command.as_str() {
         "frontend_log" => {
             let message = string(&args, "message")?;
-            tracing::error!(target: "frontend", message = %message.chars().take(4096).collect::<String>(), "Frontend error");
+            tracing::error!(target: "frontend", message = %message.chars().take(FRONTEND_LOG_LIMIT).collect::<String>(), "Frontend error");
             return done();
         }
         "edit_menu" => {
@@ -206,16 +208,16 @@ pub async fn dispatch<R: tauri::Runtime>(
         "repo_open" => {
             let info = registry.open(string(&args, "path")?).await?;
             let repo = registry.get(&info.id).await?;
-            let watcher = app.clone();
+            let emitter = app.clone();
             let id = info.id.clone();
             watch::start(&repo, move |change| {
                 if change == watch::Change::Files {
-                    let _ = watcher.emit("repo://files-changed", json!({"repo":id}));
+                    let _ = emitter.emit("repo://files-changed", json!({"repo":id}));
                     return;
                 }
-                let _ = watcher.emit("repo://status-changed", json!({"repo":id}));
+                let _ = emitter.emit("repo://status-changed", json!({"repo":id}));
                 if change == watch::Change::Head {
-                    let _ = watcher.emit("repo://head-changed", json!({"repo":id}));
+                    let _ = emitter.emit("repo://head-changed", json!({"repo":id}));
                 }
             })?;
             app.emit("repo://head-changed", json!({"repo":info.id}))
@@ -299,7 +301,11 @@ pub async fn dispatch<R: tauri::Runtime>(
                     source,
                     revision,
                     optional(&args, "base"),
-                    args.get("context").and_then(Value::as_u64).unwrap_or(3) as u32,
+                    args.get("context")
+                        .and_then(Value::as_u64)
+                        .map_or(diff::DIFF_CONTEXT_LINES, |context| {
+                            u32::try_from(context).unwrap_or(u32::MAX)
+                        }),
                     flag(&args, "overrideLimit"),
                 )
                 .await?;
@@ -349,7 +355,8 @@ pub async fn dispatch<R: tauri::Runtime>(
                     &repo,
                     path,
                     string(&args, "source")?,
-                    args["hunk"].as_u64().unwrap_or_default() as usize,
+                    usize::try_from(args["hunk"].as_u64().unwrap_or_default())
+                        .unwrap_or(usize::MAX),
                     string(&args, "patch")?,
                     string(&args, "action")?,
                 )
@@ -490,7 +497,10 @@ pub async fn dispatch<R: tauri::Runtime>(
                 let mut files = history::files(&repo, revision).await?;
                 if optional(&args, "source") == "stash" {
                     for path in stash::untracked(&repo, revision).await? {
-                        files.statuses.entry(path).or_insert_with(|| "?".into());
+                        files
+                            .statuses
+                            .entry(path)
+                            .or_insert_with(|| git::UNTRACKED.into());
                     }
                 }
                 return raw(&files);
@@ -510,7 +520,7 @@ pub async fn dispatch<R: tauri::Runtime>(
                 done()?
             }
             "stash_drop" => {
-                stash::drop(&repo, string(&args, "hash")?).await?;
+                stash::remove(&repo, string(&args, "hash")?).await?;
                 done()?
             }
             "stash_restore" => {

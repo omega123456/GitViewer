@@ -15,7 +15,11 @@ import { shortcutLabel } from '../../lib/keyboard';
 import { perform } from '../../lib/query';
 import { useCommit, useCommitState } from '../../stores/commit';
 import { useGenerate, useGenerateState } from '../../stores/generate';
-import { useLayout, useTabLayout } from '../../stores/layout';
+import {
+  useLayout,
+  useTabLayout,
+  commitMessageHeightBounds,
+} from '../../stores/layout';
 import {
   type CommitMode,
   useCommitMode,
@@ -27,6 +31,9 @@ import { Spinner } from '../shared/Spinner';
 import { dynamic, field, menu, menuItem } from '../shared/styles';
 import { ResizeHandle } from '../shell/ResizeHandle';
 import { FieldError } from '../states/Errors';
+import { isDetached, UNTRACKED, UNMODIFIED } from '../../lib/git';
+import { chooseOption, keysOf } from '../../lib/options';
+import { boundsOf } from '../../lib/geometry';
 export function aiConfigured(settings: SettingsResponse) {
   return Boolean(settings.ai.baseUrl && settings.ai.model);
 }
@@ -43,6 +50,7 @@ const modes: Record<CommitMode, { label: string; key: string }> = {
   commit: { label: 'Commit', key: 'Mod+Enter' },
   commitPush: { label: 'Commit & Push', key: 'Mod+Shift+Enter' },
 };
+const modeOptions = keysOf(modes);
 export function commitLabel(
   status: Status,
   mode: CommitMode,
@@ -50,7 +58,7 @@ export function commitLabel(
 ) {
   const verb = mode === 'commitPush' ? 'Commit & push' : 'Commit';
   const staged = status.entries.filter(
-    (entry) => entry.index !== '.' && entry.index !== '?',
+    (entry) => entry.index !== UNMODIFIED && entry.index !== UNTRACKED,
   ).length;
   if (staged === 0 && smartCommit && status.entries.length > 0)
     return `${verb} all ${status.entries.length} ${status.entries.length === 1 ? 'change' : 'changes'} to ${status.branch}`;
@@ -92,7 +100,7 @@ export function CommitFooter({
     if (always)
       void perform('settings_set', { ...settings, smartCommit: 'always' });
     void useCommit.getState().run(repo, {
-      message,
+      message: message,
       mode: pending,
       stage: changes,
     });
@@ -123,14 +131,14 @@ export function CommitFooter({
           <ResizeHandle
             label="Resize commit message"
             orientation="vertical"
-            min={40}
-            max={400}
-            step={10}
+            min={commitMessageHeightBounds.min}
+            max={commitMessageHeightBounds.max}
+            step={commitMessageHeightBounds.step}
             value={commitMessageHeight}
             className="absolute inset-x-0 top-0 z-10 h-2 cursor-row-resize rounded-t focus-visible:bg-accent"
             measure={(event) =>
-              event.currentTarget.nextElementSibling!.getBoundingClientRect()
-                .bottom - event.clientY
+              boundsOf(event.currentTarget.nextElementSibling).bottom -
+              event.clientY
             }
             onChange={(next) =>
               useLayout.getState().update(repo, { commitMessageHeight: next })
@@ -172,7 +180,7 @@ export function CommitFooter({
             </div>
           </div>
         )}
-        {status.branch === '(detached)' && (
+        {isDetached(status.branch) && (
           <p className="text-label text-modified dark:text-modified-dark">
             This commit will be created on detached HEAD.
           </p>
@@ -212,10 +220,12 @@ export function CommitFooter({
                 <DropdownMenu.RadioGroup
                   value={active}
                   onValueChange={(value) =>
-                    useTabs.getState().setCommitMode(repo, value as CommitMode)
+                    chooseOption(modeOptions, value, (option) =>
+                      useTabs.getState().setCommitMode(repo, option),
+                    )
                   }
                 >
-                  {(Object.keys(modes) as CommitMode[]).map((option) => (
+                  {modeOptions.map((option) => (
                     <DropdownMenu.RadioItem
                       key={option}
                       value={option}

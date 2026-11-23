@@ -13,6 +13,8 @@ import { useActiveView } from '../../stores/tabs';
 import { Button } from '../shared/Button';
 import { Details } from '../shared/Details';
 import { Spinner } from '../shared/Spinner';
+const ACTIONABLE_TOAST_DURATION_MS = 8000;
+const TOAST_DURATION_MS = 6000;
 const tones = {
   success: {
     card: 'border-success/22 bg-success-ground dark:border-success-dark/22 dark:bg-success-ground-dark',
@@ -75,8 +77,9 @@ function FailureCard({
   remeasure: () => void;
 }) {
   const failure =
-    useErrors((s) => s.scopes[scope]?.find((f) => f.id === initial.id)) ??
-    initial;
+    useErrors((state) =>
+      state.scopes[scope]?.find((failure) => failure.id === initial.id),
+    ) ?? initial;
   const dismiss = () => useErrors.getState().dismiss(scope, initial.id);
   const described = describe(failure.error);
   const action = recovery(scope, failure, described.recovery);
@@ -122,8 +125,9 @@ function FailureCard({
 }
 function SuccessCard({ scope, initial }: { scope: string; initial: Notice }) {
   const notice =
-    useSuccesses((s) => s.scopes[scope]?.find((n) => n.id === initial.id)) ??
-    initial;
+    useSuccesses((state) =>
+      state.scopes[scope]?.find((notice) => notice.id === initial.id),
+    ) ?? initial;
   const dismiss = () => useSuccesses.getState().dismiss(scope, initial.id);
   const { restore, unapply, show, info, warning, pending } = notice;
   const tone: Tone = warning ? 'caution' : info ? 'info' : 'success';
@@ -191,16 +195,28 @@ function SuccessCard({ scope, initial }: { scope: string; initial: Notice }) {
 }
 export function Toaster() {
   const active = useActiveView();
-  const app = useErrors((s) => s.scopes[appScope] ?? none);
-  const tab = useErrors((s) => s.scopes[active] ?? none);
-  const done = useSuccesses((s) => s.scopes[active] ?? quiet);
+  const app = useErrors((state) => state.scopes[appScope] ?? none);
+  const tab = useErrors((state) => state.scopes[active] ?? none);
+  const done = useSuccesses((state) => state.scopes[active] ?? quiet);
   const shown = useRef(new Map<number, string | number>());
   useEffect(() => {
     const entries = [
-      ...app.map((failure) => ({ scope: appScope, id: failure.id, failure })),
-      ...tab.map((failure) => ({ scope: active, id: failure.id, failure })),
-      ...done.map((notice) => ({ scope: active, id: notice.id, notice })),
-    ].sort((a, b) => a.id - b.id);
+      ...app.map((failure) => ({
+        scope: appScope,
+        id: failure.id,
+        failure: failure,
+      })),
+      ...tab.map((failure) => ({
+        scope: active,
+        id: failure.id,
+        failure: failure,
+      })),
+      ...done.map((notice) => ({
+        scope: active,
+        id: notice.id,
+        notice: notice,
+      })),
+    ].sort((left, right) => left.id - right.id);
     const current = new Set(entries.map((entry) => entry.id));
     for (const [id, handle] of shown.current)
       if (!current.has(id)) {
@@ -238,8 +254,8 @@ export function Toaster() {
                   : entry.notice.restore ||
                       entry.notice.unapply ||
                       entry.notice.show
-                    ? 8000
-                    : 6000
+                    ? ACTIONABLE_TOAST_DURATION_MS
+                    : TOAST_DURATION_MS
                 : Infinity,
             onAutoClose: release,
             onDismiss: release,

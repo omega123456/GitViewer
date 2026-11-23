@@ -7,6 +7,8 @@ import {
 } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { dynamic } from './styles';
+const LIST_OVERSCAN = 12;
+const END_REACHED_DISTANCE = 8;
 export interface VirtualListHandle {
   scrollToIndex: (index: number, align: 'auto' | 'center') => void;
 }
@@ -30,14 +32,15 @@ export function VirtualList<T>({
     count: items.length,
     getScrollElement: () => parent.current,
     estimateSize: () => height,
-    overscan: 12,
+    overscan: LIST_OVERSCAN,
   });
   useImperativeHandle(ref, () => ({
     scrollToIndex: (index, align) => virtual.scrollToIndex(index, { align }),
   }));
   const last = virtual.getVirtualItems().at(-1)?.index ?? -1;
   useEffect(() => {
-    if (items.length > 0 && last >= items.length - 8) onEnd?.();
+    const nearEnd = last >= items.length - END_REACHED_DISTANCE;
+    if (items.length > 0 && nearEnd) onEnd?.();
   }, [last, items.length, onEnd]);
   return (
     <div

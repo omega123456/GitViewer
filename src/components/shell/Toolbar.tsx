@@ -41,7 +41,8 @@ export function Toolbar({
   const filter = useFilter(repo);
   const activity = useCurrentActivity(repo);
   const stashing = runs(activity, 'stash_save');
-  const stash = actions.find((action) => action.id === 'stash')!;
+  const actionById = (id: string) => actions.find((action) => action.id === id);
+  const stash = actionById('stash');
   const palette = useActionRegistry((state) =>
     state.scopes.app?.find((action) => action.id === 'palette'),
   );
@@ -51,7 +52,8 @@ export function Toolbar({
       <Divider />
       <div className="flex items-center gap-1">
         {(['fetch', 'pull', 'push'] as const).map((id) => {
-          const action = actions.find((action) => action.id === id)!;
+          const action = actionById(id);
+          if (!action) return null;
           const count = id === 'pull' ? status.behind : status.ahead;
           const running = runs(activity, 'sync', { action: id });
           return (
@@ -74,16 +76,18 @@ export function Toolbar({
         })}
       </div>
       <Divider />
-      <Button
-        variant="command"
-        aria-busy={stashing}
-        disabled={stash.disabled}
-        title="Stash changes"
-        onClick={() => void stash.run()}
-      >
-        {stashing ? <Spinner /> : <Archive className="size-4" />}
-        <span>Stash</span>
-      </Button>
+      {stash && (
+        <Button
+          variant="command"
+          aria-busy={stashing}
+          disabled={stash.disabled}
+          title="Stash changes"
+          onClick={() => void stash.run()}
+        >
+          {stashing ? <Spinner /> : <Archive className="size-4" />}
+          <span>Stash</span>
+        </Button>
+      )}
       <label className={`ml-auto h-8 w-57.5 ${searchBox}`}>
         <Search className="size-3.5 shrink-0 text-muted dark:text-muted-dark" />
         <TextInput

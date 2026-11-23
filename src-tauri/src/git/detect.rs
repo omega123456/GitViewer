@@ -1,6 +1,9 @@
-use crate::git::run_binary;
+use crate::git::{run_binary, EXIT_SUCCESS};
 use serde::Serialize;
 use std::{fmt, future::Future, path::Path};
+
+const VERSION_SEPARATOR: char = '.';
+const VERSION_PARTS: usize = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct GitVersion {
@@ -31,8 +34,8 @@ fn parse_version(version: &str) -> Option<GitVersion> {
     let values: Vec<u32> = version
         .trim()
         .trim_start_matches("git version ")
-        .split('.')
-        .take(2)
+        .split(VERSION_SEPARATOR)
+        .take(VERSION_PARTS)
         .filter_map(|part| part.parse().ok())
         .collect();
     match values.as_slice() {
@@ -74,7 +77,7 @@ where
 
 pub async fn binary_version(binary: &str) -> Option<String> {
     match run_binary(binary, Path::new("."), &["--version"], None).await {
-        Ok(output) if output.code == 0 => Some(output.text()),
+        Ok(output) if output.code == EXIT_SUCCESS => Some(output.text()),
         _ => None,
     }
 }

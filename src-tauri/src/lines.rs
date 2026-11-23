@@ -22,12 +22,13 @@ pub struct Working {
 }
 
 const PINNED: [&str; 4] = ["--numstat", "-z", "--no-ext-diff", "--no-textconv"];
+const NUMSTAT_FIELDS: usize = 3;
 
 pub fn numstat(text: &str) -> BTreeMap<String, Lines> {
     let mut lines = BTreeMap::new();
-    let mut fields = text.split('\0');
+    let mut fields = text.split(git::NUL);
     while let Some(record) = fields.next() {
-        let mut parts = record.splitn(3, '\t');
+        let mut parts = record.splitn(NUMSTAT_FIELDS, '\t');
         let (Some(added), Some(deleted), Some(path)) = (parts.next(), parts.next(), parts.next())
         else {
             continue;
@@ -85,12 +86,13 @@ fn untracked(repo: &Repository, entries: &[Entry]) -> Vec<(String, Lines)> {
         let Ok(metadata) = std::fs::metadata(&full) else {
             continue;
         };
-        if !metadata.is_file() || metadata.len() > size_limit(false) as u64 {
+        let limit = u64::try_from(size_limit(false)).unwrap_or(u64::MAX);
+        if !metadata.is_file() || metadata.len() > limit {
             continue;
         }
         let modified = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
         let lines = match cache.remove(path) {
-            Some((len, time, lines)) if len == metadata.len() && time == modified => lines,
+            Some((size, time, lines)) if size == metadata.len() && time == modified => lines,
             _ => match std::fs::read(&full) {
                 Ok(bytes) => count(&bytes),
                 Err(_) => continue,
@@ -103,10 +105,11 @@ fn untracked(repo: &Repository, entries: &[Entry]) -> Vec<(String, Lines)> {
     counted
 }
 pub fn count(bytes: &[u8]) -> Lines {
-    if bytes.contains(&0) {
+    if bytes.contains(&git::NUL_BYTE) {
         return None;
     }
     let newlines = bytes.iter().filter(|byte| **byte == b'\n').count();
     let open = bytes.last().is_some_and(|byte| *byte != b'\n');
-    Some([(newlines + usize::from(open)) as u32, 0])
+    let total = u32::try_from(newlines + usize::from(open)).unwrap_or(u32::MAX);
+    Some([total, 0])
 }

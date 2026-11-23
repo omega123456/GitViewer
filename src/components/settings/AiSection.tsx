@@ -80,7 +80,7 @@ export function AiSection({ settings }: { settings: SettingsResponse }) {
     return written.current;
   };
   const commit = (ai: Partial<AiSettings>) => {
-    const next = { ...settings.ai, baseUrl: endpoint, prompt, ...ai };
+    const next = { ...settings.ai, baseUrl: endpoint, prompt: prompt, ...ai };
     if (
       next.baseUrl === settings.ai.baseUrl &&
       next.prompt === settings.ai.prompt &&

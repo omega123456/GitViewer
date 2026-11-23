@@ -14,6 +14,8 @@ export const useTheme = create<Theme>((set) => ({
 }));
 export function useDark() {
   return useTheme(
-    (s) => s.preference === 'dark' || (s.preference === 'system' && s.system),
+    (state) =>
+      state.preference === 'dark' ||
+      (state.preference === 'system' && state.system),
   );
 }

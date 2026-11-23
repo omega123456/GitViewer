@@ -4,6 +4,7 @@ use crate::{
     settings::DEFAULT_PROMPT,
 };
 use async_openai::{config::OpenAIConfig, error::OpenAIError, Client};
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -38,6 +39,7 @@ const NOISE: [&str; 8] = [
     ".map",
 ];
 const OUTLINE_INDENT: usize = 2;
+const BOUNDARY_PAIR: usize = 2;
 const TRUNCATED: &str = "\n… the remaining files are omitted\n";
 const COMPACTED: &str = "Generated files show only their header, and long files show their opening lines followed by an outline of their remaining top-level changes. Write exactly one commit message from what is shown. Do not offer templates or alternatives, and do not ask for more detail.";
 const CONTEXT_SIGNS: [&str; 7] = [
@@ -208,7 +210,7 @@ pub async fn material(root: &Path) -> Result<Material> {
     if patch.trim().is_empty() {
         return Err(Error::refused("There are no changes to describe"));
     }
-    if width(&patch) <= DIFF_BUDGET {
+    if char_count(&patch) <= DIFF_BUDGET {
         return Ok(Material {
             text: patch,
             source,
@@ -222,26 +224,30 @@ pub async fn material(root: &Path) -> Result<Material> {
     })
 }
 
-fn width(text: &str) -> usize {
+fn char_count(text: &str) -> usize {
     text.chars().count()
 }
 
 fn sections(patch: &str) -> Vec<&str> {
     let mut starts: Vec<usize> = patch
         .match_indices("\ndiff --git ")
-        .map(|(at, _)| at + 1)
+        .map(|(offset, _)| offset + 1)
         .collect();
     starts.insert(0, 0);
     starts.push(patch.len());
     starts
-        .windows(2)
+        .windows(BOUNDARY_PAIR)
         .map(|pair| &patch[pair[0]..pair[1]])
         .filter(|section| !section.is_empty())
         .collect()
 }
 
 fn split_header(section: &str) -> (&str, &str) {
-    section.split_at(section.find("\n@@").map_or(section.len(), |at| at + 1))
+    section.split_at(
+        section
+            .find("\n@@")
+            .map_or(section.len(), |offset| offset + 1),
+    )
 }
 
 fn noisy(section: &str) -> bool {
@@ -261,7 +267,7 @@ fn outlined(line: &str) -> bool {
         return false;
     };
     let text = content.trim_start_matches(' ');
-    width(content) - width(text) <= OUTLINE_INDENT
+    char_count(content) - char_count(text) <= OUTLINE_INDENT
         && !text.starts_with('\t')
         && text
             .trim()
@@ -290,12 +296,12 @@ fn share(sizes: &[usize], budget: usize) -> usize {
 }
 
 fn clip(text: String, limit: usize) -> String {
-    if width(&text) <= limit {
+    if char_count(&text) <= limit {
         return text;
     }
     let kept: String = text
         .chars()
-        .take(limit.saturating_sub(width(TRUNCATED)))
+        .take(limit.saturating_sub(char_count(TRUNCATED)))
         .collect();
     format!("{kept}{TRUNCATED}")
 }
@@ -308,16 +314,17 @@ fn shrink(section: &str, cap: usize) -> String {
     let outline: usize = lines
         .iter()
         .filter(|line| outlined(line))
-        .map(|line| width(line))
+        .map(|line| char_count(line))
         .sum();
     let total_changed = lines.iter().filter(|line| changed(line)).count();
-    let mut room = cap.saturating_sub(width(header) + width(&marker(total_changed)) + outline);
+    let mut room =
+        cap.saturating_sub(char_count(header) + char_count(&marker(total_changed)) + outline);
     let head = lines
         .iter()
         .take_while(|line| {
-            let fits = width(line) <= room;
+            let fits = char_count(line) <= room;
             if fits {
-                room -= width(line);
+                room -= char_count(line);
             }
             fits
         })
@@ -349,17 +356,17 @@ pub fn compact(patch: &str, budget: usize) -> String {
     let fixed: usize = sections
         .iter()
         .filter(|(_, noise)| *noise)
-        .map(|(text, _)| width(text))
+        .map(|(text, _)| char_count(text))
         .sum();
     let sizes: Vec<usize> = sections
         .iter()
         .filter(|(_, noise)| !noise)
-        .map(|(text, _)| width(text))
+        .map(|(text, _)| char_count(text))
         .collect();
     let cap = share(&sizes, budget.saturating_sub(fixed));
     let text = sections
         .iter()
-        .map(|(text, noise)| match *noise || width(text) <= cap {
+        .map(|(text, noise)| match *noise || char_count(text) <= cap {
             true => text.clone(),
             false => shrink(text, cap),
         })
@@ -423,7 +430,7 @@ fn request_body(model: &str, prompt: &str, tier: usize) -> Value {
 
 fn rejects_the_body(error: &OpenAIError) -> bool {
     match error {
-        OpenAIError::ApiError(response) => response.status_code.as_u16() == 400,
+        OpenAIError::ApiError(response) => response.status_code == StatusCode::BAD_REQUEST,
         OpenAIError::JSONDeserialize(..) => true,
         _ => false,
     }
@@ -431,7 +438,11 @@ fn rejects_the_body(error: &OpenAIError) -> bool {
 
 fn exceeds_context(error: &OpenAIError) -> bool {
     let text = match error {
-        OpenAIError::ApiError(response) if response.status_code.as_u16() == 413 => return true,
+        OpenAIError::ApiError(response)
+            if response.status_code == StatusCode::PAYLOAD_TOO_LARGE =>
+        {
+            return true
+        }
         OpenAIError::ApiError(response) => response.api_error.to_string(),
         OpenAIError::JSONDeserialize(_, content) => content.clone(),
         _ => return false,
@@ -442,8 +453,8 @@ fn exceeds_context(error: &OpenAIError) -> bool {
 
 fn first_tag(text: &str, tags: &[&str]) -> Option<(usize, usize)> {
     tags.iter()
-        .filter_map(|tag| text.find(tag).map(|at| (at, tag.len())))
-        .min_by_key(|(at, _)| *at)
+        .filter_map(|tag| text.find(tag).map(|offset| (offset, tag.len())))
+        .min_by_key(|(offset, _)| *offset)
 }
 
 pub fn strip_think_blocks(text: &str) -> String {

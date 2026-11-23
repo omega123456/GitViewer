@@ -161,7 +161,7 @@ impl Service {
         let bytes = release
             .download(Box::new(|chunk, total| {
                 self.change(|state| {
-                    state.downloaded += chunk as u64;
+                    state.downloaded += u64::try_from(chunk).unwrap_or(u64::MAX);
                     state.total = total;
                 })
             }))

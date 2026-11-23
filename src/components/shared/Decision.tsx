@@ -12,7 +12,7 @@ export function Decision({
   slot: DecisionSlot;
   className: string;
 }) {
-  const decision = useDecision((s) => s.pending[repo]);
+  const decision = useDecision((state) => state.pending[repo]);
   const primary = useRef<HTMLButtonElement>(null);
   const open = decision?.slot === slot;
   return (

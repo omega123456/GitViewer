@@ -1,3 +1,4 @@
+import { shortHash } from './git';
 import { folderName } from './paths';
 import type { Applied, Pruned, Stash, Status } from './types';
 export interface Before {
@@ -16,6 +17,7 @@ export interface Success {
   unapply?: { target: string; base: string; tree: string };
   show?: string;
 }
+const LISTED_NAMES = 5;
 function plural(count: number, noun: string) {
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
 }
@@ -28,7 +30,7 @@ function synced(
   const upstream = status?.upstream ?? 'the remote';
   if (action === 'fetch')
     return {
-      key,
+      key: key,
       title: 'Fetched',
       ...(commits === null
         ? {}
@@ -38,31 +40,32 @@ function synced(
     };
   if (action === 'pull')
     return {
-      key,
+      key: key,
       title: `Pulled from ${upstream}`,
       ...(commits
         ? { description: plural(commits, 'commit') }
         : { description: 'Already up to date', info: true }),
     };
   if (commits === null)
-    return { key, title: `Published ${status?.branch ?? 'branch'}` };
+    return { key: key, title: `Published ${status?.branch ?? 'branch'}` };
   return commits
     ? {
-        key,
+        key: key,
         replaces: 'commit',
         title: `Pushed to ${upstream}`,
         description: plural(commits, 'commit'),
       }
     : {
-        key,
+        key: key,
         title: 'Nothing to push',
         description: `${upstream} already has every commit`,
         info: true,
       };
 }
 export function listNames(names: string[]) {
-  const shown = names.slice(0, 5).join(', ');
-  return names.length > 5 ? `${shown} and ${names.length - 5} more` : shown;
+  const shown = names.slice(0, LISTED_NAMES).join(', ');
+  const hidden = names.length - LISTED_NAMES;
+  return hidden > 0 ? `${shown} and ${hidden} more` : shown;
 }
 export function localBranches(count: number) {
   return `${count} local branch${count === 1 ? '' : 'es'}`;
@@ -75,19 +78,19 @@ function pruned(
   const reason = `Kept ${listNames(kept)}: ${kept.length === 1 ? 'it has' : 'they have'} commits that are not in ${status?.branch ?? 'the current branch'}.`;
   if (!deleted.length)
     return {
-      key,
+      key: key,
       title: 'No branches pruned',
       description: reason,
       info: true,
     };
   if (kept.length)
     return {
-      key,
+      key: key,
       title: `Pruned ${deleted.length} of ${localBranches(deleted.length + kept.length)}`,
       description: reason,
     };
   return {
-    key,
+    key: key,
     title: `Pruned ${localBranches(deleted.length)}`,
     description: listNames(deleted),
   };
@@ -96,24 +99,54 @@ function applied(target: string, result: Applied): Success {
   const key = 'worktree_apply';
   if (!result.files)
     return {
-      key,
+      key: key,
       title: 'Nothing to apply',
       description: 'No changes since it split from main',
       info: true,
     };
   if (result.conflicts)
     return {
-      key,
+      key: key,
       title: `Applied to main with ${plural(result.conflicts, 'conflict')}`,
       description: 'Resolve them in GitViewer before committing.',
       warning: true,
       show: target,
     };
   return {
-    key,
+    key: key,
     title: 'Applied to main',
     description: `${plural(result.files, 'file')} changed in ${folderName(target)}.`,
-    unapply: { target, base: result.base, tree: result.tree },
+    unapply: { target: target, base: result.base, tree: result.tree },
+  };
+}
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+function stringsOf(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string');
+}
+function isPruned(value: unknown): value is Pruned {
+  return (
+    isRecord(value) && Array.isArray(value.deleted) && Array.isArray(value.kept)
+  );
+}
+function isApplied(value: unknown): value is Applied {
+  return isRecord(value) && typeof value.files === 'number';
+}
+function gone(names: string[]): Success {
+  if (!names.length)
+    return {
+      key: 'branch_prune',
+      title: 'No branches to prune',
+      description: 'Every local branch still has its remote branch.',
+      info: true,
+    };
+  return {
+    key: 'branch_prune',
+    title: `Found ${localBranches(names.length)} to prune`,
+    description: listNames(names),
+    info: true,
   };
 }
 function changed(
@@ -121,9 +154,13 @@ function changed(
   description: string | undefined,
 ): Success | null {
   if (action === 'discard')
-    return { key: 'discard', title: 'Discarded changes', description };
+    return {
+      key: 'discard',
+      title: 'Discarded changes',
+      description: description,
+    };
   if (action === 'revert')
-    return { key: 'revert', title: 'Reverted', description };
+    return { key: 'revert', title: 'Reverted', description: description };
   return null;
 }
 export function describeSuccess(
@@ -145,7 +182,7 @@ export function describeSuccess(
       return {
         key: command,
         title: 'Committed',
-        description: `${String(result).slice(0, 7)} ${String(args.message).split('\n')[0]}`,
+        description: `${shortHash(String(result))} ${String(args.message).split('\n')[0]}`,
       };
     case 'stash_save':
       return {
@@ -181,21 +218,9 @@ export function describeSuccess(
     case 'branch_delete':
       return { key: command, title: `Deleted ${name}` };
     case 'branch_gone':
-      return (result as string[]).length
-        ? {
-            key: 'branch_prune',
-            title: `Found ${localBranches((result as string[]).length)} to prune`,
-            description: listNames(result as string[]),
-            info: true,
-          }
-        : {
-            key: 'branch_prune',
-            title: 'No branches to prune',
-            description: 'Every local branch still has its remote branch.',
-            info: true,
-          };
+      return gone(stringsOf(result));
     case 'branch_prune':
-      return pruned(result as Pruned, status);
+      return isPruned(result) ? pruned(result, status) : null;
     case 'branch_merge':
       return result
         ? {
@@ -215,7 +240,7 @@ export function describeSuccess(
         title: `Deleted worktree ${folderName(String(args.worktree))}`,
       };
     case 'worktree_apply':
-      return applied(String(args.target), result as Applied);
+      return isApplied(result) ? applied(String(args.target), result) : null;
     case 'worktree_unapply':
       return {
         key: command,
@@ -226,10 +251,7 @@ export function describeSuccess(
     case 'merge_abort':
       return { key: command, title: 'Merge aborted' };
     case 'files_action':
-      return changed(
-        args.action,
-        plural((args.paths as string[]).length, 'file'),
-      );
+      return changed(args.action, plural(stringsOf(args.paths).length, 'file'));
     case 'hunk_action':
       return changed(args.action, String(args.path));
     default:

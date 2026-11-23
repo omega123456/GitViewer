@@ -44,11 +44,11 @@ fn relative(root: &Path, path: &Path) -> Option<String> {
         .map(|component| match component {
             Component::Normal(part) => part
                 .to_str()
-                .filter(|part| !part.eq_ignore_ascii_case(".git")),
+                .filter(|part| !part.eq_ignore_ascii_case(git::DOT_GIT)),
             _ => None,
         })
         .collect::<Option<Vec<_>>>()?;
-    (!parts.is_empty()).then(|| parts.join("/"))
+    (!parts.is_empty()).then(|| parts.join(git::PATH_SEPARATOR))
 }
 
 pub fn ignored_only(root: &Path, events: &[DebouncedEvent]) -> bool {
@@ -65,7 +65,7 @@ pub fn ignored_only(root: &Path, events: &[DebouncedEvent]) -> bool {
 }
 
 pub fn metadata_only(root: &Path, events: &[DebouncedEvent]) -> bool {
-    let metadata = root.join(".git");
+    let metadata = root.join(git::DOT_GIT);
     let mut paths = events.iter().flat_map(|event| &event.paths).peekable();
     paths.peek().is_some() && paths.all(|path| path == &metadata)
 }
@@ -78,9 +78,9 @@ pub fn start(repo: &Repository, changed: impl Fn(Change) + Send + Sync + 'static
     let root = repo.root.clone();
     let stale = repo.stale.clone();
     let shared = Arc::downgrade(repo);
-    let metadata = repo.root.join(".git");
+    let metadata = repo.root.join(git::DOT_GIT);
     let git_dir = repo.git_dir.clone();
-    let head = git_dir.join("HEAD");
+    let head = git_dir.join(git::HEAD);
     let packed = repo.common_dir.join("packed-refs");
     let references = repo.common_dir.join("refs");
     let notify = Arc::new(changed);

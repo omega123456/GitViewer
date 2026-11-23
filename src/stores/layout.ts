@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { useShallow } from 'zustand/react/shallow';
 import { useTabs } from './tabs';
 export type SidebarMode = 'working' | 'history' | 'compare';
 export interface TabLayout {
@@ -32,6 +31,28 @@ export const layoutDefaults: TabLayout = {
   compareTarget: '',
   mergeBase: true,
 };
+export interface ResizeBounds {
+  min: number;
+  max: number;
+  step: number;
+}
+export const sidebarWidthBounds: ResizeBounds = {
+  min: 240,
+  max: 650,
+  step: 10,
+};
+export const blameWidthBounds: ResizeBounds = { min: 360, max: 640, step: 10 };
+export const commitMessageHeightBounds: ResizeBounds = {
+  min: 40,
+  max: 400,
+  step: 10,
+};
+export const sectionHeightBounds: ResizeBounds = { min: 20, max: 60, step: 2 };
+export const stashFilesHeightBounds: ResizeBounds = {
+  min: 20,
+  max: 80,
+  step: 2,
+};
 const projectWide = ['width', 'historyWidth', 'blameWidth'] as const;
 function siblingsOf(id: string) {
   return (
@@ -51,11 +72,11 @@ interface Layout {
 export const useLayout = create<Layout>((set) => ({
   tabs: {},
   update: (id, patch) =>
-    set((s) => {
+    set((state) => {
       const shared = Object.fromEntries(
         projectWide.flatMap((key) => (key in patch ? [[key, patch[key]]] : [])),
       );
-      const tabs = { ...s.tabs };
+      const tabs = { ...state.tabs };
       for (const member of siblingsOf(id))
         if (member !== id)
           tabs[member] = { ...layoutDefaults, ...tabs[member], ...shared };
@@ -63,37 +84,26 @@ export const useLayout = create<Layout>((set) => ({
       return { tabs };
     }),
   forget: (id) =>
-    set((s) => ({
+    set((state) => ({
       tabs: Object.fromEntries(
-        Object.entries(s.tabs).filter(([key]) => key !== id),
+        Object.entries(state.tabs).filter(([key]) => key !== id),
       ),
     })),
 }));
 export function useTabLayout(id: string) {
-  return useLayout((s) => s.tabs[id] ?? layoutDefaults);
+  return useLayout((state) => state.tabs[id] ?? layoutDefaults);
 }
 export function useSidebarMode(id: string) {
-  return useLayout((s) => (s.tabs[id] ?? layoutDefaults).mode);
+  return useLayout((state) => (state.tabs[id] ?? layoutDefaults).mode);
 }
 export function useSidebarWidth(id: string) {
-  return useLayout((s) => {
-    const layout = s.tabs[id] ?? layoutDefaults;
+  return useLayout((state) => {
+    const layout = state.tabs[id] ?? layoutDefaults;
     return layout.mode === 'working' ? layout.width : layout.historyWidth;
   });
 }
-export function useLayoutFields<K extends keyof TabLayout>(
-  id: string,
-  ...keys: K[]
-) {
-  return useLayout(
-    useShallow((s) => {
-      const layout = s.tabs[id] ?? layoutDefaults;
-      return Object.fromEntries(keys.map((key) => [key, layout[key]])) as Pick<
-        TabLayout,
-        K
-      >;
-    }),
-  );
+export function useLayoutField<K extends keyof TabLayout>(id: string, key: K) {
+  return useLayout((state) => (state.tabs[id] ?? layoutDefaults)[key]);
 }
 export function tabLayout(id: string) {
   return useLayout.getState().tabs[id] ?? layoutDefaults;

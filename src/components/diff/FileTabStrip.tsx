@@ -15,6 +15,7 @@ import { FileMenu } from '../shared/FileMenu';
 import { tabBar } from '../shared/styles';
 import { revealInSidebar } from '../sidebar/reveal';
 import { tabSteps } from '../shared/ViewSwitch';
+import { shortHash } from '../../lib/git';
 export function FileTabStrip({
   repo,
   mode,
@@ -67,7 +68,9 @@ export function FileTabStrip({
           }
           suffix={
             names.filter((name) => name === names[index]).length > 1
-              ? (tab.selection.revision?.slice(0, 7) ?? tab.selection.source)
+              ? tab.selection.revision === undefined
+                ? tab.selection.source
+                : shortHash(tab.selection.revision)
               : ''
           }
         />

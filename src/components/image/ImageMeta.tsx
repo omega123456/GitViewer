@@ -1,9 +1,10 @@
 import type { Diff } from '../../lib/types';
+import { percentOf } from '../../lib/geometry';
 export function ImageMeta({ diff }: { diff: Diff }) {
   const before = diff.oldDimensions;
   const after = diff.newDimensions;
   const delta = diff.newSize - diff.oldSize;
-  const percent = diff.oldSize ? (delta / diff.oldSize) * 100 : 0;
+  const percent = diff.oldSize ? percentOf(delta, diff.oldSize) : 0;
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-line px-3 py-2 font-mono text-badge text-muted dark:border-line-dark">
       <span>{diff.path.split('/').at(-1)}</span>

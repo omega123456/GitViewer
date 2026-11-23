@@ -6,5 +6,5 @@ export function imageUrl(
   side: string,
   version = 0,
 ) {
-  return `${convertFileSrc('image', 'gitblob')}?${new URLSearchParams({ repo, path: selection.path, source: selection.source, revision: selection.revision ?? '', base: selection.base ?? '', side, version: String(version) })}`;
+  return `${convertFileSrc('image', 'gitblob')}?${new URLSearchParams({ repo: repo, path: selection.path, source: selection.source, revision: selection.revision ?? '', base: selection.base ?? '', side: side, version: String(version) })}`;
 }

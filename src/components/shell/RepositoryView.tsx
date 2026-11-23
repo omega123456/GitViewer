@@ -39,6 +39,7 @@ import {
   useLayout,
   useSidebarMode,
   useSidebarWidth,
+  sidebarWidthBounds,
 } from '../../stores/layout';
 import {
   tabKey,
@@ -70,6 +71,7 @@ import { StashSection } from '../stash/StashSection';
 import { ResizeHandle } from './ResizeHandle';
 import { StatusBar } from './StatusBar';
 import { Toolbar } from './Toolbar';
+import { isDetached, scopeKey, UNTRACKED, UNMODIFIED } from '../../lib/git';
 export const RepositoryView = memo(function RepositoryView({
   repo,
   settings,
@@ -102,15 +104,15 @@ export const RepositoryView = memo(function RepositoryView({
     const files =
       status?.entries
         .flatMap((entry) => [
-          ...(entry.index !== '.' && entry.index !== '?'
+          ...(entry.index !== UNMODIFIED && entry.index !== UNTRACKED
             ? [{ path: entry.path, source: 'staged' as const }]
             : []),
-          ...(entry.worktree !== '.'
+          ...(entry.worktree !== UNMODIFIED
             ? [
                 {
                   path: entry.path,
                   source:
-                    entry.index === '?'
+                    entry.index === UNTRACKED
                       ? ('file' as const)
                       : ('unstaged' as const),
                 },
@@ -127,6 +129,14 @@ export const RepositoryView = memo(function RepositoryView({
       .getState()
       .select(repo, files[(current + direction + files.length) % files.length]);
   };
+  const changeSelectedFile = async (action: 'stage' | 'unstage') => {
+    if (!select) return;
+    await perform('files_action', {
+      repo: repo,
+      paths: [select.path],
+      action: action,
+    });
+  };
   const discard = async () => {
     if (
       select &&
@@ -136,13 +146,15 @@ export const RepositoryView = memo(function RepositoryView({
       ))
     )
       await perform('files_action', {
-        repo,
+        repo: repo,
         paths: [select.path],
         action: 'discard',
       });
   };
   const staged = Boolean(
-    status?.entries.some((entry) => entry.index !== '.' && entry.index !== '?'),
+    status?.entries.some(
+      (entry) => entry.index !== UNMODIFIED && entry.index !== UNTRACKED,
+    ),
   );
   const changes = status?.entries.map((entry) => entry.path) ?? [];
   const committable =
@@ -151,11 +163,13 @@ export const RepositoryView = memo(function RepositoryView({
   const commit = (mode: CommitMode) => {
     const store = useCommit.getState();
     const message = tabMessage(repo);
-    if (staged) return store.run(repo, { message, mode, stage: [] });
+    if (staged)
+      return store.run(repo, { message: message, mode: mode, stage: [] });
     if (settings.smartCommit === 'always')
-      return store.run(repo, { message, mode, stage: changes });
+      return store.run(repo, { message: message, mode: mode, stage: changes });
     store.ask(repo, mode);
   };
+  const fileTabsCyclable = fileTabs.length > 1;
   const actions: Action[] = [
     {
       id: 'refresh',
@@ -173,13 +187,8 @@ export const RepositoryView = memo(function RepositoryView({
         disabled ||
         mode !== 'working' ||
         !selectedEntry ||
-        selectedEntry.worktree === '.',
-      run: () =>
-        perform('files_action', {
-          repo,
-          paths: [select!.path],
-          action: 'stage',
-        }),
+        selectedEntry.worktree === UNMODIFIED,
+      run: () => changeSelectedFile('stage'),
     },
     {
       id: 'unstage',
@@ -190,13 +199,8 @@ export const RepositoryView = memo(function RepositoryView({
         disabled ||
         mode !== 'working' ||
         !selectedEntry ||
-        ['.', '?'].includes(selectedEntry.index),
-      run: () =>
-        perform('files_action', {
-          repo,
-          paths: [select!.path],
-          action: 'unstage',
-        }),
+        [UNMODIFIED, UNTRACKED].includes(selectedEntry.index),
+      run: () => changeSelectedFile('unstage'),
     },
     {
       id: 'discard-file',
@@ -207,7 +211,7 @@ export const RepositoryView = memo(function RepositoryView({
         disabled ||
         mode !== 'working' ||
         !selectedEntry ||
-        ['.', '?'].includes(selectedEntry.worktree),
+        [UNMODIFIED, UNTRACKED].includes(selectedEntry.worktree),
       run: discard,
     },
     {
@@ -231,11 +235,11 @@ export const RepositoryView = memo(function RepositoryView({
       icon: <ListChecks className="size-3.5" />,
       label: 'Stage all changes',
       key: 'Mod+Shift+a',
-      disabled,
+      disabled: disabled,
       run: () =>
         perform('files_action', {
-          repo,
-          paths: status!.entries.map((entry) => entry.path),
+          repo: repo,
+          paths: changes,
           action: 'stage',
         }),
     },
@@ -252,7 +256,7 @@ export const RepositoryView = memo(function RepositoryView({
       icon: <Upload className="size-3.5" />,
       label: 'Commit and push changes',
       key: 'Mod+Shift+Enter',
-      disabled: disabled || !committable || status?.branch === '(detached)',
+      disabled: disabled || !committable || isDetached(status?.branch),
       run: () => commit('commitPush'),
     },
     {
@@ -268,15 +272,15 @@ export const RepositoryView = memo(function RepositoryView({
       icon: <RefreshCw className="size-3.5" />,
       label: 'Fetch',
       key: 'Mod+Shift+f',
-      disabled,
-      run: () => perform('sync', { repo, action: 'fetch' }),
+      disabled: disabled,
+      run: () => perform('sync', { repo: repo, action: 'fetch' }),
     },
     {
       id: 'pull',
       icon: <Download className="size-3.5" />,
       label: 'Pull',
       key: 'Mod+Shift+l',
-      disabled: disabled || status?.branch === '(detached)',
+      disabled: disabled || isDetached(status?.branch),
       run: () => pull(repo),
     },
     {
@@ -284,8 +288,8 @@ export const RepositoryView = memo(function RepositoryView({
       icon: <Upload className="size-3.5" />,
       label: 'Push',
       key: 'Mod+Shift+u',
-      disabled: disabled || status?.branch === '(detached)',
-      run: () => perform('sync', { repo, action: 'push' }),
+      disabled: disabled || isDetached(status?.branch),
+      run: () => perform('sync', { repo: repo, action: 'push' }),
     },
     {
       id: 'history',
@@ -314,7 +318,7 @@ export const RepositoryView = memo(function RepositoryView({
       icon: <Archive className="size-3.5" />,
       label: 'Stash changes',
       key: 'Mod+Shift+s',
-      disabled,
+      disabled: disabled,
       run: () => setNaming(true),
     },
     {
@@ -331,7 +335,7 @@ export const RepositoryView = memo(function RepositoryView({
       icon: <ChevronRight className="size-3.5" />,
       label: 'Next file tab',
       key: 'Ctrl+Tab',
-      disabled: fileTabs.length < 2,
+      disabled: !fileTabsCyclable,
       run: () => useSelection.getState().cycleTab(repo, mode, 1),
     },
     {
@@ -339,7 +343,7 @@ export const RepositoryView = memo(function RepositoryView({
       icon: <ChevronLeft className="size-3.5" />,
       label: 'Previous file tab',
       key: 'Ctrl+Shift+Tab',
-      disabled: fileTabs.length < 2,
+      disabled: !fileTabsCyclable,
       run: () => useSelection.getState().cycleTab(repo, mode, -1),
     },
     {
@@ -357,7 +361,7 @@ export const RepositoryView = memo(function RepositoryView({
       run: () => moveTab(-1),
     },
   ];
-  useActions(`${repo}:repository`, actions);
+  useActions(scopeKey(repo, 'repository'), actions);
   if (query.error)
     return (
       <ErrorState
@@ -437,7 +441,7 @@ export const RepositoryView = memo(function RepositoryView({
               status={status}
               settings={settings}
               disabled={disabled || !committable}
-              pushable={status.branch !== '(detached)'}
+              pushable={!isDetached(status.branch)}
               commit={(mode) => void commit(mode)}
             />
           )}
@@ -445,9 +449,9 @@ export const RepositoryView = memo(function RepositoryView({
         <ResizeHandle
           label="Resize sidebar"
           orientation="horizontal"
-          min={240}
-          max={650}
-          step={10}
+          min={sidebarWidthBounds.min}
+          max={sidebarWidthBounds.max}
+          step={sidebarWidthBounds.step}
           value={sidebarWidth}
           className="w-1 shrink-0 cursor-col-resize bg-line hover:bg-accent focus-visible:bg-accent dark:bg-line-dark"
           measure={(event) => event.clientX}

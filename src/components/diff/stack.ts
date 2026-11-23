@@ -13,10 +13,14 @@ export function selectionStack(
   selection: Selection,
 ): StackArgs | undefined {
   if (selection.source === 'commit' || selection.source === 'stash')
-    return { repo, source: selection.source, revision: selection.revision };
+    return {
+      repo: repo,
+      source: selection.source,
+      revision: selection.revision,
+    };
   if (selection.source === 'compare')
     return {
-      repo,
+      repo: repo,
       source: 'compare',
       revision: selection.revision,
       base: selection.base,
@@ -33,13 +37,13 @@ export function viewStack(
   if (stack === 'compare')
     return (
       compared && {
-        repo,
+        repo: repo,
         source: 'compare',
         revision: compared.target,
         base: compared.base,
       }
     );
-  return { repo, source: stack };
+  return { repo: repo, source: stack };
 }
 export function cachedEntry(
   repo: string,
@@ -49,7 +53,7 @@ export function cachedEntry(
   if (!args) return undefined;
   const key = queryKey('diff_stack', args);
   const state = client.getQueryState<DiffStack>(key);
-  const data = state && !state.isInvalidated ? state.data : undefined;
-  const entry = data?.files[selection.path];
-  return entry && { data: entry, updatedAt: state!.dataUpdatedAt };
+  if (!state || state.isInvalidated) return undefined;
+  const entry = state.data?.files[selection.path];
+  return entry && { data: entry, updatedAt: state.dataUpdatedAt };
 }

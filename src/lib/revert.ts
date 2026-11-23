@@ -21,5 +21,9 @@ export async function revertFiles(
       },
     )
   )
-    await perform('files_action', { repo, paths, action: 'revert' });
+    await perform('files_action', {
+      repo: repo,
+      paths: paths,
+      action: 'revert',
+    });
 }

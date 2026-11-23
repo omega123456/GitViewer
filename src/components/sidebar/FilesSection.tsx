@@ -1,6 +1,10 @@
 import { memo } from 'react';
 import type { Status } from '../../lib/types';
-import { useLayout, useLayoutFields } from '../../stores/layout';
+import {
+  useLayout,
+  useLayoutField,
+  sectionHeightBounds,
+} from '../../stores/layout';
 import { Section } from '../shared/Section';
 import { dynamic } from '../shared/styles';
 import { percentBelow, ResizeHandle } from '../shell/ResizeHandle';
@@ -12,20 +16,17 @@ export const FilesSection = memo(function FilesSection({
   repo: string;
   status: Status;
 }) {
-  const { filesOpen, filesHeight } = useLayoutFields(
-    repo,
-    'filesOpen',
-    'filesHeight',
-  );
+  const filesOpen = useLayoutField(repo, 'filesOpen');
+  const filesHeight = useLayoutField(repo, 'filesHeight');
   return (
     <>
       {filesOpen && (
         <ResizeHandle
           label="Resize files section"
           orientation="vertical"
-          min={20}
-          max={60}
-          step={2}
+          min={sectionHeightBounds.min}
+          max={sectionHeightBounds.max}
+          step={sectionHeightBounds.step}
           value={filesHeight}
           className="h-1.5 shrink-0 cursor-row-resize border-y border-line hover:bg-accent focus-visible:bg-accent dark:border-line-dark"
           measure={percentBelow}

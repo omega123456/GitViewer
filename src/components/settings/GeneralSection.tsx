@@ -15,8 +15,14 @@ import { Choice } from '../shared/Choice';
 import { Select } from '../shared/Select';
 import { Toggle } from '../shared/Toggle';
 import { SettingCard, SettingGroup } from './SettingCard';
-const zoomLevels = [80, 90, 100, 110, 125, 150];
-const fileTabLimits = Array.from({ length: 18 }, (_, index) => index + 3);
+import { keysOf } from '../../lib/options';
+const zoomLevels = ['80%', '90%', '100%', '110%', '125%', '150%'];
+const MIN_FILE_TABS = 3;
+const MAX_FILE_TABS = 20;
+const fileTabLimits = Array.from(
+  { length: MAX_FILE_TABS - MIN_FILE_TABS + 1 },
+  (_slot, index) => String(index + MIN_FILE_TABS),
+);
 const icon = 'size-4';
 const fetchIntervals: Record<Settings['autoFetchInterval'], string> = {
   off: 'Off',
@@ -55,7 +61,7 @@ export function GeneralSection({ settings }: { settings: Settings }) {
               label="Zoom"
               placeholder="100%"
               value={`${settings.zoom}%`}
-              options={zoomLevels.map((level) => `${level}%`)}
+              options={zoomLevels}
               onChange={(level) => save({ zoom: parseInt(level, 10) })}
             />
           </span>
@@ -96,7 +102,7 @@ export function GeneralSection({ settings }: { settings: Settings }) {
               label="File tabs"
               placeholder="8"
               value={String(settings.maxFileTabs)}
-              options={fileTabLimits.map(String)}
+              options={fileTabLimits}
               onChange={(limit) => save({ maxFileTabs: parseInt(limit, 10) })}
             />
           </span>
@@ -124,17 +130,10 @@ export function GeneralSection({ settings }: { settings: Settings }) {
             <Select
               label="Auto fetch"
               placeholder="Off"
-              value={fetchIntervals[settings.autoFetchInterval]}
-              options={Object.values(fetchIntervals)}
-              onChange={(label) =>
-                save({
-                  autoFetchInterval: (
-                    Object.keys(
-                      fetchIntervals,
-                    ) as Settings['autoFetchInterval'][]
-                  ).find((key) => fetchIntervals[key] === label)!,
-                })
-              }
+              value={settings.autoFetchInterval}
+              options={keysOf(fetchIntervals)}
+              labels={fetchIntervals}
+              onChange={(autoFetchInterval) => save({ autoFetchInterval })}
             />
           </span>
         </SettingCard>

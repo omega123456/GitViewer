@@ -42,7 +42,7 @@ import { StatusBadge } from '../sidebar/StatusBadge';
 import { ImageDiff } from '../image/ImageDiff';
 import { BlameView } from './BlameView';
 import { FindBar, findActions } from './FindBar';
-import { useFind } from './find';
+import { rowOfSide, useFind } from './find';
 import { FileIcon } from '../sidebar/FileIcon';
 import { DiffSourcePill } from './DiffSourcePill';
 import { DiffToolbar } from './DiffToolbar';
@@ -51,9 +51,11 @@ import { MarkdownView, isMarkdown } from './Markdown';
 import { runHunkAction } from './hunks';
 import { canEdit } from './editable';
 import { useExpansion } from './expansion';
-import { diffRows } from './rows';
+import { DIFF_CONTEXT_LINES, diffRows } from './rows';
 import { cachedEntry } from './stack';
 import { useTokens } from './tokens';
+import { scopeKey } from '../../lib/git';
+const FULL_FILE_CONTEXT_LINES = 50000;
 const EditSurface = lazy(() => import('../editor/EditSurface'));
 export const DiffPane = memo(function DiffPane({
   repo,
@@ -99,26 +101,26 @@ function SelectedDiff({
     (entry) => entry.path === selection.path,
   );
   const letter = selection.source === 'staged' ? entry?.index : entry?.worktree;
-  const cut = selection.path.lastIndexOf('/') + 1;
-  const directory = selection.path.slice(0, cut);
-  const name = selection.path.slice(cut);
+  const nameStart = selection.path.lastIndexOf('/') + 1;
+  const directory = selection.path.slice(0, nameStart);
+  const name = selection.path.slice(nameStart);
   const markdown = isMarkdown(selection.path);
   const rendered = markdown && Boolean(selection.rendered);
   const query = useBackend(
     'diff',
     {
-      repo,
+      repo: repo,
       path: selection.path,
       source: selection.source,
       revision: selection.revision,
       base: selection.base,
-      context: rendered ? 50000 : 3,
-      overrideLimit,
+      context: rendered ? FULL_FILE_CONTEXT_LINES : DIFF_CONTEXT_LINES,
+      overrideLimit: overrideLimit,
     },
     !selection.blame,
     !overrideLimit && !rendered ? cachedEntry(repo, selection) : undefined,
   );
-  const mode = useDiffView((s) => s.mode) ?? settings.diffMode;
+  const mode = useDiffView((state) => state.mode) ?? settings.diffMode;
   const [wrap, setWrap] = useState(false);
   const toggleWrap = useCallback(() => setWrap((value) => !value), []);
   const [whitespace, setWhitespace] = useState(false);
@@ -143,7 +145,7 @@ function SelectedDiff({
   const tokens = useTokens(repo, selection, data, !editing);
   const blame = useBackend(
     'blame',
-    { repo, path: selection.path },
+    { repo: repo, path: selection.path },
     Boolean(selection.blame),
   );
   const texts = useCallback(
@@ -160,7 +162,7 @@ function SelectedDiff({
   const find = useFind(texts, (index) =>
     selection.blame
       ? blameList.current?.scrollToIndex(index, 'center')
-      : surface.current?.scrollToRow(Math.floor(index / 2), 'center'),
+      : surface.current?.scrollToRow(rowOfSide(index), 'center'),
   );
   const dirty = useDirty(repo, selection.path);
   const preview = useMemo(() => {
@@ -171,7 +173,7 @@ function SelectedDiff({
     const deleted = all.length > 0 && kept.length === 0;
     return {
       text: (deleted ? all : kept).map((line) => line.content).join('\n'),
-      deleted,
+      deleted: deleted,
     };
   }, [data, rendered]);
   const toggleRendered = () =>
@@ -205,8 +207,10 @@ function SelectedDiff({
       surface.current?.scrollToRow(indices[next]);
     }
   };
-  const hunkAction = (hunk: number, action: string) =>
-    runHunkAction(repo, selection, data!, hunk, action);
+  const hunkAction = (hunk: number, action: string) => {
+    if (!data) return;
+    void runHunkAction(repo, selection, data, hunk, action);
+  };
   const selectedHunk = Math.min(
     currentHunk,
     Math.max(0, (data?.hunks.length ?? 0) - 1),
@@ -216,7 +220,7 @@ function SelectedDiff({
       selectedHunk,
       selection.source === 'staged' ? 'unstage' : 'stage',
     );
-  useActions(`${repo}:diff`, [
+  useActions(scopeKey(repo, 'diff'), [
     ...(editing ? [] : findActions(find, rendered)),
     {
       id: 'next-hunk',
@@ -280,7 +284,7 @@ function SelectedDiff({
       icon: <ExternalLink className="size-3.5" />,
       label: 'Open in system application',
       key: 'Mod+e',
-      run: () => perform('system_open', { repo, path: selection.path }),
+      run: () => perform('system_open', { repo: repo, path: selection.path }),
     },
     {
       id: 'file-history',
@@ -372,7 +376,7 @@ function SelectedDiff({
           <Button
             title="Open in system application"
             onClick={() =>
-              void perform('system_open', { repo, path: selection.path })
+              void perform('system_open', { repo: repo, path: selection.path })
             }
           >
             <ExternalLink className="size-4" />
@@ -464,7 +468,10 @@ function SelectedDiff({
             data.image ? (
               <Button
                 onClick={() =>
-                  void perform('system_open', { repo, path: selection.path })
+                  void perform('system_open', {
+                    repo: repo,
+                    path: selection.path,
+                  })
                 }
               >
                 Open in system application

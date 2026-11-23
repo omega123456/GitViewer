@@ -22,11 +22,12 @@ interface Tabs {
   setCommitMode: (id: string, commitMode: CommitMode) => void;
 }
 function joined(tabs: Tab[], id: string, name: string, member: string) {
-  const tab = tabs.find((t) => t.id === id);
-  if (!tab) return [...tabs, { id, name, view: member, members: [member] }];
+  const tab = tabs.find((candidate) => candidate.id === id);
+  if (!tab)
+    return [...tabs, { id: id, name: name, view: member, members: [member] }];
   if (tab.members.includes(member)) return tabs;
-  return tabs.map((t) =>
-    t.id === id ? { ...t, members: [...t.members, member] } : t,
+  return tabs.map((entry) =>
+    entry.id === id ? { ...entry, members: [...entry.members, member] } : entry,
   );
 }
 function touched(recent: string[], id: string) {
@@ -44,62 +45,66 @@ export const useTabs = create<Tabs>((set) => ({
   messages: {},
   modes: {},
   open: (id, name, view = id) =>
-    set((s) => ({
+    set((state) => ({
       active: id,
-      recent: touched(s.recent, id),
-      tabs: joined(s.tabs, id, name, view).map((t) =>
-        t.id === id && t.view !== view ? { ...t, view } : t,
+      recent: touched(state.recent, id),
+      tabs: joined(state.tabs, id, name, view).map((tab) =>
+        tab.id === id && tab.view !== view ? { ...tab, view } : tab,
       ),
     })),
   join: (id, name, member) =>
-    set((s) => ({ tabs: joined(s.tabs, id, name, member) })),
+    set((state) => ({ tabs: joined(state.tabs, id, name, member) })),
   show: (id, view) =>
-    set((s) => ({
-      tabs: s.tabs.map((t) => (t.id === id ? { ...t, view } : t)),
+    set((state) => ({
+      tabs: state.tabs.map((tab) => (tab.id === id ? { ...tab, view } : tab)),
     })),
   leave: (id, member) =>
-    set((s) => ({
-      tabs: s.tabs.map((t) => {
-        if (t.id !== id) return t;
-        const members = t.members.filter((m) => m !== member);
+    set((state) => ({
+      tabs: state.tabs.map((tab) => {
+        if (tab.id !== id) return tab;
+        const members = tab.members.filter((existing) => existing !== member);
         const view =
-          t.view !== member ? t.view : members.includes(id) ? id : members[0];
-        return { ...t, members, view };
+          tab.view !== member
+            ? tab.view
+            : members.includes(id)
+              ? id
+              : members[0];
+        return { ...tab, members, view };
       }),
-      messages: without(s.messages, [member]),
+      messages: without(state.messages, [member]),
     })),
   close: (id) =>
-    set((s) => {
-      const members = s.tabs.find((t) => t.id === id)?.members ?? [];
+    set((state) => {
+      const members = state.tabs.find((tab) => tab.id === id)?.members ?? [];
       return {
-        tabs: s.tabs.filter((t) => t.id !== id),
-        recent: s.recent.filter((entry) => entry !== id),
+        tabs: state.tabs.filter((tab) => tab.id !== id),
+        recent: state.recent.filter((entry) => entry !== id),
         active:
-          s.active === id
-            ? (s.tabs.find((t) => t.id !== id)?.id ?? '')
-            : s.active,
-        messages: without(s.messages, members),
-        modes: without(s.modes, members),
+          state.active === id
+            ? (state.tabs.find((tab) => tab.id !== id)?.id ?? '')
+            : state.active,
+        messages: without(state.messages, members),
+        modes: without(state.modes, members),
       };
     }),
   activate: (active) =>
-    set((s) => ({ active, recent: touched(s.recent, active) })),
+    set((state) => ({ active: active, recent: touched(state.recent, active) })),
   setMessage: (id, message) =>
-    set((s) => ({ messages: { ...s.messages, [id]: message } })),
+    set((state) => ({ messages: { ...state.messages, [id]: message } })),
   setCommitMode: (id, commitMode) =>
-    set((s) => ({ modes: { ...s.modes, [id]: commitMode } })),
+    set((state) => ({ modes: { ...state.modes, [id]: commitMode } })),
 }));
 export function useMessage(id: string) {
-  return useTabs((s) => s.messages[id] ?? '');
+  return useTabs((state) => state.messages[id] ?? '');
 }
 export function useHasMessage(id: string) {
-  return useTabs((s) => Boolean(s.messages[id]?.trim()));
+  return useTabs((state) => Boolean(state.messages[id]?.trim()));
 }
 export function tabMessage(id: string) {
   return useTabs.getState().messages[id] ?? '';
 }
 export function useCommitMode(id: string) {
-  return useTabs((s) => s.modes[id] ?? 'commit');
+  return useTabs((state) => state.modes[id] ?? 'commit');
 }
 function viewOf(state: Pick<Tabs, 'tabs' | 'active'>) {
   return state.tabs.find((tab) => tab.id === state.active)?.view ?? '';
@@ -111,14 +116,16 @@ export function useActiveView() {
   return useTabs(viewOf);
 }
 export function useProject(repo: string) {
-  return useTabs((s) => s.tabs.find((tab) => tab.members.includes(repo)));
+  return useTabs((state) =>
+    state.tabs.find((tab) => tab.members.includes(repo)),
+  );
 }
 export function recentTabs({ tabs, recent, active }: Tabs) {
   const rank = (tab: Tab) =>
     tab.id === active
       ? Infinity
       : recent.indexOf(tab.id) + 1 || recent.length + 1;
-  return [...tabs].sort((a, b) => rank(a) - rank(b));
+  return [...tabs].sort((left, right) => rank(left) - rank(right));
 }
 export function anchorOf(tab: Tab) {
   return tab.members.includes(tab.id) ? tab.id : (tab.members[0] ?? '');

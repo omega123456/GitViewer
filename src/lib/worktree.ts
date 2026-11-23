@@ -19,7 +19,7 @@ export async function applyWorktree(
   const { announce, withdraw } = useSuccesses.getState();
   const say = (success: Omit<Success, 'key'>) =>
     announce(view, { key: 'worktree_apply', info: true, ...success });
-  const args = { repo: view, source: source.id, target, smart: false };
+  const args = { repo: view, source: source.id, target: target, smart: false };
   say({
     title: 'Applying to main',
     description: `Copying commits and uncommitted changes from ${source.name}.`,
@@ -96,7 +96,7 @@ export function deletion(
     .filter(Boolean)
     .join(' ');
   if (worktree.locked === null)
-    return { title: `Delete worktree ${worktree.name}?`, body };
+    return { title: `Delete worktree ${worktree.name}?`, body: body };
   return {
     title: `${worktree.name} is locked`,
     body: [
@@ -106,6 +106,14 @@ export function deletion(
       .filter(Boolean)
       .join('\n\n'),
   };
+}
+const FORCE_LOCKED = 2;
+const FORCE_DIRTY = 1;
+const NO_FORCE = 0;
+function removalForce(locked: boolean, dirty: boolean) {
+  if (locked) return FORCE_LOCKED;
+  if (dirty) return FORCE_DIRTY;
+  return NO_FORCE;
 }
 export async function deleteWorktree(
   tab: Tab,
@@ -127,7 +135,7 @@ export async function deleteWorktree(
   const { title, body } = deletion(worktree, summary, changes);
   if (
     !(await confirm(body, {
-      title,
+      title: title,
       kind: 'warning',
       okLabel: 'Delete',
       cancelLabel: 'Cancel',
@@ -155,10 +163,11 @@ export async function deleteWorktree(
       'Removing its folder and ignored files. Large folders can take a while.',
     pending: true,
   });
+  const dirty = changes > 0 || summary.submodules;
   const removed = await perform('worktree_remove', {
     repo: view,
     worktree: worktree.id,
-    force: worktree.locked !== null ? 2 : changes || summary.submodules ? 1 : 0,
+    force: removalForce(worktree.locked !== null, dirty),
   });
   if (removed === undefined) withdraw(view, 'worktree_remove');
 }

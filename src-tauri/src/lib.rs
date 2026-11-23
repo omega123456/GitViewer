@@ -1,3 +1,5 @@
+#![deny(clippy::min_ident_chars, clippy::as_conversions)]
+
 use tauri::Manager;
 
 pub mod actions;
@@ -47,7 +49,7 @@ pub fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
                         .header("Cache-Control", "no-store")
                         .body(bytes),
                     Err(error) => tauri::http::Response::builder()
-                        .status(400)
+                        .status(tauri::http::StatusCode::BAD_REQUEST)
                         .body(error.message.into_bytes()),
                 };
                 if let Ok(response) = response {

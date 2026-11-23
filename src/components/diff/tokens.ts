@@ -34,7 +34,7 @@ function sideLines(data: Diff, side: Side, text?: string) {
       ? []
       : data.content
           .split('\n')
-          .map((content, index) => ({ content, line: index + 1 }));
+          .map((content, index) => ({ content: content, line: index + 1 }));
   if (!needed(data, side)) return [];
   const shown = data.hunks.flatMap((hunk) =>
     hunk.lines.flatMap((line) =>
@@ -52,7 +52,7 @@ function sideLines(data: Diff, side: Side, text?: string) {
   const end = side === 'old' ? shown[shown.length - 1].line : file.length;
   return file
     .slice(0, end)
-    .map((content, index) => ({ content, line: index + 1 }));
+    .map((content, index) => ({ content: content, line: index + 1 }));
 }
 function useSideText(
   repo: string,
@@ -61,7 +61,7 @@ function useSideText(
   enabled: boolean,
 ) {
   const args = {
-    repo,
+    repo: repo,
     path: selection.path,
     source: selection.source,
     revision: selection.revision,
@@ -122,8 +122,8 @@ export function useTokens(
   const oldKey = sideKey(base, 'old', oldText);
   const newKey = sideKey(base, 'new', newText);
   const [state, setState] = useState<Highlighted>({
-    path,
-    dark,
+    path: path,
+    dark: dark,
     done: false,
     tokens: none,
   });
@@ -138,9 +138,17 @@ export function useTokens(
       ? cached(data, { old: oldKey, new: newKey })
       : undefined;
   if (hit)
-    setState({ data, oldText, newText, path, dark, done: true, tokens: hit });
+    setState({
+      data: data,
+      oldText: oldText,
+      newText: newText,
+      path: path,
+      dark: dark,
+      done: true,
+      tokens: hit,
+    });
   else if (!enabled && !current && state.tokens !== none)
-    setState({ path, dark, done: false, tokens: none });
+    setState({ path: path, dark: dark, done: false, tokens: none });
   const finished = current && state.done;
   const shown = useRef(state.tokens);
   useEffect(() => {
@@ -174,11 +182,11 @@ export function useTokens(
           const all = joined(entry, keys);
           display = all ?? Object.assign(display ?? { ...shown.current }, part);
           setState({
-            data,
-            oldText,
-            newText,
-            path,
-            dark,
+            data: data,
+            oldText: oldText,
+            newText: newText,
+            path: path,
+            dark: dark,
             done: Boolean(all),
             tokens: display,
           });
@@ -187,7 +195,15 @@ export function useTokens(
     });
     const all = joined(entry, keys);
     if (all)
-      setState({ data, oldText, newText, path, dark, done: true, tokens: all });
+      setState({
+        data: data,
+        oldText: oldText,
+        newText: newText,
+        path: path,
+        dark: dark,
+        done: true,
+        tokens: all,
+      });
     return () => cancels.forEach((cancel) => cancel?.());
   }, [
     data,

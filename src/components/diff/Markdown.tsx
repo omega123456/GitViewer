@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import DOMPurify from 'dompurify';
-import { Marked, type Tokens } from 'marked';
+import { Marked, type Token, type Tokens } from 'marked';
 import { highlight } from '../../lib/highlight';
 import { useDark } from '../../stores/theme';
 const extensions = ['md', 'markdown'];
@@ -27,14 +27,16 @@ async function highlightFence(code: string, language: string, dark: boolean) {
     )
     .join('\n');
 }
+function isCodeToken(token: Token): token is Tokens.Code {
+  return token.type === 'code';
+}
 export async function renderMarkdown(markdown: string, dark: boolean) {
   const marked = new Marked({ gfm: true, async: true });
   marked.use({
     async walkTokens(token) {
-      if (token.type !== 'code') return;
-      const fence = token as Tokens.Code;
-      fence.text = await highlightFence(fence.text, fence.lang ?? '', dark);
-      fence.escaped = true;
+      if (!isCodeToken(token)) return;
+      token.text = await highlightFence(token.text, token.lang ?? '', dark);
+      token.escaped = true;
     },
   });
   return DOMPurify.sanitize(await marked.parse(markdown));

@@ -1,6 +1,9 @@
 use crate::session::{Geometry, Store};
 use tauri::{Emitter, Manager, Runtime};
 
+const CLOSE_TIMEOUT_SECONDS: i64 = 2;
+const AUTOSAVE_MINUTES: i64 = 5;
+
 pub fn capture<R: Runtime>(window: &tauri::Window<R>) {
     let Some(store) = window.try_state::<Store>() else {
         return;
@@ -18,8 +21,8 @@ pub fn capture<R: Runtime>(window: &tauri::Window<R>) {
         }
     } else if let (Ok(position), Ok(size)) = (window.outer_position(), window.inner_size()) {
         store.geometry(Geometry {
-            x: position.x,
-            y: position.y,
+            left: position.x,
+            top: position.y,
             width: size.width,
             height: size.height,
             maximized,
@@ -67,14 +70,21 @@ pub fn request_close<R: Runtime>(app: &tauri::AppHandle<R>) -> bool {
 }
 
 pub async fn close_timeout<R: Runtime>(app: tauri::AppHandle<R>) {
-    tokio::time::sleep(chrono::Duration::seconds(2).to_std().unwrap()).await;
+    tokio::time::sleep(
+        chrono::Duration::seconds(CLOSE_TIMEOUT_SECONDS)
+            .to_std()
+            .unwrap(),
+    )
+    .await;
     if let Err(error) = complete_close(&app) {
         tracing::error!(%error, "Unable to save session before closing");
     }
 }
 
 pub async fn autosave<R: Runtime>(app: tauri::AppHandle<R>) {
-    let period = chrono::Duration::minutes(5).to_std().unwrap();
+    let period = chrono::Duration::minutes(AUTOSAVE_MINUTES)
+        .to_std()
+        .unwrap();
     loop {
         tokio::time::sleep(period).await;
         flush(&app);
@@ -144,6 +154,9 @@ pub fn setup<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), Box<dyn std::err
     }
     #[cfg(not(feature = "test-utils"))]
     {
+        const MIN_WINDOW_WIDTH: u32 = 800;
+        const MIN_WINDOW_HEIGHT: u32 = 540;
+        const TITLE_BAR_HEIGHT: i64 = 40;
         let guard = crate::logging::init(&app.path().app_log_dir()?)?;
         app.manage(guard);
         app.manage(Store::load(
@@ -156,19 +169,22 @@ pub fn setup<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), Box<dyn std::err
         if let Some(window) = app.get_webview_window("main") {
             if let Some(geometry) = app.state::<Store>().get().window {
                 window.set_size(tauri::PhysicalSize::new(
-                    geometry.width.max(800),
-                    geometry.height.max(540),
+                    geometry.width.max(MIN_WINDOW_WIDTH),
+                    geometry.height.max(MIN_WINDOW_HEIGHT),
                 ))?;
                 let monitors = window.available_monitors()?;
                 if monitors.iter().any(|monitor| {
-                    let p = monitor.position();
-                    let s = monitor.size();
-                    i64::from(geometry.x) < i64::from(p.x) + i64::from(s.width)
-                        && i64::from(geometry.x) + i64::from(geometry.width) > i64::from(p.x)
-                        && i64::from(geometry.y) >= i64::from(p.y)
-                        && i64::from(geometry.y) + 40 < i64::from(p.y) + i64::from(s.height)
+                    let origin = monitor.position();
+                    let size = monitor.size();
+                    i64::from(geometry.left) < i64::from(origin.x) + i64::from(size.width)
+                        && i64::from(geometry.left) + i64::from(geometry.width)
+                            > i64::from(origin.x)
+                        && i64::from(geometry.top) >= i64::from(origin.y)
+                        && i64::from(geometry.top) + TITLE_BAR_HEIGHT
+                            < i64::from(origin.y) + i64::from(size.height)
                 }) {
-                    window.set_position(tauri::PhysicalPosition::new(geometry.x, geometry.y))?;
+                    window
+                        .set_position(tauri::PhysicalPosition::new(geometry.left, geometry.top))?;
                 } else {
                     window.center()?;
                 }

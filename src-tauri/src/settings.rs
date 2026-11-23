@@ -6,6 +6,11 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 pub const ZOOM_LEVELS: [u32; 6] = [80, 90, 100, 110, 125, 150];
+const DEFAULT_ZOOM: u32 = 100;
+const FULL_ZOOM_PERCENT: f64 = 100.0;
+const DEFAULT_MAX_FILE_TABS: u32 = 8;
+const MIN_FILE_TABS: u32 = 3;
+const MAX_FILE_TABS: u32 = 20;
 
 pub const DEFAULT_PROMPT: &str = "Write a concise commit message for this diff (under 220 characters total).\n\
 - Subject line: Imperative mood, under 72 characters, summarizing the core functional change.\n\
@@ -57,8 +62,8 @@ impl Default for Settings {
             pull_on_checkout: false,
             auto_fetch_interval: "off".into(),
             smart_commit: "ask".into(),
-            zoom: 100,
-            max_file_tabs: 8,
+            zoom: DEFAULT_ZOOM,
+            max_file_tabs: DEFAULT_MAX_FILE_TABS,
             ai: Ai::default(),
         }
     }
@@ -74,7 +79,7 @@ pub struct Response {
 pub fn apply_zoom<R: tauri::Runtime>(app: &tauri::AppHandle<R>, zoom: u32) -> Result<()> {
     use tauri::Manager;
     if let Some(window) = app.get_webview_window("main") {
-        window.set_zoom(f64::from(zoom) / 100.0)?;
+        window.set_zoom(f64::from(zoom) / FULL_ZOOM_PERCENT)?;
     }
     Ok(())
 }
@@ -83,9 +88,10 @@ pub fn apply_backdrop<R: tauri::Runtime>(app: &tauri::AppHandle<R>, theme: &str)
     {
         use tauri::window::{Effect, EffectsBuilder};
         use tauri::Manager;
+        const FIRST_WINDOWS_11_BUILD: u64 = 22000;
         let tabbed = matches!(
             tauri_plugin_os::version(),
-            tauri_plugin_os::Version::Semantic(_, _, build) if build >= 22000
+            tauri_plugin_os::Version::Semantic(_, _, build) if build >= FIRST_WINDOWS_11_BUILD
         );
         if let (true, Some(window)) = (tabbed, app.get_webview_window("main")) {
             let effect = match theme {
@@ -118,7 +124,7 @@ pub fn write(path: &Path, settings: Settings) -> Result<Settings> {
         || !["split", "unified"].contains(&settings.diff_mode.as_str())
         || !["ask", "always", "never"].contains(&settings.smart_commit.as_str())
         || !ZOOM_LEVELS.contains(&settings.zoom)
-        || !(3..=20).contains(&settings.max_file_tabs)
+        || !(MIN_FILE_TABS..=MAX_FILE_TABS).contains(&settings.max_file_tabs)
     {
         return Err(Error::refused("Invalid settings"));
     }

@@ -7,7 +7,7 @@ export const tabSteps: Record<
   ArrowRight: (index, count) => (index + 1) % count,
   ArrowLeft: (index, count) => (index - 1 + count) % count,
   Home: () => 0,
-  End: (_, count) => count - 1,
+  End: (_current, count) => count - 1,
 };
 const selected =
   'font-semibold text-ink after:absolute after:bottom-px after:left-1/2 after:h-0.75 after:w-4 after:-translate-x-1/2 after:rounded-xs after:bg-accent dark:text-ink-dark dark:after:bg-accent-dark';

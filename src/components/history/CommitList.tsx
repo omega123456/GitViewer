@@ -22,6 +22,7 @@ import { State } from '../states/State';
 import { clickable, dynamic, focus, pill } from '../shared/styles';
 import { CommitDetails } from './CommitDetails';
 import { LaneGraph, graphWidth, laneCount } from './LaneGraph';
+import { shortHash } from '../../lib/git';
 const refColours = [
   'text-lane-1 dark:text-lane-1-dark',
   'text-lane-2 dark:text-lane-2-dark',
@@ -41,14 +42,14 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
     initialPageParam: '',
     enabled: mode === 'history',
     queryFn: ({ pageParam }) =>
-      invoke('history', { repo, path, cursor: pageParam }),
+      invoke('history', { repo: repo, path: path, cursor: pageParam }),
     getNextPageParam: (page) => page.cursor ?? undefined,
   });
   const selection = useCurrentSelection(repo, 'history');
   const files = useBackend(
     'commit_files',
     {
-      repo,
+      repo: repo,
       revision: selection?.revision ?? '',
       source: selection?.source ?? 'commit',
     },
@@ -137,7 +138,7 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
                 className={`relative flex h-commit w-full items-center gap-2 rounded pr-2 text-left hover:bg-hover dark:hover:bg-hover-dark ${selection?.revision === commit.hash ? 'bg-selected dark:bg-selected-dark' : ''} ${clickable} ${focus}`}
                 onClick={() =>
                   useSelection.getState().select(repo, {
-                    path,
+                    path: path,
                     source: 'commit',
                     revision: commit.hash,
                   })
@@ -182,7 +183,7 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
                       )}
                     </span>
                     <span className="ml-auto shrink-0 font-mono text-badge">
-                      {commit.hash.slice(0, 7)}
+                      {shortHash(commit.hash)}
                     </span>
                   </span>
                 </span>
@@ -242,7 +243,7 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
               selectedPath={selection.path}
               onSelect={(path) =>
                 useSelection.getState().select(repo, {
-                  path,
+                  path: path,
                   source: selection.source,
                   revision: selection.revision,
                 })

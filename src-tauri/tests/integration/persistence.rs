@@ -19,8 +19,8 @@ fn session_round_trip_preserves_geometry_tabs_and_drafts() {
         "/repo".into(),
     );
     store.geometry(Geometry {
-        x: -400,
-        y: 20,
+        left: -400,
+        top: 20,
         width: 1200,
         height: 800,
         maximized: true,
@@ -106,8 +106,8 @@ async fn session_commands_are_isolated_and_preserve_native_geometry() {
         .unwrap();
     let store = app.state::<Store>();
     store.geometry(Geometry {
-        x: 10,
-        y: 20,
+        left: 10,
+        top: 20,
         width: 1200,
         height: 800,
         maximized: false,

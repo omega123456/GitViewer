@@ -1,7 +1,11 @@
 import type { Ref } from 'react';
 import { format, formatDistanceToNowStrict, fromUnixTime } from 'date-fns';
 import { useBackend } from '../../lib/query';
-import { useLayout, useLayoutFields } from '../../stores/layout';
+import {
+  useLayout,
+  useLayoutField,
+  blameWidthBounds,
+} from '../../stores/layout';
 import { useSelection } from '../../stores/selection';
 import type { Selection } from '../../lib/types';
 import { clickable, dynamic, focus } from '../shared/styles';
@@ -10,6 +14,9 @@ import { ErrorState } from '../states/Errors';
 import { State } from '../states/State';
 import { ResizeHandle } from '../shell/ResizeHandle';
 import { findClass, findTokens, type Found } from './find';
+import { shortHash } from '../../lib/git';
+import { boundsOf } from '../../lib/geometry';
+const MIN_CONTENT_WIDTH_BESIDE_BLAME = 320;
 export function BlameView({
   repo,
   selection,
@@ -21,8 +28,8 @@ export function BlameView({
   list?: Ref<VirtualListHandle>;
   found?: Found;
 }) {
-  const query = useBackend('blame', { repo, path: selection.path });
-  const { blameWidth } = useLayoutFields(repo, 'blameWidth');
+  const query = useBackend('blame', { repo: repo, path: selection.path });
+  const blameWidth = useLayoutField(repo, 'blameWidth');
   return query.error ? (
     <ErrorState
       title="Could not load blame"
@@ -60,7 +67,7 @@ export function BlameView({
                       });
                     }}
                   >
-                    {line.hash.slice(0, 7)}
+                    {shortHash(line.hash)}
                   </button>
                   <span className="w-26 shrink-0 truncate text-ink dark:text-ink-dark">
                     {line.author}
@@ -102,15 +109,17 @@ export function BlameView({
         <ResizeHandle
           label="Resize blame annotations"
           orientation="horizontal"
-          min={360}
-          max={640}
-          step={10}
+          min={blameWidthBounds.min}
+          max={blameWidthBounds.max}
+          step={blameWidthBounds.step}
           value={blameWidth}
           className="absolute inset-y-0 left-blame z-20 w-1 cursor-col-resize bg-line hover:bg-accent focus-visible:bg-accent dark:bg-line-dark"
           measure={(event) => {
-            const pane =
-              event.currentTarget.parentElement!.getBoundingClientRect();
-            return Math.min(event.clientX - pane.left, pane.width - 320);
+            const pane = boundsOf(event.currentTarget.parentElement);
+            return Math.min(
+              event.clientX - pane.left,
+              pane.width - MIN_CONTENT_WIDTH_BESIDE_BLAME,
+            );
           }}
           onChange={(width) =>
             useLayout.getState().update(repo, { blameWidth: width })

@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { clickable, focus } from './styles';
 import { LineCount } from './LineCount';
 import type { Lines } from '../../lib/types';
+const TIGHT_HYSTERESIS = 0.5;
 export function Section({
   title,
   count,
@@ -111,8 +112,13 @@ export function GroupHeader({
         last.right -
         count.left -
         (shown ? room.current : 0);
-      const available = box.width - 2 * (first.left - box.left);
-      setTight((was) => available - required < room.current + (was ? 0.5 : 0));
+      const margin = first.left - box.left;
+      const available = box.width - margin - margin;
+      setTight(
+        (previouslyTight) =>
+          available - required <
+          room.current + (previouslyTight ? TIGHT_HYSTERESIS : 0),
+      );
     };
     measure();
     const observer = new ResizeObserver(measure);

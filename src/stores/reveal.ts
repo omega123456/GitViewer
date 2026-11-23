@@ -11,17 +11,17 @@ interface Reveal {
 export const useReveal = create<Reveal>((set) => ({
   targets: {},
   request: (id, target) =>
-    set((s) => ({ targets: { ...s.targets, [id]: { ...target } } })),
+    set((state) => ({ targets: { ...state.targets, [id]: { ...target } } })),
   finish: (id, target) =>
-    set((s) =>
-      s.targets[id] === target
-        ? { targets: { ...s.targets, [id]: undefined } }
-        : s,
+    set((state) =>
+      state.targets[id] === target
+        ? { targets: { ...state.targets, [id]: undefined } }
+        : state,
     ),
 }));
 export function useRevealTarget(id: string, tree: string) {
-  return useReveal((s) => {
-    const target = s.targets[id];
+  return useReveal((state) => {
+    const target = state.targets[id];
     return target?.tree === tree ? target : undefined;
   });
 }

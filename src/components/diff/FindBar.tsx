@@ -4,7 +4,12 @@ import { shortcutLabel, type Action } from '../../lib/keyboard';
 import { Button } from '../shared/Button';
 import { TextInput } from '../shared/TextInput';
 import { field } from '../shared/styles';
-import type { Find } from './find';
+import {
+  FIND_NEXT_SHORTCUT,
+  FIND_PREVIOUS_SHORTCUT,
+  FIND_SHORTCUT,
+  type Find,
+} from './find';
 export function findActions(find: Find, unavailable: boolean): Action[] {
   const stepless = unavailable || !find.open || !find.count;
   return [
@@ -12,7 +17,7 @@ export function findActions(find: Find, unavailable: boolean): Action[] {
       id: 'find',
       icon: <Search className="size-3.5" />,
       label: 'Find in file',
-      key: 'Mod+f',
+      key: FIND_SHORTCUT,
       run: find.reveal,
       disabled: unavailable,
     },
@@ -20,7 +25,7 @@ export function findActions(find: Find, unavailable: boolean): Action[] {
       id: 'find-next',
       icon: <ArrowDown className="size-3.5" />,
       label: 'Next match',
-      key: 'F3',
+      key: FIND_NEXT_SHORTCUT,
       run: () => find.step(1),
       disabled: stepless,
     },
@@ -28,7 +33,7 @@ export function findActions(find: Find, unavailable: boolean): Action[] {
       id: 'find-previous',
       icon: <ArrowUp className="size-3.5" />,
       label: 'Previous match',
-      key: 'Shift+F3',
+      key: FIND_PREVIOUS_SHORTCUT,
       run: () => find.step(-1),
       disabled: stepless,
     },
@@ -85,7 +90,7 @@ export function FindBar({
         <Button
           variant="icon"
           className="size-control"
-          title={`Previous match (${shortcutLabel('Shift+F3')})`}
+          title={`Previous match (${shortcutLabel(FIND_PREVIOUS_SHORTCUT)})`}
           aria-label="Previous match"
           disabled={!find.count}
           onClick={() => find.step(-1)}
@@ -95,7 +100,7 @@ export function FindBar({
         <Button
           variant="icon"
           className="size-control"
-          title={`Next match (${shortcutLabel('F3')})`}
+          title={`Next match (${shortcutLabel(FIND_NEXT_SHORTCUT)})`}
           aria-label="Next match"
           disabled={!find.count}
           onClick={() => find.step(1)}

@@ -48,7 +48,7 @@ export function StashDialog({
           event.preventDefault();
           close();
           void perform('stash_save', {
-            repo,
+            repo: repo,
             message: name.trim() || fallback,
           });
         }}

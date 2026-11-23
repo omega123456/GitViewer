@@ -9,5 +9,5 @@ export const useDensity = create<Density>((set) => ({
   setDensity: (density) => set({ density }),
 }));
 export function useCompact() {
-  return useDensity((s) => s.density === 'compact');
+  return useDensity((state) => state.density === 'compact');
 }

@@ -18,6 +18,7 @@ import { ErrorState } from '../states/Errors';
 import { State } from '../states/State';
 import { revisionTree } from './reveal';
 import { RevisionTree } from './RevisionTree';
+import { isDetached, shortHash, scopeKey } from '../../lib/git';
 export function openCompare(repo: string, patch: Partial<TabLayout> = {}) {
   useLayout.getState().update(repo, { ...patch, mode: 'compare' });
   useSelection.getState().viewAll(repo, 'compare');
@@ -28,7 +29,7 @@ export function swapCompare(repo: string, base: string, target: string) {
     .update(repo, { compareBase: target, compareTarget: base });
 }
 export function baseFieldId(repo: string) {
-  return `${repo}:compare-base`;
+  return scopeKey(repo, 'compare-base');
 }
 export function useComparison(repo: string, status: Status, enabled: boolean) {
   const layout = useTabLayout(repo);
@@ -36,11 +37,11 @@ export function useComparison(repo: string, status: Status, enabled: boolean) {
   const base = layout.compareBase || fallback.data || '';
   const target =
     layout.compareTarget ||
-    (status.branch === '(detached)' ? status.oid.slice(0, 7) : status.branch);
+    (isDetached(status.branch) ? shortHash(status.oid) : status.branch);
   const same = base === target;
   const files = useBackend(
     'compare_files',
-    { repo, base, target, mergeBase: layout.mergeBase },
+    { repo: repo, base: base, target: target, mergeBase: layout.mergeBase },
     enabled && Boolean(base) && Boolean(target) && !same,
   );
   const branches = useBackend('branches', { repo }, enabled);
@@ -53,15 +54,15 @@ export function useComparison(repo: string, status: Status, enabled: boolean) {
     ? undefined
     : (files.data ?? (unknownRef ? last.current : undefined));
   return {
-    base,
-    target,
-    same,
+    base: base,
+    target: target,
+    same: same,
     mergeBase: layout.mergeBase,
-    files,
-    data,
+    files: files,
+    data: data,
     error: files.error && !unknownRef ? files.error : null,
-    known,
-    branches,
+    known: known,
+    branches: branches,
   };
 }
 export function CompareError({
@@ -111,7 +112,7 @@ export function CompareSection({
   const selection = useCurrentSelection(repo, 'compare');
   const update = (patch: Partial<TabLayout>) =>
     useLayout.getState().update(repo, patch);
-  const references = `${repo}:compare-references`;
+  const references = scopeKey(repo, 'compare-references');
   const statuses = useMemo(
     () =>
       Object.fromEntries(
@@ -119,7 +120,7 @@ export function CompareSection({
       ),
     [data],
   );
-  useActions(`${repo}:compare`, [
+  useActions(scopeKey(repo, 'compare'), [
     {
       id: 'swap-compare',
       icon: <ArrowLeftRight className="size-3.5" />,
@@ -224,7 +225,7 @@ export function CompareSection({
           selectedPath={selection?.path}
           onSelect={(path) =>
             useSelection.getState().select(repo, {
-              path,
+              path: path,
               source: 'compare',
               base: data.base,
               revision: data.target,

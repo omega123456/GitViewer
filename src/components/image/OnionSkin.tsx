@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useImageViews, useTabImageView } from '../../stores/image-view';
 import { dynamic } from '../shared/styles';
+import { FULL_PERCENT } from '../../lib/geometry';
 export function OnionSkin({
   view,
   image,
@@ -14,7 +15,7 @@ export function OnionSkin({
       {image('old')}
       <div
         className="absolute inset-0 flex items-center justify-center opacity-blend"
-        style={dynamic({ '--blend-opacity': blend / 100 })}
+        style={dynamic({ '--blend-opacity': blend / FULL_PERCENT })}
       >
         {image('new')}
       </div>

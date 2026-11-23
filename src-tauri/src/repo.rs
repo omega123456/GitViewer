@@ -68,8 +68,8 @@ impl Registry {
             None,
         )
         .await?
-        .accept(&[0])
-        .map_err(|e| Error::new("invalid_repository", e.message))?;
+        .accept(&[git::EXIT_SUCCESS])
+        .map_err(|error| Error::new("invalid_repository", error.message))?;
         let text = output.text();
         let mut lines = text.lines().map(str::trim);
         let root = std::fs::canonicalize(lines.next().unwrap_or_default())?;
@@ -125,8 +125,8 @@ fn last_fetch(common_dir: &Path) -> Option<String> {
 impl Repo {
     pub fn new(root: PathBuf) -> Self {
         Self {
-            git_dir: root.join(".git"),
-            common_dir: root.join(".git"),
+            git_dir: root.join(git::DOT_GIT),
+            common_dir: root.join(git::DOT_GIT),
             project: root.clone(),
             root,
             status: Mutex::new(Arc::default()),
@@ -167,7 +167,7 @@ impl Repo {
             None,
         )
         .await
-        .and_then(|output| output.accept(&[0]))
+        .and_then(|output| output.accept(&[git::EXIT_SUCCESS]))
         .and_then(|output| status::parse(&output.bytes));
         let next = match read {
             Ok(next) => Status {
@@ -191,9 +191,9 @@ impl Repo {
                 None,
             )
             .await?
-            .accept(&[0, 128])?;
+            .accept(&[git::EXIT_SUCCESS, git::EXIT_FATAL])?;
             let name = named.text().trim().to_owned();
-            if named.code == 0 && !name.is_empty() {
+            if named.code == git::EXIT_SUCCESS && !name.is_empty() {
                 Arc::make_mut(status).merging = Some(
                     name.strip_prefix("remotes/")
                         .unwrap_or(name.as_str())
@@ -253,10 +253,13 @@ fn inside(relative: &str) -> Result<&Path> {
     if path.is_absolute()
         || path
             .components()
-            .any(|c| !matches!(c, Component::Normal(_) | Component::CurDir))
-        || path
-            .components()
-            .any(|c| c.as_os_str().to_string_lossy().eq_ignore_ascii_case(".git"))
+            .any(|component| !matches!(component, Component::Normal(_) | Component::CurDir))
+        || path.components().any(|component| {
+            component
+                .as_os_str()
+                .to_string_lossy()
+                .eq_ignore_ascii_case(git::DOT_GIT)
+        })
     {
         return Err(Error::refused("Path must stay within the working tree"));
     }

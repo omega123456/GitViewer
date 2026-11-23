@@ -98,7 +98,7 @@ export function collect(root, directory, output, platform, repository, tag) {
     version: readJson(path.join(root, 'package.json')).version,
     platforms: {
       [platform]: {
-        signature,
+        signature: signature,
         url: `https://github.com/${repository}/releases/download/${tag}/${encodeURIComponent(path.basename(archive))}`,
       },
     },
@@ -160,7 +160,7 @@ export function assemble(directory, output, repository, tag) {
     version: tag.slice(1),
     notes: `GitViewer ${tag}`,
     pub_date: formatISO(new Date()),
-    platforms,
+    platforms: platforms,
   });
 }
 if (

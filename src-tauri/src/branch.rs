@@ -30,21 +30,19 @@ pub struct MergePreview {
     pub changed: usize,
     pub conflicts: Vec<String>,
 }
+const BRANCH_FIELDS: usize = 6;
+const DELETE_BATCH: usize = 100;
+const BRANCH_FORMAT: &str = "--format=%(refname)%00%(HEAD)%00%(upstream:short)%00%(worktreepath)%00%(upstream:track)%00%(symref:short)";
 pub async fn list(repo: &Repo) -> Result<Vec<Branch>> {
     let text = git::text(
         &repo.root,
-        &[
-            "for-each-ref",
-            "--format=%(refname)%00%(HEAD)%00%(upstream:short)%00%(worktreepath)%00%(upstream:track)%00%(symref:short)",
-            "refs/heads",
-            "refs/remotes",
-        ],
+        &["for-each-ref", BRANCH_FORMAT, "refs/heads", "refs/remotes"],
     )
     .await?;
     let records: Vec<Vec<&str>> = text
         .lines()
-        .map(|line| line.split('\0').collect::<Vec<&str>>())
-        .filter(|fields| fields.len() == 6)
+        .map(|line| line.split(git::NUL).collect::<Vec<&str>>())
+        .filter(|fields| fields.len() == BRANCH_FIELDS)
         .collect();
     let remote_defaults: Vec<&str> = records
         .iter()
@@ -88,7 +86,7 @@ fn is_default(name: &str, remote: bool, remote_defaults: &[&str]) -> bool {
     }
     remote_defaults
         .iter()
-        .filter_map(|target| target.split_once('/'))
+        .filter_map(|target| target.split_once(git::REMOTE_SEPARATOR))
         .any(|(_, local)| local == name)
 }
 pub async fn switch(repo: &Repo, name: &str) -> Result<()> {
@@ -99,10 +97,10 @@ pub async fn switch(repo: &Repo, name: &str) -> Result<()> {
         .find(|branch| branch.name == name)
         .ok_or_else(|| Error::refused("Choose an existing branch"))?;
     let mut target = name;
-    let mut args = vec!["checkout"];
+    let mut arguments = vec!["checkout"];
     if branch.remote {
         let (_, local) = name
-            .split_once('/')
+            .split_once(git::REMOTE_SEPARATOR)
             .ok_or_else(|| Error::refused("Invalid remote branch"))?;
         if let Some(existing) = branches
             .iter()
@@ -115,22 +113,24 @@ pub async fn switch(repo: &Repo, name: &str) -> Result<()> {
             }
             target = local;
         } else {
-            args.extend(["--track", "-b", local]);
+            arguments.extend(["--track", "-b", local]);
         }
     }
-    args.extend([target, "--"]);
-    git::run(&repo.root, &args, None).await?.accept(&[0])?;
+    arguments.extend([target, "--"]);
+    git::run(&repo.root, &arguments, None)
+        .await?
+        .accept(&[git::EXIT_SUCCESS])?;
     Ok(())
 }
 pub async fn create(repo: &Repo, name: &str, base: &str) -> Result<()> {
     repo.writable().await?;
     git::run(&repo.root, &["check-ref-format", "--branch", name], None)
         .await?
-        .accept(&[0])?;
+        .accept(&[git::EXIT_SUCCESS])?;
     let base = resolve(repo, base).await?;
     git::run(&repo.root, &["branch", name, &base], None)
         .await?
-        .accept(&[0])?;
+        .accept(&[git::EXIT_SUCCESS])?;
     Ok(())
 }
 pub async fn delete(repo: &Repo, name: &str) -> Result<()> {
@@ -138,7 +138,7 @@ pub async fn delete(repo: &Repo, name: &str) -> Result<()> {
     let branches = list(repo).await?;
     let branch = branches
         .iter()
-        .find(|b| b.name == name)
+        .find(|branch| branch.name == name)
         .ok_or_else(|| Error::refused("Branch no longer exists"))?;
     if branch.current {
         return Err(Error::refused(
@@ -153,16 +153,16 @@ pub async fn delete(repo: &Repo, name: &str) -> Result<()> {
     }
     git::run(&repo.root, &["branch", "-D", "--", name], None)
         .await?
-        .accept(&[0])?;
+        .accept(&[git::EXIT_SUCCESS])?;
     Ok(())
 }
 async fn delete_remote(repo: &Repo, name: &str) -> Result<()> {
     let (remote, branch) = name
-        .split_once('/')
+        .split_once(git::REMOTE_SEPARATOR)
         .ok_or_else(|| Error::refused("Invalid remote branch"))?;
     git::run(&repo.root, &["push", remote, "--delete", branch], None)
         .await?
-        .accept(&[0])?;
+        .accept(&[git::EXIT_SUCCESS])?;
     Ok(())
 }
 async fn local_remotes_only(repo: &Repo) -> Result<()> {
@@ -188,14 +188,14 @@ async fn candidates(repo: &Repo) -> Result<Vec<String>> {
     Ok(list(repo)
         .await?
         .into_iter()
-        .filter(|b| {
-            !b.remote
-                && (b.gone || b.upstream.is_empty())
-                && !b.current
-                && b.worktree.is_empty()
-                && default.as_deref() != Some(b.name.as_str())
+        .filter(|branch| {
+            !branch.remote
+                && (branch.gone || branch.upstream.is_empty())
+                && !branch.current
+                && branch.worktree.is_empty()
+                && default.as_deref() != Some(branch.name.as_str())
         })
-        .map(|b| b.name)
+        .map(|branch| branch.name)
         .collect())
 }
 pub async fn gone(repo: &Repo) -> Result<Vec<String>> {
@@ -203,20 +203,31 @@ pub async fn gone(repo: &Repo) -> Result<Vec<String>> {
     local_remotes_only(repo).await?;
     git::run(&repo.root, &["fetch", "--all", "--prune"], None)
         .await?
-        .accept(&[0])?;
+        .accept(&[git::EXIT_SUCCESS])?;
     candidates(repo).await
 }
 pub async fn prune(repo: &Repo, names: Vec<String>) -> Result<Pruned> {
     repo.writable().await?;
     let allowed = candidates(repo).await?;
-    let targets: Vec<String> = names.into_iter().filter(|n| allowed.contains(n)).collect();
-    for chunk in targets.chunks(100) {
-        let mut args = vec!["branch", "-d", "--"];
-        args.extend(chunk.iter().map(String::as_str));
-        git::run(&repo.root, &args, None).await?.accept(&[0, 1])?;
+    let targets: Vec<String> = names
+        .into_iter()
+        .filter(|name| allowed.contains(name))
+        .collect();
+    for chunk in targets.chunks(DELETE_BATCH) {
+        let mut arguments = vec!["branch", "-d", "--"];
+        arguments.extend(chunk.iter().map(String::as_str));
+        git::run(&repo.root, &arguments, None)
+            .await?
+            .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?;
     }
-    let remaining: Vec<String> = list(repo).await?.into_iter().map(|b| b.name).collect();
-    let (kept, deleted) = targets.into_iter().partition(|n| remaining.contains(n));
+    let remaining: Vec<String> = list(repo)
+        .await?
+        .into_iter()
+        .map(|branch| branch.name)
+        .collect();
+    let (kept, deleted) = targets
+        .into_iter()
+        .partition(|name| remaining.contains(name));
     Ok(Pruned { deleted, kept })
 }
 async fn tip(repo: &Repo, name: Option<&str>) -> Option<String> {
@@ -236,11 +247,11 @@ async fn distance(repo: &Repo, from: Option<String>, to: Option<String>) -> Resu
 pub async fn sync<F: Fn(&str)>(repo: &Repo, action: &str, progress: F) -> Result<Option<u32>> {
     let status = repo.writable().await?;
     local_remotes_only(repo).await?;
-    if action != "fetch" && status.branch == "(detached)" {
+    if action != "fetch" && status.branch == git::DETACHED_LABEL {
         return Err(Error::refused("Detached HEAD has no upstream branch"));
     }
     let tracked = match action {
-        "pull" => Some("HEAD".to_string()),
+        "pull" => Some(git::HEAD.to_string()),
         _ => status.upstream.clone(),
     };
     let before = tip(repo, tracked.as_deref()).await;
@@ -248,27 +259,27 @@ pub async fn sync<F: Fn(&str)>(repo: &Repo, action: &str, progress: F) -> Result
         "fetch" => {
             git::stream(&repo.root, &["fetch", "--all", "--progress"], &progress)
                 .await?
-                .accept(&[0])?;
+                .accept(&[git::EXIT_SUCCESS])?;
         }
         "push" if status.upstream.is_none() => {
             let remote = push_remote(repo).await?;
             git::stream(
                 &repo.root,
-                &["push", "--progress", "--set-upstream", &remote, "HEAD"],
+                &["push", "--progress", "--set-upstream", &remote, git::HEAD],
                 &progress,
             )
             .await?
-            .accept(&[0])?;
+            .accept(&[git::EXIT_SUCCESS])?;
         }
         "push" => {
             git::stream(&repo.root, &["push", "--progress"], &progress)
                 .await?
-                .accept(&[0])?;
+                .accept(&[git::EXIT_SUCCESS])?;
         }
         "pull" => {
             git::stream(&repo.root, &["fetch", "--progress"], &progress)
                 .await?
-                .accept(&[0])?;
+                .accept(&[git::EXIT_SUCCESS])?;
             let upstream_name = status
                 .upstream
                 .as_deref()
@@ -276,20 +287,20 @@ pub async fn sync<F: Fn(&str)>(repo: &Repo, action: &str, progress: F) -> Result
             let upstream = resolve(repo, upstream_name).await?;
             let ancestor = git::run(
                 &repo.root,
-                &["merge-base", "--is-ancestor", "HEAD", &upstream],
+                &["merge-base", "--is-ancestor", git::HEAD, &upstream],
                 None,
             )
             .await?
-            .accept(&[0, 1])?;
-            if ancestor.code == 1 {
+            .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?;
+            if ancestor.code == git::EXIT_DIFFERENT {
                 let ahead = git::run(
                     &repo.root,
-                    &["merge-base", "--is-ancestor", &upstream, "HEAD"],
+                    &["merge-base", "--is-ancestor", &upstream, git::HEAD],
                     None,
                 )
                 .await?
-                .accept(&[0, 1])?;
-                if ahead.code == 0 {
+                .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?;
+                if ahead.code == git::EXIT_SUCCESS {
                     return Ok(Some(0));
                 }
                 return Err(Error::new(
@@ -299,7 +310,7 @@ pub async fn sync<F: Fn(&str)>(repo: &Repo, action: &str, progress: F) -> Result
             }
             git::run(&repo.root, &["merge", "--ff-only", &upstream], None)
                 .await?
-                .accept(&[0])?;
+                .accept(&[git::EXIT_SUCCESS])?;
         }
         _ => return Err(Error::refused("Unknown synchronization action")),
     }
@@ -309,7 +320,7 @@ pub async fn sync<F: Fn(&str)>(repo: &Repo, action: &str, progress: F) -> Result
 async fn push_remote(repo: &Repo) -> Result<String> {
     let configured = git::run(&repo.root, &["config", "--get", "remote.pushDefault"], None)
         .await?
-        .accept(&[0, 1])?
+        .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?
         .text();
     if !configured.trim().is_empty() {
         return Ok(configured.trim().into());
@@ -325,7 +336,7 @@ async fn push_remote(repo: &Repo) -> Result<String> {
 }
 async fn mergeable(repo: &Repo, name: &str) -> Result<()> {
     let current = repo.snapshot().await?.branch.clone();
-    if current == "(detached)" {
+    if current == git::DETACHED_LABEL {
         return Err(Error::refused("Switch to a branch before merging"));
     }
     let branch = list(repo)
@@ -336,9 +347,9 @@ async fn mergeable(repo: &Repo, name: &str) -> Result<()> {
     if branch.current {
         return Err(Error::refused("Choose a different branch"));
     }
-    if git::run(&repo.root, &["merge-base", name, "HEAD"], None)
+    if git::run(&repo.root, &["merge-base", name, git::HEAD], None)
         .await?
-        .accept(&[0, 1])?
+        .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?
         .code
         == 1
     {
@@ -355,13 +366,13 @@ async fn ancestor(repo: &Repo, earlier: &str, later: &str) -> Result<bool> {
         None,
     )
     .await?
-    .accept(&[0, 1])?
+    .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?
     .code
         == 0)
 }
 pub async fn merge_preview(repo: &Repo, name: &str) -> Result<MergePreview> {
     mergeable(repo, name).await?;
-    if ancestor(repo, name, "HEAD").await? {
+    if ancestor(repo, name, git::HEAD).await? {
         return Ok(MergePreview {
             outcome: "upToDate".into(),
             changed: 0,
@@ -375,7 +386,7 @@ pub async fn merge_preview(repo: &Repo, name: &str) -> Result<MergePreview> {
     .await?
     .lines()
     .count();
-    if ancestor(repo, "HEAD", name).await? {
+    if ancestor(repo, git::HEAD, name).await? {
         return Ok(MergePreview {
             outcome: "fastForward".into(),
             changed,
@@ -384,12 +395,12 @@ pub async fn merge_preview(repo: &Repo, name: &str) -> Result<MergePreview> {
     }
     let merged = git::run(
         &repo.root,
-        &["merge-tree", "--write-tree", "--name-only", "HEAD", name],
+        &["merge-tree", "--write-tree", "--name-only", git::HEAD, name],
         None,
     )
     .await?
-    .accept(&[0, 1])?;
-    if merged.code == 0 {
+    .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?;
+    if merged.code == git::EXIT_SUCCESS {
         return Ok(MergePreview {
             outcome: "commit".into(),
             changed,
@@ -415,9 +426,9 @@ pub async fn merge(repo: &Repo, name: &str) -> Result<bool> {
     mergeable(repo, name).await?;
     let output = git::run(&repo.root, &["merge", "--no-edit", name], None)
         .await?
-        .accept(&[0, 1])?;
+        .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?;
     let conflicted = merging(repo).await?;
-    if output.code == 1 && !conflicted {
+    if output.code == git::EXIT_DIFFERENT && !conflicted {
         return Err(Error::git(output.message()));
     }
     Ok(!conflicted)
@@ -429,7 +440,7 @@ async fn merging(repo: &Repo) -> Result<bool> {
         None,
     )
     .await?
-    .accept(&[0, 1])?
+    .accept(&[git::EXIT_SUCCESS, git::EXIT_DIFFERENT])?
     .code
         == 0)
 }
@@ -439,7 +450,7 @@ pub async fn abort(repo: &Repo) -> Result<()> {
     }
     git::run(&repo.root, &["merge", "--abort"], None)
         .await?
-        .accept(&[0])?;
+        .accept(&[git::EXIT_SUCCESS])?;
     Ok(())
 }
 async fn local_exists(repo: &Repo, name: &str) -> Result<bool> {
@@ -459,10 +470,10 @@ pub async fn default_branch(repo: &Repo) -> Result<String> {
         None,
     )
     .await?;
-    if head.code == 0 {
+    if head.code == git::EXIT_SUCCESS {
         let remote = head.text().trim().to_owned();
         let local = remote
-            .split_once('/')
+            .split_once(git::REMOTE_SEPARATOR)
             .map_or(remote.as_str(), |(_, name)| name);
         if local_exists(repo, local).await? {
             return Ok(local.into());

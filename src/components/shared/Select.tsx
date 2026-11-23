@@ -1,12 +1,14 @@
 import type { ReactNode } from 'react';
 import { Select as RadixSelect } from 'radix-ui';
 import { ChevronDown } from 'lucide-react';
+import { chooseOption } from '../../lib/options';
 import { clickable, focus, flyout, pill, selectItem, standard } from './styles';
-export function Select({
+export function Select<T extends string>({
   value,
   options = [],
-  groups = [{ label: '', options }],
+  groups = [{ label: '', options: options }],
   badges = {},
+  labels = {},
   icon,
   label,
   placeholder,
@@ -14,22 +16,24 @@ export function Select({
   disabled,
   onChange,
 }: {
-  value: string;
-  options?: string[];
-  groups?: { label: string; options: string[] }[];
-  badges?: Partial<Record<string, string>>;
+  value: T;
+  options?: T[];
+  groups?: { label: string; options: T[] }[];
+  badges?: Partial<Record<T, string>>;
+  labels?: Partial<Record<T, string>>;
   icon?: ReactNode;
   label: string;
   placeholder: string;
   mono?: boolean;
   disabled?: boolean;
-  onChange: (value: string) => void;
+  onChange: (value: T) => void;
 }) {
+  const choices = groups.flatMap((group) => group.options);
   return (
     <RadixSelect.Root
       value={value || undefined}
       disabled={disabled}
-      onValueChange={onChange}
+      onValueChange={(next) => chooseOption(choices, next, onChange)}
     >
       <RadixSelect.Trigger
         aria-label={label}
@@ -39,7 +43,7 @@ export function Select({
         <RadixSelect.Value placeholder={placeholder}>
           <span className="flex min-w-0 items-center gap-2">
             <span className={`truncate ${mono ? 'font-mono text-diff' : ''}`}>
-              {value}
+              {labels[value] ?? value}
             </span>
             {badges[value] && (
               <span className="shrink-0 rounded-full bg-selected px-1.5 text-label font-semibold text-accent dark:bg-selected-dark dark:text-accent-dark">
@@ -74,7 +78,9 @@ export function Select({
                   >
                     {option === value && <span className={pill} />}
                     <span className="min-w-0 truncate">
-                      <RadixSelect.ItemText>{option}</RadixSelect.ItemText>
+                      <RadixSelect.ItemText>
+                        {labels[option] ?? option}
+                      </RadixSelect.ItemText>
                     </span>
                     {badges[option] && (
                       <span className="ml-auto shrink-0 pl-3 font-sans text-label text-faint dark:text-faint-dark">

@@ -7,6 +7,7 @@ import { unsavedNames, useEditor } from '../stores/editor';
 import { activeView, useTabs } from '../stores/tabs';
 import { tabLayout, useLayout } from '../stores/layout';
 import type { Session } from '../lib/types';
+const LAYOUT_SAVE_DELAY_MS = 200;
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
@@ -157,7 +158,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       });
       unsubscribeLayout = useLayout.subscribe(() => {
         clearTimeout(settle);
-        settle = setTimeout(save, 200);
+        settle = setTimeout(save, LAYOUT_SAVE_DELAY_MS);
       });
       setReady(true);
     };

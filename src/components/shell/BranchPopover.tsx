@@ -69,12 +69,14 @@ import { mergeBranch } from '../../lib/merge';
 import { pruneBranches } from '../../lib/prune';
 import { NewWorktree } from './NewWorktree';
 import { nameProblem } from '../../lib/branch-name';
+import { isDetached, shortHash, HEAD, scopeKey } from '../../lib/git';
+const WORKTREE_LABEL_GAP = 2;
 type Row =
   | { kind: 'heading'; heading: string }
   | { kind: 'worktree'; worktree: Worktree }
   | { kind: 'branch'; branch: Branch };
 function headLabel(detached: boolean, oid: string, branch: string) {
-  return detached ? `${oid.slice(0, 7)} detached` : branch;
+  return detached ? `${shortHash(oid)} detached` : branch;
 }
 function WorktreeIcon({ worktree }: { worktree: Worktree }) {
   const Icon = worktree.main ? FolderGit2 : FolderSymlink;
@@ -90,7 +92,9 @@ function Marker({
   busy?: string;
 }) {
   const running = Boolean(useCurrentActivity(worktree.id));
-  const failed = useErrors((s) => Boolean(s.scopes[worktree.id]?.length));
+  const failed = useErrors((state) =>
+    Boolean(state.scopes[worktree.id]?.length),
+  );
   const count = status?.entries.length ?? 0;
   if (busy) return busy;
   if (running)
@@ -158,7 +162,7 @@ function WorktreeMenu({
   const target = main?.id ?? '';
   const summary = useBackend(
     'worktree_summary',
-    { repo: worktree.id, target },
+    { repo: worktree.id, target: target },
     open && Boolean(main) && !worktree.missing,
   ).data;
   const own = useCurrentActivity(worktree.id);
@@ -243,7 +247,7 @@ export async function checkout(repo: string, name: string) {
         body: paths.length
           ? 'Your changes to these files would be overwritten:'
           : 'Your local changes would be overwritten.',
-        paths,
+        paths: paths,
         note: 'GitViewer stashes them, switches, and restores them. If they conflict, it returns to the original branch.',
         confirm: 'Stash and switch',
       }))
@@ -297,8 +301,8 @@ export function BranchPopover({
   const linked = worktrees.length > 1;
   const current = worktrees.find((worktree) => worktree.id === repo);
   const statuses = useStatuses(members);
-  const othersFailed = useErrors((s) =>
-    members.some((member) => member !== repo && s.scopes[member]?.length),
+  const othersFailed = useErrors((state) =>
+    members.some((member) => member !== repo && state.scopes[member]?.length),
   );
   const othersDirty = members.some(
     (member) => member !== repo && statuses[member]?.entries.length,
@@ -324,10 +328,14 @@ export function BranchPopover({
   const query = useBackend('branches', { repo }, open || creating);
   const all = query.data ?? [];
   const head = all.find((branch) => branch.current)?.name;
-  const local = all.filter((branch) => !branch.remote).map((b) => b.name);
-  const remote = all.filter((branch) => branch.remote).map((b) => b.name);
+  const local = all
+    .filter((branch) => !branch.remote)
+    .map((branch) => branch.name);
+  const remote = all
+    .filter((branch) => branch.remote)
+    .map((branch) => branch.name);
   const tracked = all.some((branch) => !branch.remote && branch.upstream);
-  const chosenBase = base || head || 'HEAD';
+  const chosenBase = base || head || HEAD;
   const problem = name ? nameProblem(name, all) : null;
   const blocked = disabled || !name || Boolean(problem);
   const branches =
@@ -336,7 +344,10 @@ export function BranchPopover({
     ) ?? [];
   const longest = [
     ...(query.data ?? []).map((branch) => branch.name.length),
-    ...worktrees.map((w) => w.name.length + w.branch.length + 2),
+    ...worktrees.map(
+      (worktree) =>
+        worktree.name.length + worktree.branch.length + WORKTREE_LABEL_GAP,
+    ),
   ].reduce((widest, length) => Math.max(widest, length), 0);
   const shownWorktrees = linked
     ? worktrees.filter((worktree) =>
@@ -351,7 +362,7 @@ export function BranchPopover({
           { kind: 'heading' as const, heading: 'Worktrees' },
           ...shownWorktrees.map((worktree) => ({
             kind: 'worktree' as const,
-            worktree,
+            worktree: worktree,
           })),
         ]
       : []),
@@ -363,7 +374,10 @@ export function BranchPopover({
               kind: 'heading' as const,
               heading: remote ? 'Remote branches' : 'Local branches',
             },
-            ...group.map((branch) => ({ kind: 'branch' as const, branch })),
+            ...group.map((branch) => ({
+              kind: 'branch' as const,
+              branch: branch,
+            })),
           ]
         : [];
     }),
@@ -375,13 +389,13 @@ export function BranchPopover({
   const filterLabel = linked
     ? 'Filter worktrees and branches'
     : 'Filter branches';
-  useActions(`${repo}:branches`, [
+  useActions(scopeKey(repo, 'branches'), [
     {
       id: 'branches',
       icon: <GitBranch className="size-3.5" />,
       label: 'Switch branch',
       key: 'Mod+b',
-      disabled,
+      disabled: disabled,
       run: () => setOpen(true),
     },
     {
@@ -389,7 +403,7 @@ export function BranchPopover({
       icon: <Plus className="size-3.5" />,
       label: 'Create branch',
       key: 'Mod+Shift+b',
-      disabled,
+      disabled: disabled,
       run: () => setCreating(true),
     },
     {
@@ -397,7 +411,7 @@ export function BranchPopover({
       icon: <GitMerge className="size-3.5" />,
       label: 'Merge a branch',
       key: 'Mod+Alt+m',
-      disabled,
+      disabled: disabled,
       run: () => setOpen(true),
     },
     {
@@ -405,7 +419,7 @@ export function BranchPopover({
       icon: <Trash2 className="size-3.5" />,
       label: 'Choose branch to delete',
       key: 'Mod+Alt+x',
-      disabled,
+      disabled: disabled,
       run: () => setOpen(true),
     },
     {
@@ -413,7 +427,7 @@ export function BranchPopover({
       icon: <Eraser className="size-3.5" />,
       label: 'Prune local branches',
       key: '',
-      disabled,
+      disabled: disabled,
       run: () => void pruneBranches(repo, status.branch),
     },
     {
@@ -421,12 +435,12 @@ export function BranchPopover({
       icon: <FolderPlus className="size-3.5" />,
       label: 'Create worktree…',
       key: '',
-      disabled,
+      disabled: disabled,
       run: () => setCreatingWorktree(true),
     },
   ]);
   useActions(
-    `${repo}:worktrees`,
+    scopeKey(repo, 'worktrees'),
     linked
       ? [
           {
@@ -493,8 +507,8 @@ export function BranchPopover({
                 </>
               )}
               {switching ? <Spinner /> : <GitBranch className="size-4" />}
-              {status.branch === '(detached)'
-                ? `${status.oid.slice(0, 7)} · detached`
+              {isDetached(status.branch)
+                ? `${shortHash(status.oid)} · detached`
                 : status.branch || 'Branch'}
               <ChevronDown className="size-3 text-muted dark:text-muted-dark" />
             </Button>
@@ -602,7 +616,7 @@ export function BranchPopover({
                             ? 'bare'
                             : status
                               ? headLabel(
-                                  status.branch === '(detached)',
+                                  isDetached(status.branch),
                                   status.oid,
                                   status.branch,
                                 )
@@ -757,7 +771,7 @@ export function BranchPopover({
                               ).then((approved) => {
                                 if (approved)
                                   void perform('branch_delete', {
-                                    repo,
+                                    repo: repo,
                                     name: branch.name,
                                   });
                               });
@@ -847,8 +861,8 @@ export function BranchPopover({
             event.preventDefault();
             if (blocked) return;
             const result = await perform('branch_create', {
-              repo,
-              name,
+              repo: repo,
+              name: name,
               base: chosenBase,
               checkout: false,
             });
@@ -893,7 +907,7 @@ export function BranchPopover({
               mono
               value={chosenBase}
               groups={[
-                { label: 'Local', options: head ? local : ['HEAD', ...local] },
+                { label: 'Local', options: head ? local : [HEAD, ...local] },
                 { label: 'Remote', options: remote },
               ].filter((group) => group.options.length)}
               badges={head ? { [head]: 'current' } : { HEAD: 'detached' }}

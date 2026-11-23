@@ -4,7 +4,7 @@ import process from 'node:process';
 import console from 'node:console';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import * as readline from 'node:readline/promises';
+import { createInterface } from 'node:readline/promises';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -173,7 +173,7 @@ function restoreFiles(snapshot) {
   }
 }
 
-async function readReleaseNotes(rl) {
+async function readReleaseNotes(readline) {
   console.log('');
   console.log('Release notes for the GitHub release.');
   console.log(
@@ -188,7 +188,7 @@ async function readReleaseNotes(rl) {
       lines.length === 0
         ? 'Notes (Enter = default): '
         : 'Notes (empty line ends): ';
-    const line = await rl.question(prompt);
+    const line = await readline.question(prompt);
 
     if (lines.length === 0 && line.trim() === '') {
       return DEFAULT_RELEASE_BODY;
@@ -244,7 +244,7 @@ async function main() {
     );
   }
 
-  const rl = readline.createInterface({
+  const readline = createInterface({
     input: process.stdin,
     output: process.stdout,
   });
@@ -259,7 +259,7 @@ async function main() {
     console.log('  4 = set a specific version (MAJOR.MINOR.PATCH)');
     console.log('');
 
-    const choice = (await rl.question('Choice [1-4]: ')).trim();
+    const choice = (await readline.question('Choice [1-4]: ')).trim();
     let nextVersion = null;
     if (choice === '1') {
       nextVersion = bumpSemver(currentVersion, 'major');
@@ -269,7 +269,7 @@ async function main() {
       nextVersion = bumpSemver(currentVersion, 'patch');
     } else if (choice === '4') {
       const entered = (
-        await rl.question('New version (MAJOR.MINOR.PATCH): ')
+        await readline.question('New version (MAJOR.MINOR.PATCH): ')
       ).trim();
       nextVersion = parseSemver(entered) ? entered : null;
     } else {
@@ -287,7 +287,7 @@ async function main() {
       throw new Error(`Git tag "${gitTag}" already exists.`);
     }
 
-    const releaseNotes = await readReleaseNotes(rl);
+    const releaseNotes = await readReleaseNotes(readline);
     packageJson.version = nextVersion;
     tauriConf.version = nextVersion;
     const cargoTomlUpdated = setCargoPackageVersion(
@@ -321,7 +321,7 @@ async function main() {
     runGit(['push']);
     runGit(['push', 'origin', gitTag]);
   } finally {
-    rl.close();
+    readline.close();
   }
 }
 

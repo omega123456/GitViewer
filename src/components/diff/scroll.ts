@@ -1,4 +1,6 @@
 import type { KeyboardEvent } from 'react';
+import { isInside } from '../../lib/browser';
+const PAGE_SCROLL_FRACTION = 0.9;
 
 export function scrollPage(event: KeyboardEvent<HTMLDivElement>) {
   if (
@@ -6,7 +8,8 @@ export function scrollPage(event: KeyboardEvent<HTMLDivElement>) {
     event.altKey ||
     event.ctrlKey ||
     event.metaKey ||
-    (event.target as HTMLElement).closest(
+    isInside(
+      event.target,
       'input, textarea, select, [contenteditable], [role="slider"]',
     )
   )
@@ -16,7 +19,7 @@ export function scrollPage(event: KeyboardEvent<HTMLDivElement>) {
   event.currentTarget.scrollBy({
     top:
       event.currentTarget.clientHeight *
-      0.9 *
+      PAGE_SCROLL_FRACTION *
       (event.key === 'PageUp' ? -1 : 1),
     behavior: 'instant',
   });

@@ -26,7 +26,7 @@ async function recoverFromPull(repo: string, failure: GitError) {
 export async function pull(repo: string) {
   await perform(
     'sync',
-    { repo, action: 'pull' },
+    { repo: repo, action: 'pull' },
     { recover: (failure) => recoverFromPull(repo, failure) },
   );
 }

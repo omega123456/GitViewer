@@ -1,6 +1,10 @@
 import { useEffect } from 'react';
 import { invoke, normalizeError } from './ipc';
 
+export function isInside(target: EventTarget | null, selector: string) {
+  return target instanceof Element && target.closest(selector) !== null;
+}
+
 export function preventBrowserShortcut(event: KeyboardEvent) {
   const editable =
     event.target instanceof HTMLElement &&
@@ -32,8 +36,8 @@ export function useBrowserRestrictions() {
     const context = (event: Event) => {
       event.preventDefault();
       if (
-        event.target instanceof Element &&
-        event.target.closest(
+        isInside(
+          event.target,
           'textarea, input:not([type="checkbox"], [type="range"]), [contenteditable="true"]',
         )
       )

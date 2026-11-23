@@ -54,98 +54,159 @@ pub struct Dimensions {
     pub width: u32,
     pub height: u32,
 }
-fn be16(bytes: &[u8], at: usize) -> Option<u32> {
-    Some(u16::from_be_bytes([*bytes.get(at)?, *bytes.get(at + 1)?]).into())
+pub const DIFF_CONTEXT_LINES: u32 = 3;
+const MAX_CONTEXT_LINES: u32 = 50_000;
+const HUNK_HEADER_PARTS: usize = 4;
+const NAME_STATUS_FIELDS: usize = 2;
+const WORD_BYTES: usize = std::mem::size_of::<u32>();
+const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
+const PNG_WIDTH_OFFSET: usize = 16;
+const PNG_HEIGHT_OFFSET: usize = 20;
+const GIF_SIGNATURE: &[u8] = b"GIF8";
+const GIF_WIDTH_OFFSET: usize = 6;
+const GIF_HEIGHT_OFFSET: usize = 8;
+const BMP_SIGNATURE: &[u8] = b"BM";
+const BMP_WIDTH_OFFSET: usize = 18;
+const BMP_HEIGHT_OFFSET: usize = 22;
+const ICO_SIGNATURE: &[u8] = b"\x00\x00\x01\x00";
+const ICO_WIDTH_OFFSET: usize = 6;
+const ICO_HEIGHT_OFFSET: usize = 7;
+const ICO_FULL_SIZE: u32 = 256;
+const JPEG_SIGNATURE: &[u8] = b"\xff\xd8";
+const JPEG_FIRST_MARKER: usize = 2;
+const JPEG_MARKER_PREFIX: u8 = 0xff;
+const JPEG_MARKER_BYTES: usize = 2;
+const JPEG_LENGTH_OFFSET: usize = 2;
+const JPEG_MIN_SEGMENT_LENGTH: u16 = 2;
+const JPEG_HEIGHT_OFFSET: usize = 5;
+const JPEG_WIDTH_OFFSET: usize = 7;
+const RIFF_SIGNATURE: &[u8] = b"RIFF";
+const WEBP_FORM: &[u8] = b"WEBP";
+const WEBP_FORM_RANGE: Range<usize> = 8..12;
+const WEBP_CHUNK_RANGE: Range<usize> = 12..16;
+const VP8X_WIDTH_OFFSET: usize = 24;
+const VP8X_HEIGHT_OFFSET: usize = 27;
+const VP8L_PACKED_OFFSET: usize = 21;
+const VP8L_HEIGHT_SHIFT: u32 = 14;
+const VP8_WIDTH_OFFSET: usize = 26;
+const VP8_HEIGHT_OFFSET: usize = 28;
+const FOURTEEN_BIT_MASK: u32 = 0x3fff;
+fn be16(bytes: &[u8], offset: usize) -> Option<u16> {
+    Some(u16::from_be_bytes([
+        *bytes.get(offset)?,
+        *bytes.get(offset + 1)?,
+    ]))
 }
-fn le16(bytes: &[u8], at: usize) -> Option<u32> {
-    Some(u16::from_le_bytes([*bytes.get(at)?, *bytes.get(at + 1)?]).into())
+fn le16(bytes: &[u8], offset: usize) -> Option<u32> {
+    Some(u16::from_le_bytes([*bytes.get(offset)?, *bytes.get(offset + 1)?]).into())
 }
-fn be32(bytes: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from_be_bytes(bytes.get(at..at + 4)?.try_into().ok()?))
+fn word(bytes: &[u8], offset: usize) -> Option<[u8; WORD_BYTES]> {
+    bytes.get(offset..offset + WORD_BYTES)?.try_into().ok()
 }
-fn le32(bytes: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?))
+fn be32(bytes: &[u8], offset: usize) -> Option<u32> {
+    Some(u32::from_be_bytes(word(bytes, offset)?))
 }
-fn le24(bytes: &[u8], at: usize) -> Option<u32> {
+fn le32(bytes: &[u8], offset: usize) -> Option<u32> {
+    Some(u32::from_le_bytes(word(bytes, offset)?))
+}
+fn le_signed32(bytes: &[u8], offset: usize) -> Option<i32> {
+    Some(i32::from_le_bytes(word(bytes, offset)?))
+}
+fn le24(bytes: &[u8], offset: usize) -> Option<u32> {
     Some(u32::from_le_bytes([
-        *bytes.get(at)?,
-        *bytes.get(at + 1)?,
-        *bytes.get(at + 2)?,
+        *bytes.get(offset)?,
+        *bytes.get(offset + 1)?,
+        *bytes.get(offset + 2)?,
         0,
     ]))
 }
+fn is_standalone_marker(marker: u8) -> bool {
+    matches!(marker, 0xff | 0x00 | 0x01 | 0xd0..=0xd9)
+}
+fn is_start_of_frame(marker: u8) -> bool {
+    matches!(marker, 0xc0..=0xc3 | 0xc5..=0xc7 | 0xc9..=0xcb | 0xcd..=0xcf)
+}
 fn jpeg_dimensions(bytes: &[u8]) -> Option<Dimensions> {
-    let mut at = 2;
-    while at + 1 < bytes.len() {
-        if bytes[at] != 0xff {
-            at += 1;
+    let mut offset = JPEG_FIRST_MARKER;
+    while offset + 1 < bytes.len() {
+        if bytes[offset] != JPEG_MARKER_PREFIX {
+            offset += 1;
             continue;
         }
-        let marker = bytes[at + 1];
-        if matches!(marker, 0xff | 0x00 | 0x01 | 0xd0..=0xd9) {
-            at += 2;
+        let marker = bytes[offset + 1];
+        if is_standalone_marker(marker) {
+            offset += JPEG_MARKER_BYTES;
             continue;
         }
-        if matches!(marker, 0xc0..=0xc3 | 0xc5..=0xc7 | 0xc9..=0xcb | 0xcd..=0xcf) {
+        if is_start_of_frame(marker) {
             return Some(Dimensions {
-                width: be16(bytes, at + 7)?,
-                height: be16(bytes, at + 5)?,
+                width: be16(bytes, offset + JPEG_WIDTH_OFFSET)?.into(),
+                height: be16(bytes, offset + JPEG_HEIGHT_OFFSET)?.into(),
             });
         }
-        at += 2 + be16(bytes, at + 2)?.max(2) as usize;
+        let length = be16(bytes, offset + JPEG_LENGTH_OFFSET)?.max(JPEG_MIN_SEGMENT_LENGTH);
+        offset += JPEG_MARKER_BYTES + usize::from(length);
     }
     None
 }
 fn webp_dimensions(bytes: &[u8]) -> Option<Dimensions> {
-    match bytes.get(12..16)? {
+    match bytes.get(WEBP_CHUNK_RANGE)? {
         b"VP8X" => Some(Dimensions {
-            width: le24(bytes, 24)? + 1,
-            height: le24(bytes, 27)? + 1,
+            width: le24(bytes, VP8X_WIDTH_OFFSET)? + 1,
+            height: le24(bytes, VP8X_HEIGHT_OFFSET)? + 1,
         }),
         b"VP8L" => {
-            let packed = le32(bytes, 21)?;
+            let packed = le32(bytes, VP8L_PACKED_OFFSET)?;
             Some(Dimensions {
-                width: (packed & 0x3fff) + 1,
-                height: ((packed >> 14) & 0x3fff) + 1,
+                width: (packed & FOURTEEN_BIT_MASK) + 1,
+                height: ((packed >> VP8L_HEIGHT_SHIFT) & FOURTEEN_BIT_MASK) + 1,
             })
         }
         b"VP8 " => Some(Dimensions {
-            width: le16(bytes, 26)? & 0x3fff,
-            height: le16(bytes, 28)? & 0x3fff,
+            width: le16(bytes, VP8_WIDTH_OFFSET)? & FOURTEEN_BIT_MASK,
+            height: le16(bytes, VP8_HEIGHT_OFFSET)? & FOURTEEN_BIT_MASK,
         }),
         _ => None,
     }
 }
+fn ico_size(value: u8) -> u32 {
+    if value == 0 {
+        return ICO_FULL_SIZE;
+    }
+    value.into()
+}
+fn is_webp(bytes: &[u8]) -> bool {
+    bytes.starts_with(RIFF_SIGNATURE) && bytes.get(WEBP_FORM_RANGE) == Some(WEBP_FORM)
+}
 pub fn dimensions(bytes: &[u8]) -> Option<Dimensions> {
-    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+    if bytes.starts_with(PNG_SIGNATURE) {
         return Some(Dimensions {
-            width: be32(bytes, 16)?,
-            height: be32(bytes, 20)?,
+            width: be32(bytes, PNG_WIDTH_OFFSET)?,
+            height: be32(bytes, PNG_HEIGHT_OFFSET)?,
         });
     }
-    if bytes.starts_with(b"GIF8") {
+    if bytes.starts_with(GIF_SIGNATURE) {
         return Some(Dimensions {
-            width: le16(bytes, 6)?,
-            height: le16(bytes, 8)?,
+            width: le16(bytes, GIF_WIDTH_OFFSET)?,
+            height: le16(bytes, GIF_HEIGHT_OFFSET)?,
         });
     }
-    if bytes.starts_with(b"BM") {
+    if bytes.starts_with(BMP_SIGNATURE) {
         return Some(Dimensions {
-            width: (le32(bytes, 18)? as i32).unsigned_abs(),
-            height: (le32(bytes, 22)? as i32).unsigned_abs(),
+            width: le_signed32(bytes, BMP_WIDTH_OFFSET)?.unsigned_abs(),
+            height: le_signed32(bytes, BMP_HEIGHT_OFFSET)?.unsigned_abs(),
         });
     }
-    if bytes.starts_with(b"\x00\x00\x01\x00") {
-        let measure = |value: u8| if value == 0 { 256 } else { value.into() };
+    if bytes.starts_with(ICO_SIGNATURE) {
         return Some(Dimensions {
-            width: measure(*bytes.get(6)?),
-            height: measure(*bytes.get(7)?),
+            width: ico_size(*bytes.get(ICO_WIDTH_OFFSET)?),
+            height: ico_size(*bytes.get(ICO_HEIGHT_OFFSET)?),
         });
     }
-    if bytes.starts_with(b"\xff\xd8") {
+    if bytes.starts_with(JPEG_SIGNATURE) {
         return jpeg_dimensions(bytes);
     }
-    if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+    if is_webp(bytes) {
         return webp_dimensions(bytes);
     }
     None
@@ -175,7 +236,7 @@ pub fn parse(text: &str, path: &str, source: &str) -> Result<Diff> {
     for value in text.split_terminator('\n') {
         if value.starts_with("@@ ") {
             let parts: Vec<&str> = value.split_whitespace().collect();
-            if parts.len() < 4 {
+            if parts.len() < HUNK_HEADER_PARTS {
                 return Err(Error::new("unexpected", "Malformed hunk header"));
             }
             let (old_start, old_count) = range(parts[1])?;
@@ -198,21 +259,20 @@ pub fn parse(text: &str, path: &str, source: &str) -> Result<Diff> {
             } else if let Some(prefix) = value.chars().next() {
                 let (kind, old_number, new_number) = match prefix {
                     '+' => {
-                        let n = new;
+                        let number = new;
                         new += 1;
-                        ("add", None, Some(n))
+                        ("add", None, Some(number))
                     }
                     '-' => {
-                        let n = old;
+                        let number = old;
                         old += 1;
-                        ("remove", Some(n), None)
+                        ("remove", Some(number), None)
                     }
                     ' ' => {
-                        let o = old;
-                        let n = new;
+                        let (old_line, new_line) = (old, new);
                         old += 1;
                         new += 1;
-                        ("context", Some(o), Some(n))
+                        ("context", Some(old_line), Some(new_line))
                     }
                     _ => continue,
                 };
@@ -247,8 +307,8 @@ pub fn parse(text: &str, path: &str, source: &str) -> Result<Diff> {
 }
 pub const MARK_LINE_LIMIT: usize = 2_000;
 pub const MARK_BUDGET: usize = 4_000_000;
-fn width(text: &str) -> u32 {
-    text.encode_utf16().count() as u32
+fn utf16_width(text: &str) -> u32 {
+    u32::try_from(text.encode_utf16().count()).unwrap_or(u32::MAX)
 }
 fn push(marks: &mut Vec<[u32; 2]>, start: u32, end: u32) {
     match marks.last_mut() {
@@ -257,30 +317,37 @@ fn push(marks: &mut Vec<[u32; 2]>, start: u32, end: u32) {
     }
 }
 const PAIR_THRESHOLD: f32 = 0.4;
-const EMPHASIS_LIMIT: f32 = 0.5;
+const EMPHASIS_LIMIT_PERCENT: usize = 50;
+const FULL_PERCENT: usize = 100;
 const ALIGN_CELLS: usize = 10_000;
 const ANCHOR_LINES: usize = 4_000;
 fn blank(token: &str) -> bool {
     token.starts_with(char::is_whitespace)
 }
+#[derive(Clone, Copy, PartialEq)]
+enum CharClass {
+    Whitespace,
+    Word,
+    Symbol,
+}
+fn char_class(character: char) -> CharClass {
+    if character.is_whitespace() {
+        return CharClass::Whitespace;
+    }
+    if character.is_alphanumeric() || character == '_' {
+        return CharClass::Word;
+    }
+    CharClass::Symbol
+}
 fn tokens(text: &str) -> Vec<&str> {
-    let class = |c: char| {
-        if c.is_whitespace() {
-            0
-        } else if c.is_alphanumeric() || c == '_' {
-            1
-        } else {
-            2
-        }
-    };
     let mut found = Vec::new();
     let mut start = 0;
     let mut previous = None;
-    for (at, c) in text.char_indices() {
-        let kind = class(c);
-        if at > start && (kind == 2 || previous != Some(kind)) {
-            found.push(&text[start..at]);
-            start = at;
+    for (offset, character) in text.char_indices() {
+        let kind = char_class(character);
+        if offset > start && (kind == CharClass::Symbol || previous != Some(kind)) {
+            found.push(&text[start..offset]);
+            start = offset;
         }
         previous = Some(kind);
     }
@@ -300,17 +367,17 @@ fn similarity(old: &str, new: &str) -> f32 {
 }
 fn ranges(line: &str, tokens: &[&str], changed: &[bool]) -> Marks {
     let mut marks = Vec::new();
-    let mut at = width(&line[..line.len() - line.trim_start().len()]);
+    let mut offset = utf16_width(&line[..line.len() - line.trim_start().len()]);
     for (index, token) in tokens.iter().enumerate() {
-        let size = width(token);
+        let size = utf16_width(token);
         let bridged = blank(token)
             && index > 0
             && changed[index - 1]
             && changed.get(index + 1) == Some(&true);
         if changed[index] || bridged {
-            push(&mut marks, at, at + size);
+            push(&mut marks, offset, offset + size);
         }
-        at += size;
+        offset += size;
     }
     marks
 }
@@ -341,7 +408,7 @@ fn mark_pair(old: &str, new: &str) -> Option<(Marks, Marks)> {
     let changed =
         changed_bytes(&old_tokens, &old_changed).max(changed_bytes(&new_tokens, &new_changed));
     let longest = old_trimmed.len().max(new_trimmed.len());
-    if changed as f32 > EMPHASIS_LIMIT * longest as f32 {
+    if changed * FULL_PERCENT > EMPHASIS_LIMIT_PERCENT * longest {
         return None;
     }
     Some((
@@ -357,23 +424,27 @@ fn align(
     budget: &mut usize,
     pairs: &mut Vec<(usize, usize)>,
 ) {
-    let (rows, cols) = (old.len(), new.len());
-    if rows == 0 || cols == 0 {
+    let (rows, columns) = (old.len(), new.len());
+    if rows == 0 || columns == 0 {
         return;
     }
     let scorable = |line: &Line| line.content.len() <= MARK_LINE_LIMIT;
-    let cost: usize = if rows * cols > ALIGN_CELLS {
+    let cost: usize = if rows * columns > ALIGN_CELLS {
         usize::MAX
     } else {
         removed[old.clone()]
             .iter()
-            .flat_map(|a| added[new.clone()].iter().map(move |b| (a, b)))
-            .filter(|(a, b)| scorable(a) && scorable(b))
-            .map(|(a, b)| a.content.len() + b.content.len())
+            .flat_map(|removed_line| {
+                added[new.clone()]
+                    .iter()
+                    .map(move |added_line| (removed_line, added_line))
+            })
+            .filter(|(removed_line, added_line)| scorable(removed_line) && scorable(added_line))
+            .map(|(removed_line, added_line)| removed_line.content.len() + added_line.content.len())
             .sum()
     };
     if cost > *budget {
-        if rows == cols {
+        if rows == columns {
             pairs.extend(old.zip(new));
         }
         return;
@@ -381,12 +452,12 @@ fn align(
     *budget -= cost;
     let score: Vec<Vec<f32>> = removed[old.clone()]
         .iter()
-        .map(|a| {
+        .map(|removed_line| {
             added[new.clone()]
                 .iter()
-                .map(|b| {
-                    if scorable(a) && scorable(b) {
-                        similarity(&a.content, &b.content)
+                .map(|added_line| {
+                    if scorable(removed_line) && scorable(added_line) {
+                        similarity(&removed_line.content, &added_line.content)
                     } else {
                         0.0
                     }
@@ -394,28 +465,30 @@ fn align(
                 .collect()
         })
         .collect();
-    let mut best = vec![vec![0.0f32; cols + 1]; rows + 1];
-    for i in (0..rows).rev() {
-        for j in (0..cols).rev() {
-            let skip = best[i + 1][j].max(best[i][j + 1]);
-            best[i][j] = if score[i][j] >= PAIR_THRESHOLD {
-                skip.max(best[i + 1][j + 1] + score[i][j])
+    let mut best = vec![vec![0.0f32; columns + 1]; rows + 1];
+    for row in (0..rows).rev() {
+        for column in (0..columns).rev() {
+            let skip = best[row + 1][column].max(best[row][column + 1]);
+            best[row][column] = if score[row][column] >= PAIR_THRESHOLD {
+                skip.max(best[row + 1][column + 1] + score[row][column])
             } else {
                 skip
             };
         }
     }
-    let (mut i, mut j) = (0, 0);
-    while i < rows && j < cols {
-        let skip = best[i + 1][j].max(best[i][j + 1]);
-        if score[i][j] >= PAIR_THRESHOLD && best[i + 1][j + 1] + score[i][j] > skip {
-            pairs.push((old.start + i, new.start + j));
-            i += 1;
-            j += 1;
-        } else if best[i + 1][j] >= best[i][j + 1] {
-            i += 1;
+    let (mut row, mut column) = (0, 0);
+    while row < rows && column < columns {
+        let skip = best[row + 1][column].max(best[row][column + 1]);
+        if score[row][column] >= PAIR_THRESHOLD
+            && best[row + 1][column + 1] + score[row][column] > skip
+        {
+            pairs.push((old.start + row, new.start + column));
+            row += 1;
+            column += 1;
+        } else if best[row + 1][column] >= best[row][column + 1] {
+            row += 1;
         } else {
-            j += 1;
+            column += 1;
         }
     }
 }
@@ -502,7 +575,7 @@ pub async fn resolve(repo: &Repo, revision: &str) -> Result<String> {
             "rev-parse",
             "--verify",
             "--end-of-options",
-            &format!("{revision}^{{commit}}"),
+            &git::commit_of(revision),
         ],
     )
     .await?
@@ -536,8 +609,8 @@ async fn tree_diff(repo: &Repo, listing: &str, base: &str, target: &str) -> Resu
         ],
     )
     .await?
-    .split('\0')
-    .filter(|s| !s.is_empty())
+    .split(git::NUL)
+    .filter(|field| !field.is_empty())
     .map(String::from)
     .collect())
 }
@@ -551,7 +624,7 @@ pub async fn compare(
     let target = resolve(repo, target).await?;
     if merge_base {
         let common = git::run(&repo.root, &["merge-base", &base, &target], None).await?;
-        if common.code != 0 {
+        if common.code != git::EXIT_SUCCESS {
             return Err(Error::refused(
                 "These branches have no common commit. Turn off \"Since branches diverged\" to compare them directly.",
             ));
@@ -561,11 +634,16 @@ pub async fn compare(
     let statuses = tree_diff(repo, "--name-status", &base, &target).await?;
     let counts = tree_diff(repo, "--numstat", &base, &target).await?;
     let files = statuses
-        .chunks(2)
+        .chunks(NAME_STATUS_FIELDS)
         .zip(counts)
         .map(|(entry, count)| {
             let mut numbers = count.split('\t');
-            let mut number = || numbers.next().and_then(|n| n.parse().ok()).unwrap_or(0);
+            let mut number = || {
+                numbers
+                    .next()
+                    .and_then(|field| field.parse().ok())
+                    .unwrap_or(0)
+            };
             ChangedFile {
                 status: entry[0].chars().take(1).collect(),
                 path: entry[1].clone(),
@@ -620,15 +698,18 @@ async fn location(
             return Ok(Blob::Absent);
         }
         let sha = resolve(repo, revision).await?;
-        return Ok(Blob::Object(format!("{sha}^3:{path}")));
+        return Ok(Blob::Object(git::object_at(
+            &git::stash_untracked(&sha),
+            path,
+        )));
     }
     let reference = match source {
-        "staged" if old => "HEAD".into(),
+        "staged" if old => git::HEAD.into(),
         "staged" | "unstaged" => String::new(),
         "commit" | "stash" => {
             let sha = resolve(repo, revision).await?;
             if old {
-                format!("{sha}^1")
+                git::first_parent(&sha)
             } else {
                 sha
             }
@@ -642,9 +723,9 @@ async fn location(
     } else {
         None
     };
-    let spec = format!("{reference}:{}", original.as_deref().unwrap_or(path));
+    let spec = git::object_at(&reference, original.as_deref().unwrap_or(path));
     let exists = git::run(&repo.root, &["cat-file", "-e", &spec], None).await?;
-    if exists.code != 0 {
+    if exists.code != git::EXIT_SUCCESS {
         if exists.stderr.contains("does not exist")
             || exists.stderr.contains("not in")
             || exists.stderr.contains("invalid object name")
@@ -669,7 +750,7 @@ pub async fn bytes(
         Blob::Absent => Ok(Vec::new()),
         Blob::Object(spec) => Ok(git::run(&repo.root, &["show", &spec], None)
             .await?
-            .accept(&[0])?
+            .accept(&[git::EXIT_SUCCESS])?
             .bytes),
         Blob::Working(path) => match std::fs::read(path) {
             Ok(bytes) => Ok(bytes),
@@ -694,7 +775,7 @@ pub async fn size(
             .parse()
             .map_err(|_| Error::new("unexpected", "Invalid Git object size")),
         Blob::Working(path) => match std::fs::metadata(path) {
-            Ok(metadata) => Ok(metadata.len() as usize),
+            Ok(metadata) => Ok(usize::try_from(metadata.len()).unwrap_or(usize::MAX)),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
             Err(error) => Err(error.into()),
         },
@@ -752,14 +833,17 @@ async fn object_sizes(repo: &Repo, specs: &[&str]) -> Result<Vec<Option<usize>>>
     if specs.is_empty() {
         return Ok(Vec::new());
     }
-    let input: String = specs.iter().map(|spec| format!("{spec}\0")).collect();
+    let input: String = specs
+        .iter()
+        .map(|spec| format!("{spec}{}", git::NUL))
+        .collect();
     let text = git::run(
         &repo.root,
         &["cat-file", "--batch-check", "-z"],
         Some(input.as_bytes()),
     )
     .await?
-    .accept(&[0])?
+    .accept(&[git::EXIT_SUCCESS])?
     .text();
     let invalid = || Error::new("unexpected", "Invalid Git object size");
     let mut rest = text.as_str();
@@ -796,7 +880,7 @@ async fn measure(repo: &Repo, side: &Side, size: Option<usize>) -> Result<usize>
         (Side::Object(_), Some(size)) => Ok(size),
         (Side::Object(spec), None) => {
             let exists = git::run(&repo.root, &["cat-file", "-e", spec], None).await?;
-            if exists.code == 0 {
+            if exists.code == git::EXIT_SUCCESS {
                 return git::text(&repo.root, &["cat-file", "-s", spec])
                     .await?
                     .trim()
@@ -809,7 +893,7 @@ async fn measure(repo: &Repo, side: &Side, size: Option<usize>) -> Result<usize>
             Err(Error::git(exists.message()))
         }
         (Side::Working(path), _) => match std::fs::metadata(path) {
-            Ok(metadata) => Ok(metadata.len() as usize),
+            Ok(metadata) => Ok(usize::try_from(metadata.len()).unwrap_or(usize::MAX)),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
             Err(error) => Err(error.into()),
         },
@@ -821,7 +905,7 @@ async fn side_bytes(repo: &Repo, side: &Side, size: usize) -> Result<Vec<u8>> {
         Side::Absent => Ok(Vec::new()),
         Side::Object(spec) => Ok(git::run(&repo.root, &["show", spec], None)
             .await?
-            .accept(&[0])?
+            .accept(&[git::EXIT_SUCCESS])?
             .bytes),
         Side::Working(path) => match std::fs::read(path) {
             Ok(bytes) => Ok(bytes),
@@ -850,7 +934,7 @@ pub async fn read(
     let (parent, sha) = match source {
         "commit" | "stash" => {
             let sha = resolve(repo, revision).await?;
-            (format!("{sha}^1"), sha)
+            (git::first_parent(&sha), sha)
         }
         "compare" => (resolve(repo, base).await?, resolve(repo, revision).await?),
         "staged" | "unstaged" | "file" => (String::new(), String::new()),
@@ -868,15 +952,18 @@ pub async fn read(
     };
     let (old, new) = match source {
         "file" => (Side::Absent, Side::Working(full)),
-        _ if untracked => (Side::Absent, Side::Object(format!("{sha}^3:{path}"))),
+        _ if untracked => (
+            Side::Absent,
+            Side::Object(git::object_at(&git::stash_untracked(&sha), path)),
+        ),
         "unstaged" => (Side::Object(format!(":{path}")), Side::Working(full)),
         "staged" => (
             Side::Object(format!("HEAD:{}", original.as_deref().unwrap_or(path))),
             Side::Object(format!(":{path}")),
         ),
         _ => (
-            Side::Object(format!("{parent}:{path}")),
-            Side::Object(format!("{sha}:{path}")),
+            Side::Object(git::object_at(&parent, path)),
+            Side::Object(git::object_at(&sha, path)),
         ),
     };
     let rooted = matches!(source, "commit" | "stash") && !untracked;
@@ -931,8 +1018,8 @@ pub async fn read(
         }
         return Ok(result);
     }
-    let context = format!("--unified={}", context.min(50000));
-    let mut args = vec![
+    let context = format!("--unified={}", context.min(MAX_CONTEXT_LINES));
+    let mut arguments = vec![
         "diff",
         "--no-ext-diff",
         "--no-textconv",
@@ -941,27 +1028,27 @@ pub async fn read(
         &context,
     ];
     if source == "staged" {
-        args.push("--cached");
+        arguments.push("--cached");
     } else if source == "unstaged" {
-        args.splice(0..1, ["diff-files", "-p"]);
+        arguments.splice(0..1, ["diff-files", "-p"]);
     } else if root {
-        args = vec![
+        arguments = vec![
             "show",
             "--root",
-            "--format=",
+            git::EMPTY_FORMAT,
             "--no-ext-diff",
             "--no-textconv",
             &context,
             &sha,
         ];
     } else {
-        args.extend([parent.as_str(), sha.as_str()]);
+        arguments.extend([parent.as_str(), sha.as_str()]);
     }
-    args.extend(["--", path]);
+    arguments.extend(["--", path]);
     if let Some(original) = &original {
-        args.push(original);
+        arguments.push(original);
     }
-    let output = git::text(&repo.root, &args).await?;
+    let output = git::text(&repo.root, &arguments).await?;
     if !override_limit && output.lines().count() > LINE_LIMIT {
         result.too_large = true;
         return Ok(result);
@@ -972,7 +1059,7 @@ pub async fn read(
     Ok(parsed)
 }
 pub fn patch(path: &str, hunk: &Hunk) -> Result<String> {
-    if path.contains(['\n', '\r', '\0']) {
+    if path.contains(['\n', '\r', git::NUL]) {
         return Err(Error::refused("Hunk actions are unavailable for paths containing control characters; use file staging"));
     }
     let quote = |prefix: &str| {
@@ -983,10 +1070,10 @@ pub fn patch(path: &str, hunk: &Hunk) -> Result<String> {
                 .replace('\t', "\\t")
         )
     };
-    let a = quote("a");
-    let b = quote("b");
+    let old_path = quote("a");
+    let new_path = quote("b");
     let mut patch = format!(
-        "diff --git {a} {b}\n--- {a}\n+++ {b}\n@@ -{},{} +{},{} @@\n",
+        "diff --git {old_path} {new_path}\n--- {old_path}\n+++ {new_path}\n@@ -{},{} +{},{} @@\n",
         hunk.old_start, hunk.old_count, hunk.new_start, hunk.new_count
     );
     for line in &hunk.lines {
@@ -1020,7 +1107,7 @@ pub async fn apply_hunk(
             "This action is not permitted for this diff source",
         ));
     }
-    let diff = read(repo, path, source, "", "", 3, true).await?;
+    let diff = read(repo, path, source, "", "", DIFF_CONTEXT_LINES, true).await?;
     let hunk = diff
         .hunks
         .get(hunk)
@@ -1031,20 +1118,20 @@ pub async fn apply_hunk(
             "The diff changed since it was shown; review it again",
         ));
     }
-    let mut args = vec!["apply", "--whitespace=nowarn"];
+    let mut arguments = vec!["apply", "--whitespace=nowarn"];
     if action != "discard" {
-        args.push("--cached");
+        arguments.push("--cached");
     }
     if action != "stage" {
-        args.push("--reverse");
+        arguments.push("--reverse");
     }
-    let mut check = args.clone();
+    let mut check = arguments.clone();
     check.push("--check");
     git::run(&repo.root, &check, Some(patch.as_bytes()))
         .await?
-        .accept(&[0])?;
-    git::run(&repo.root, &args, Some(patch.as_bytes()))
+        .accept(&[git::EXIT_SUCCESS])?;
+    git::run(&repo.root, &arguments, Some(patch.as_bytes()))
         .await?
-        .accept(&[0])?;
+        .accept(&[git::EXIT_SUCCESS])?;
     Ok(())
 }

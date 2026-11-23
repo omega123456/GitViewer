@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import { useImageViews, useTabImageView } from '../../stores/image-view';
 import { dynamic, focus } from '../shared/styles';
+import { boundsOf, FULL_PERCENT, percentOf } from '../../lib/geometry';
+const MINIMUM_SWIPE_POSITION = 0.01;
 export function SwipeCompare({
   view,
   image,
@@ -12,7 +14,7 @@ export function SwipeCompare({
   const move = (value: number) =>
     useImageViews
       .getState()
-      .update(view, { position: Math.min(100, Math.max(0, value)) });
+      .update(view, { position: Math.min(FULL_PERCENT, Math.max(0, value)) });
   return (
     <div className="relative flex h-full w-full items-center justify-center">
       {image('old')}
@@ -25,7 +27,7 @@ export function SwipeCompare({
             className="flex h-full w-image items-center justify-center"
             style={dynamic({
               '--image-width': 'calc(100% * 100 / var(--swipe-number))',
-              '--swipe-number': position || 0.01,
+              '--swipe-number': position || MINIMUM_SWIPE_POSITION,
             })}
           >
             {image('new')}
@@ -37,7 +39,7 @@ export function SwipeCompare({
         tabIndex={0}
         aria-label="Swipe divider"
         aria-valuemin={0}
-        aria-valuemax={100}
+        aria-valuemax={FULL_PERCENT}
         aria-valuenow={Math.round(position)}
         onKeyDown={(event) => {
           if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
@@ -50,9 +52,8 @@ export function SwipeCompare({
         }
         onPointerMove={(event) => {
           if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-            const bounds =
-              event.currentTarget.parentElement!.getBoundingClientRect();
-            move(((event.clientX - bounds.left) / bounds.width) * 100);
+            const bounds = boundsOf(event.currentTarget.parentElement);
+            move(percentOf(event.clientX - bounds.left, bounds.width));
           }
         }}
         className={`absolute inset-y-0 left-swipe w-0.5 cursor-ew-resize bg-accent ${focus}`}

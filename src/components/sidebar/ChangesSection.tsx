@@ -116,7 +116,7 @@ export const ChangesSection = memo(function ChangesSection({
                     title="Unstage all"
                     onClick={() =>
                       void perform('files_action', {
-                        repo,
+                        repo: repo,
                         paths: paths(staged),
                         action: 'unstage',
                       })
@@ -170,7 +170,7 @@ export const ChangesSection = memo(function ChangesSection({
                     title="Stage all"
                     onClick={() =>
                       void perform('files_action', {
-                        repo,
+                        repo: repo,
                         paths: paths(unstaged),
                         action: 'stage',
                       })

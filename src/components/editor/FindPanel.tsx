@@ -24,6 +24,7 @@ import { Button } from '../shared/Button';
 import { TextInput } from '../shared/TextInput';
 import { field } from '../shared/styles';
 import { findHost, finding, openFind } from './setup';
+import { FIND_NEXT_SHORTCUT, FIND_PREVIOUS_SHORTCUT } from '../diff/find';
 const replaceShortcut = () => (platform() === 'macos' ? 'Ctrl+h' : 'Mod+h');
 interface Match {
   from: number;
@@ -77,7 +78,7 @@ function Panel({ view, state }: { view: EditorView; state: EditorState }) {
   }, [request, replace, seeded]);
   const update = (search: string, replacement: string) => {
     const next = new SearchQuery({
-      search,
+      search: search,
       replace: replacement,
       literal: true,
     });
@@ -138,7 +139,7 @@ function Panel({ view, state }: { view: EditorView; state: EditorState }) {
           <Button
             variant="icon"
             className="size-control"
-            title={`Previous match (${shortcutLabel('Shift+F3')})`}
+            title={`Previous match (${shortcutLabel(FIND_PREVIOUS_SHORTCUT)})`}
             aria-label="Previous match"
             disabled={!matches.length}
             onClick={() => findPrevious(view)}
@@ -148,7 +149,7 @@ function Panel({ view, state }: { view: EditorView; state: EditorState }) {
           <Button
             variant="icon"
             className="size-control"
-            title={`Next match (${shortcutLabel('F3')})`}
+            title={`Next match (${shortcutLabel(FIND_NEXT_SHORTCUT)})`}
             aria-label="Next match"
             disabled={!matches.length}
             onClick={() => findNext(view)}

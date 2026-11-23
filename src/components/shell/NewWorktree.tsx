@@ -14,6 +14,8 @@ import { Select } from '../shared/Select';
 import { TextInput } from '../shared/TextInput';
 import { field } from '../shared/styles';
 import { FieldError } from '../states/Errors';
+import { HEAD } from '../../lib/git';
+import { keysOf } from '../../lib/options';
 const kinds = {
   detached: 'detached',
   'new branch': 'new',
@@ -42,10 +44,14 @@ export function NewWorktree({
   const [mode, setMode] = useState<CreateMode>('switch');
   const branches = useBackend('branches', { repo }, open).data ?? [];
   const head = branches.find((branch) => branch.current)?.name;
-  const local = branches.filter((b) => !b.remote).map((b) => b.name);
-  const remote = branches.filter((b) => b.remote).map((b) => b.name);
-  const free = branches.filter((b) => !b.remote && !b.worktree);
-  const chosenBase = base || head || 'HEAD';
+  const local = branches
+    .filter((branch) => !branch.remote)
+    .map((branch) => branch.name);
+  const remote = branches
+    .filter((branch) => branch.remote)
+    .map((branch) => branch.name);
+  const free = branches.filter((branch) => !branch.remote && !branch.worktree);
+  const chosenBase = base || head || HEAD;
   const worktreeMode = kinds[kind];
   const reference =
     worktreeMode === 'detached'
@@ -55,7 +61,7 @@ export function NewWorktree({
         : existing;
   const target = useBackend(
     'worktree_target',
-    { repo, mode: worktreeMode, ref: reference, path: custom ?? '' },
+    { repo: repo, mode: worktreeMode, ref: reference, path: custom ?? '' },
     open && (worktreeMode !== 'existing' || Boolean(existing)),
   ).data;
   const folder = custom ?? target?.path ?? '';
@@ -80,7 +86,7 @@ export function NewWorktree({
     setCustom(null);
   };
   const startOptions = [
-    { label: 'Local', options: head ? local : ['HEAD', ...local] },
+    { label: 'Local', options: head ? local : [HEAD, ...local] },
     { label: 'Remote', options: remote },
   ].filter((group) => group.options.length);
   const baseSelect = (label: string) => (
@@ -133,7 +139,7 @@ export function NewWorktree({
           event.preventDefault();
           if (blocked) return;
           const created = await perform('worktree_add', {
-            repo,
+            repo: repo,
             path: folder,
             mode: worktreeMode,
             branch: worktreeMode === 'new' ? name : existing,
@@ -149,7 +155,7 @@ export function NewWorktree({
           label="Worktree branch"
           appearance="radio"
           value={kind}
-          options={Object.keys(kinds) as Kind[]}
+          options={keysOf(kinds)}
           onChange={(next) => {
             setKind(next);
             setCustom(null);
@@ -194,10 +200,12 @@ export function NewWorktree({
               mono
               value={existing}
               groups={[
-                { label: 'Local', options: free.map((b) => b.name) },
+                { label: 'Local', options: free.map((branch) => branch.name) },
                 { label: 'Remote', options: remote },
               ].filter((group) => group.options.length)}
-              badges={Object.fromEntries(remote.map((b) => [b, 'remote']))}
+              badges={Object.fromEntries(
+                remote.map((branch) => [branch, 'remote']),
+              )}
               onChange={(next) => {
                 setExisting(next);
                 setCustom(null);

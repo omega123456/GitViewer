@@ -7,6 +7,7 @@ import { describeActivity } from '../../lib/activity';
 import type { Status } from '../../lib/types';
 import { useCurrentActivity } from '../../stores/activity';
 import { Spinner } from '../shared/Spinner';
+import { isDetached, shortHash } from '../../lib/git';
 function useTicks() {
   const [, tick] = useReducer((count: number) => count + 1, 0);
   useEffect(() => {
@@ -21,10 +22,10 @@ function useTicks() {
 function LastFetched({ fetched }: { fetched: string | null }) {
   useTicks();
   if (!fetched) return <span>Not fetched yet</span>;
-  const at = parseISO(fetched);
+  const fetchedAt = parseISO(fetched);
   return (
-    <span title={`Fetched ${format(at, 'd MMMM yyyy, HH:mm O')}`}>
-      Fetched {formatDistanceToNow(at, { addSuffix: true })}
+    <span title={`Fetched ${format(fetchedAt, 'd MMMM yyyy, HH:mm O')}`}>
+      Fetched {formatDistanceToNow(fetchedAt, { addSuffix: true })}
     </span>
   );
 }
@@ -50,8 +51,8 @@ export function StatusBar({
       )}
       <span className="flex items-center gap-1.5">
         <GitBranch className="size-3" />
-        {status.branch === '(detached)'
-          ? `${status.oid.slice(0, 7)} detached`
+        {isDetached(status.branch)
+          ? `${shortHash(status.oid)} detached`
           : status.branch}
       </span>
       {status.upstream && (

@@ -15,10 +15,13 @@ import { dynamic, focusInset } from '../shared/styles';
 import type { Expansion } from './expansion';
 import { BlankGapRow, GapRow } from './GapRow';
 import { HunkHeader } from './HunkHeader';
-import type { Row } from './rows';
+import { rowHeight, type Row } from './rows';
 import type { Tokens } from './tokens';
 import { scrollPage } from './scroll';
-import { findClass, findTokens, type Found } from './find';
+import { findClass, findTokens, sideIndex, type Found } from './find';
+import { isInside } from '../../lib/browser';
+const DIFF_OVERSCAN = 20;
+const PREFIX_CHARACTERS = 2;
 export interface DiffSurfaceHandle {
   scrollToRow: (index: number, align?: 'start' | 'center') => void;
   focus: () => void;
@@ -61,7 +64,7 @@ export function DiffSurface({
   const columns = split && !wrap;
   const focusScroller = (event: PointerEvent<HTMLDivElement>) => {
     if (
-      !(event.target as HTMLElement).closest('button') &&
+      !isInside(event.target, 'button') &&
       getSelection()?.isCollapsed !== false
     )
       (scroller?.current ?? primary.current)?.focus({ preventScroll: true });
@@ -75,10 +78,9 @@ export function DiffSurface({
     getItemKey: itemKey,
     getScrollElement: () => scroller?.current ?? primary.current,
     initialOffset: () => scroller?.current?.scrollTop ?? 0,
-    scrollMargin,
-    estimateSize: (index) =>
-      rows[index].hunk !== undefined || rows[index].gap ? 24 : 20,
-    overscan: 20,
+    scrollMargin: scrollMargin,
+    estimateSize: (index) => rowHeight(rows[index]),
+    overscan: DIFF_OVERSCAN,
   });
   useImperativeHandle(ref, () => ({
     scrollToRow: (index, align = 'start') =>
@@ -128,7 +130,7 @@ export function DiffSurface({
             line?.marks ?? [],
           ),
           found,
-          index * 2 + (old ? 0 : 1),
+          sideIndex(index, old ? 0 : 1),
         ).map((token, position) => (
           <span
             key={position}
@@ -158,7 +160,7 @@ export function DiffSurface({
         '--virtual-height': `${virtual.getTotalSize()}px`,
         '--diff-width': wrap
           ? '100%'
-          : `max(100%, calc(${widest[side] + 2}ch + 68px))`,
+          : `max(100%, calc(${widest[side] + PREFIX_CHARACTERS}ch + 68px))`,
       })}
     >
       {virtual.getVirtualItems().map((row) => (

@@ -32,16 +32,33 @@ export function foundByPath(found: Found | undefined, lines: Located[]) {
   const byPath = new Map<string, LineFound>();
   if (!found) return byPath;
   const entry = (path: string) => {
-    if (!byPath.has(path)) byPath.set(path, { marks: new Map() });
-    return byPath.get(path)!;
+    const existing = byPath.get(path);
+    if (existing) return existing;
+    const created: LineFound = { marks: new Map() };
+    byPath.set(path, created);
+    return created;
   };
   for (const [index, ranges] of found.marks)
     entry(lines[index].path).marks.set(lines[index].key, ranges);
   if (found.current) {
     const { index, start, end } = found.current;
-    entry(lines[index].path).current = { key: lines[index].key, start, end };
+    entry(lines[index].path).current = {
+      key: lines[index].key,
+      start: start,
+      end: end,
+    };
   }
   return byPath;
+}
+export const FIND_SHORTCUT = 'Mod+f';
+export const FIND_NEXT_SHORTCUT = 'F3';
+export const FIND_PREVIOUS_SHORTCUT = 'Shift+F3';
+const SIDES_PER_ROW = 2;
+export function sideIndex(row: number, side: number) {
+  return row * SIDES_PER_ROW + side;
+}
+export function rowOfSide(index: number) {
+  return Math.floor(index / SIDES_PER_ROW);
 }
 export function foundInRows(rows: Row[], found?: LineFound): Found | undefined {
   if (!found) return undefined;
@@ -52,9 +69,9 @@ export function foundInRows(rows: Row[], found?: LineFound): Found | undefined {
       if (!line) return;
       const key = lineKey(line);
       const ranges = found.marks.get(key);
-      if (ranges) marks.set(index * 2 + side, ranges);
+      if (ranges) marks.set(sideIndex(index, side), ranges);
       if (found.current?.key === key)
-        current = { ...found.current, index: index * 2 + side };
+        current = { ...found.current, index: sideIndex(index, side) };
     }),
   );
   return { marks, current };
@@ -67,7 +84,7 @@ export function findMatches(texts: string[], query: string): Hit[] {
   );
   return texts.flatMap((text, index) =>
     [...text.matchAll(pattern)].map((match) => ({
-      index,
+      index: index,
       start: match.index,
       end: match.index + match[0].length,
     })),
@@ -85,7 +102,7 @@ export function findTokens<T extends { content: string }>(
     'current',
   );
 }
-export function findClass(token: { found: boolean; current: boolean }) {
+export function findClass(token: { found?: boolean; current?: boolean }) {
   return token.current
     ? 'bg-find-current dark:bg-find-current-dark'
     : token.found
@@ -122,15 +139,15 @@ export function useFind(
       line.push([hit.start, hit.end]);
       marks.set(hit.index, line);
     }
-    return { marks, current: hits[selected] };
+    return { marks: marks, current: hits[selected] };
   }, [open, hits, selected]);
   return {
-    input,
-    open,
-    query,
+    input: input,
+    open: open,
+    query: query,
     count: hits.length,
-    selected,
-    found,
+    selected: selected,
+    found: found,
     reveal: () => {
       setOpen(true);
       input.current?.focus();
@@ -146,8 +163,9 @@ export function useFind(
       const latestHits = searched === query ? hits : findMatches(lines, query);
       if (!latestHits.length) return;
       reveal.current = false;
-      const at = Math.min(current, latestHits.length - 1);
-      const next = (at + direction + latestHits.length) % latestHits.length;
+      const currentIndex = Math.min(current, latestHits.length - 1);
+      const next =
+        (currentIndex + direction + latestHits.length) % latestHits.length;
       setCurrent(next);
       scroll(latestHits[next].index);
     },

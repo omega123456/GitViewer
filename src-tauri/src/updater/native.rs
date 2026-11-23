@@ -6,6 +6,8 @@ use crate::{
 use tauri::Manager;
 use tauri_plugin_updater::UpdaterExt;
 
+const CHECK_TIMEOUT_SECONDS: i64 = 30;
+
 struct Native(tauri_plugin_updater::Updater);
 struct Package(tauri_plugin_updater::Update);
 
@@ -15,10 +17,13 @@ impl Backend for Native {
             self.0
                 .check()
                 .await
-                .map(|update| update.map(|update| Box::new(Package(update)) as Box<dyn Release>))
+                .map(|update| update.map(boxed_release))
                 .map_err(failure)
         })
     }
+}
+fn boxed_release(update: tauri_plugin_updater::Update) -> Box<dyn Release> {
+    Box::new(Package(update))
 }
 impl Release for Package {
     fn summary(&self) -> Summary {
@@ -68,7 +73,11 @@ pub fn configure<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Configu
     app.plugin(tauri_plugin_updater::Builder::new().build())?;
     let updater = app
         .updater_builder()
-        .timeout(chrono::Duration::seconds(30).to_std().unwrap())
+        .timeout(
+            chrono::Duration::seconds(CHECK_TIMEOUT_SECONDS)
+                .to_std()
+                .unwrap(),
+        )
         .build()
         .map_err(failure)?;
     Ok((

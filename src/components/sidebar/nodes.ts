@@ -2,9 +2,10 @@ import { useEffect, useRef } from 'react';
 import type { TreeInstance } from '@headless-tree/core';
 import type { Entry, Lines, Source, Status, TreeEntry } from '../../lib/types';
 import type { Group } from '../../stores/selection';
+import { UNTRACKED, UNMODIFIED } from '../../lib/git';
 export const treeRoot = '\0';
 export function statusLetter(status: string) {
-  return status === '?' ? 'U' : status;
+  return status === UNTRACKED ? 'U' : status;
 }
 export function statusClass(status: string) {
   if (status === 'A') return 'text-added dark:text-added-dark';
@@ -14,10 +15,10 @@ export function statusClass(status: string) {
   return 'text-untracked dark:text-untracked-dark';
 }
 export function sourceFor(entry?: Entry): Source {
-  if (!entry || entry.index === '?') return 'file';
-  return entry.worktree !== '.'
+  if (!entry || entry.index === UNTRACKED) return 'file';
+  return entry.worktree !== UNMODIFIED
     ? 'unstaged'
-    : entry.index !== '.'
+    : entry.index !== UNMODIFIED
       ? 'staged'
       : 'file';
 }
@@ -26,8 +27,8 @@ export function inSection(entry: Entry, section: Section) {
   if (section === 'conflicts') return entry.kind === 'unmerged';
   if (entry.kind === 'unmerged') return false;
   return section === 'staged'
-    ? entry.index !== '.' && entry.index !== '?'
-    : entry.worktree !== '.';
+    ? entry.index !== UNMODIFIED && entry.index !== UNTRACKED
+    : entry.worktree !== UNMODIFIED;
 }
 export function groupEntries(status: Status, group: Section, filter: string) {
   const needle = filter.toLowerCase();
@@ -64,7 +65,7 @@ export function changeNodes(entries: Entry[], source: Section, filter: string) {
       const path = parts.slice(0, index + 1).join('/');
       if (!map[path]) {
         map[path] = {
-          path,
+          path: path,
           name: part,
           directory: index < parts.length - 1,
           ignored: false,
@@ -83,9 +84,9 @@ export function changeNodes(entries: Entry[], source: Section, filter: string) {
       map[path].paths.push(entry.path);
       map[path].partial ||=
         source !== 'conflicts' &&
-        entry.index !== '.' &&
-        entry.index !== '?' &&
-        entry.worktree !== '.';
+        entry.index !== UNMODIFIED &&
+        entry.index !== UNTRACKED &&
+        entry.worktree !== UNMODIFIED;
       parent = path;
     });
   }
@@ -113,9 +114,9 @@ export function treeOrder(paths: string[]) {
   const map = changeNodes(
     paths.map((path) => ({
       kind: 'ordinary' as const,
-      path,
+      path: path,
       index: 'M',
-      worktree: '.',
+      worktree: UNMODIFIED,
     })),
     'staged',
     '',

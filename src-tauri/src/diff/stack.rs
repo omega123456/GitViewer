@@ -18,6 +18,8 @@ use tokio::{
 
 const BUDGET: usize = 100_000;
 const ZERO: &str = "0000000000000000000000000000000000000000";
+const OBJECT_HEADER_FIELDS: usize = 3;
+const OBJECT_SIZE_FIELD: usize = 2;
 const PINNED: [&str; 11] = [
     "--no-ext-diff",
     "--no-textconv",
@@ -45,8 +47,8 @@ struct Stream {
     stderr: Option<JoinHandle<std::io::Result<String>>>,
 }
 impl Stream {
-    fn start(repo: &Repo, args: &[&str], input: Vec<u8>) -> Result<Self> {
-        let mut child = git::command("git", &repo.root, args)
+    fn start(repo: &Repo, arguments: &[&str], input: Vec<u8>) -> Result<Self> {
+        let mut child = git::command("git", &repo.root, arguments)
             .spawn()
             .map_err(|error| Error::new("missing_git", error.to_string()))?;
         let mut stdin = child
@@ -92,9 +94,9 @@ impl Stream {
         let header = String::from_utf8_lossy(&header);
         let fields: Vec<&str> = header.split(' ').collect();
         let Some(size) = fields
-            .get(2)
+            .get(OBJECT_SIZE_FIELD)
             .and_then(|size| size.parse::<usize>().ok())
-            .filter(|_| fields.len() == 3)
+            .filter(|_| fields.len() == OBJECT_HEADER_FIELDS)
         else {
             return Ok(None);
         };
@@ -171,8 +173,8 @@ async fn raw(stream: &mut Stream) -> Result<Vec<Raw>> {
 async fn path_token(stream: &mut Stream) -> Result<String> {
     Ok(String::from_utf8_lossy(&stream.token(0).await?.unwrap_or_default()).into_owned())
 }
-async fn open(repo: &Repo, args: &[&str]) -> Result<(Stream, Vec<Raw>)> {
-    let mut stream = Stream::start(repo, args, Vec::new())?;
+async fn open(repo: &Repo, arguments: &[&str]) -> Result<(Stream, Vec<Raw>)> {
+    let mut stream = Stream::start(repo, arguments, Vec::new())?;
     let records = raw(&mut stream).await?;
     if records.is_empty() {
         stream.close().await?;
@@ -183,13 +185,13 @@ async fn open(repo: &Repo, args: &[&str]) -> Result<(Stream, Vec<Raw>)> {
 fn quoted(prefix: &str, path: &str) -> String {
     if !path
         .chars()
-        .any(|c| c == '"' || c == '\\' || c.is_ascii_control())
+        .any(|character| character == '"' || character == '\\' || character.is_ascii_control())
     {
         return format!("{prefix}{path}");
     }
     let mut text = format!("\"{prefix}");
-    for c in path.chars() {
-        match c {
+    for character in path.chars() {
+        match character {
             '"' => text.push_str("\\\""),
             '\\' => text.push_str("\\\\"),
             '\x07' => text.push_str("\\a"),
@@ -199,8 +201,10 @@ fn quoted(prefix: &str, path: &str) -> String {
             '\x0b' => text.push_str("\\v"),
             '\x0c' => text.push_str("\\f"),
             '\r' => text.push_str("\\r"),
-            c if c.is_ascii_control() => text.push_str(&format!("\\{:03o}", c as u32)),
-            c => text.push(c),
+            control if control.is_ascii_control() => {
+                text.push_str(&format!("\\{:03o}", u32::from(control)))
+            }
+            other => text.push(other),
         }
     }
     text.push('"');
@@ -302,16 +306,16 @@ impl Builder<'_> {
 async fn listing(repo: &Repo, sha: &str) -> Result<Vec<(String, String, usize)>> {
     let output = git::run(
         &repo.root,
-        &["ls-tree", "-r", "-l", "-z", &format!("{sha}^3")],
+        &["ls-tree", "-r", "-l", "-z", &git::stash_untracked(sha)],
         None,
     )
     .await?;
-    if output.code != 0 {
+    if output.code != git::EXIT_SUCCESS {
         return Ok(Vec::new());
     }
     Ok(output
         .text()
-        .split('\0')
+        .split(git::NUL)
         .filter_map(|entry| {
             let (meta, path) = entry.split_once('\t')?;
             let fields: Vec<&str> = meta.split_whitespace().collect();
@@ -327,7 +331,7 @@ async fn listing(repo: &Repo, sha: &str) -> Result<Vec<(String, String, usize)>>
 }
 fn working_size(full: &PathBuf) -> Option<usize> {
     match std::fs::metadata(full) {
-        Ok(metadata) => Some(metadata.len() as usize),
+        Ok(metadata) => Some(usize::try_from(metadata.len()).unwrap_or(usize::MAX)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Some(0),
         Err(_) => None,
     }
@@ -374,7 +378,11 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
         "staged" => range.extend(["--find-renames".to_owned(), "--cached".to_owned()]),
         "commit" | "stash" => {
             sha = resolve(repo, revision).await?;
-            range.extend(["--no-renames".to_owned(), format!("{sha}^1"), sha.clone()]);
+            range.extend([
+                "--no-renames".to_owned(),
+                git::first_parent(&sha),
+                sha.clone(),
+            ]);
         }
         "compare" => {
             let from = resolve(repo, base).await?;
@@ -394,16 +402,16 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
     } else {
         Default::default()
     };
-    let mut args = vec![if source == "unstaged" {
+    let mut arguments = vec![if source == "unstaged" {
         "diff-files"
     } else {
         "diff"
     }];
-    args.extend(PINNED);
-    args.extend(range.iter().map(String::as_str));
-    let (mut stream, raws) = match open(repo, &args).await {
+    arguments.extend(PINNED);
+    arguments.extend(range.iter().map(String::as_str));
+    let (mut stream, raws) = match open(repo, &arguments).await {
         Err(_) if matches!(source, "commit" | "stash") => {
-            let mut root = vec!["show", "--root", "--format=", "--no-renames"];
+            let mut root = vec!["show", "--root", git::EMPTY_FORMAT, "--no-renames"];
             root.extend(PINNED);
             root.push(&sha);
             open(repo, &root).await?
@@ -503,15 +511,15 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
         used: 0,
     };
     let mut next = 0;
-    let mut open: Option<(usize, Section)> = None;
+    let mut open_section: Option<(usize, Section)> = None;
     while let Some(bytes) = stream.token(b'\n').await? {
         let line = String::from_utf8_lossy(&bytes);
         if line.starts_with("diff --git ") {
-            if open
+            if open_section
                 .as_ref()
                 .is_none_or(|(index, _)| builder.records[*index].header != line)
             {
-                if let Some((index, section)) = open.take() {
+                if let Some((index, section)) = open_section.take() {
                     builder.finish(index, section)?;
                 }
                 if let Some(found) = (next..builder.records.len())
@@ -521,13 +529,13 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
                         builder.finish(index, Section::default())?;
                     }
                     next = found + 1;
-                    open = Some((found, Section::default()));
+                    open_section = Some((found, Section::default()));
                 }
             }
         } else if line.starts_with("* ") {
             continue;
         }
-        if let Some((index, section)) = open.as_mut() {
+        if let Some((index, section)) = open_section.as_mut() {
             if builder.records[*index].kind == Kind::Text {
                 section.push(&line);
             }
@@ -540,7 +548,7 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
     if builder.stack.truncated {
         drop(stream);
     } else {
-        if let Some((index, section)) = open.take() {
+        if let Some((index, section)) = open_section.take() {
             builder.finish(index, section)?;
         }
         for index in next..builder.records.len() {
@@ -603,12 +611,13 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
         .map(|(_, oid, _)| oid.as_str())
         .collect();
     if !readable.is_empty() {
-        let mut batch = (!wanted.is_empty())
+        let mut objects = (!wanted.is_empty())
             .then(|| batch(repo, &wanted))
             .transpose()?;
         for (path, _, size) in readable {
-            let bytes = match batch.as_mut() {
-                Some(batch) if *size <= size_limit(is_image(path)) => match batch.object().await? {
+            let bytes = match objects.as_mut() {
+                Some(stream) if *size <= size_limit(is_image(path)) => match stream.object().await?
+                {
                     Some(bytes) => Some(bytes),
                     None => continue,
                 },

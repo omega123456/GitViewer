@@ -30,14 +30,16 @@ export function AppShell({
   settings: SettingsResponse;
   version: string;
 }) {
-  const tabs = useTabs((s) => s.tabs);
-  const active = useTabs((s) => s.active);
+  const tabs = useTabs((state) => state.tabs);
+  const active = useTabs((state) => state.active);
   const view = useActiveView();
   const multiple = useTabs(
-    (s) => (s.tabs.find((tab) => tab.id === s.active)?.members.length ?? 0) > 1,
+    (state) =>
+      (state.tabs.find((tab) => tab.id === state.active)?.members.length ?? 0) >
+      1,
   );
   const project = useTabs(
-    (s) => s.tabs.find((tab) => tab.id === s.active)?.name,
+    (state) => state.tabs.find((tab) => tab.id === state.active)?.name,
   );
   const dark = useDark();
   const compact = useCompact();

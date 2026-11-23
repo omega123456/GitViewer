@@ -1,4 +1,5 @@
 import type { Selection } from '../../lib/types';
+import { shortHash } from '../../lib/git';
 export const sourceLabels = {
   staged: 'HEAD → index',
   unstaged: 'index → working tree',
@@ -11,7 +12,7 @@ export function DiffSourcePill({ selection }: { selection: Selection }) {
   return (
     <span className="mx-1.5 shrink-0 rounded border border-line px-2 py-0.5 font-mono text-badge text-muted dark:border-line-dark dark:text-muted-dark">
       {sourceLabels[selection.source]}
-      {selection.revision ? ` · ${selection.revision.slice(0, 7)}` : ''}
+      {selection.revision ? ` · ${shortHash(selection.revision)}` : ''}
     </span>
   );
 }

@@ -24,6 +24,10 @@ import { SideBySide } from './SideBySide';
 import { SwipeCompare } from './SwipeCompare';
 import { ZoomControls } from './ZoomControls';
 import { imageUrl } from './url';
+import { scopeKey } from '../../lib/git';
+const FALLBACK_IMAGE_WIDTH = 600;
+const MINIMUM_ZOOM_WIDTH = 100;
+const ZOOM_STEP = 100;
 const order: ImageMode[] = ['side by side', 'swipe', 'onion skin'];
 export function ImageDiff({
   repo,
@@ -39,13 +43,16 @@ export function ImageDiff({
   version?: number;
 }) {
   const { mode, zoom } = useTabImageView(view);
-  const update = useImageViews((s) => s.update);
+  const update = useImageViews((state) => state.update);
   const [imageError, setImageError] = useState(false);
   const stage = useRef<HTMLDivElement>(null);
   const current = () =>
-    zoom || stage.current?.querySelector('img')?.clientWidth || 600;
-  const zoomOut = () => update(view, { zoom: Math.max(100, current() - 100) });
-  const zoomIn = () => update(view, { zoom: current() + 100 });
+    zoom ||
+    stage.current?.querySelector('img')?.clientWidth ||
+    FALLBACK_IMAGE_WIDTH;
+  const zoomOut = () =>
+    update(view, { zoom: Math.max(MINIMUM_ZOOM_WIDTH, current() - ZOOM_STEP) });
+  const zoomIn = () => update(view, { zoom: current() + ZOOM_STEP });
   const fit = () => update(view, { zoom: 0 });
   const shortcuts: Action[] = [
     {
@@ -80,7 +87,7 @@ export function ImageDiff({
       run: fit,
     },
   ];
-  useActions(`${repo}:image`, view === repo ? shortcuts : []);
+  useActions(scopeKey(repo, 'image'), view === repo ? shortcuts : []);
   const dimensions = { old: diff.oldDimensions, new: diff.newDimensions };
   const image = (side: 'old' | 'new') =>
     (side === 'old' ? diff.oldSize : diff.newSize) > 0 ? (

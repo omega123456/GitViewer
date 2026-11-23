@@ -55,8 +55,8 @@ export function track<K extends keyof Commands>(
       [scope]: [
         ...(state.scopes[scope] ?? []),
         {
-          id,
-          command,
+          id: id,
+          command: command,
           args: Object.fromEntries(Object.entries(args)),
           visible: false,
           held: false,

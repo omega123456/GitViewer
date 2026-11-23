@@ -16,12 +16,12 @@ pub async fn serve<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     uri: String,
 ) -> Result<(Vec<u8>, &'static str)> {
-    let url = tauri::Url::parse(&uri).map_err(|e| Error::refused(e.to_string()))?;
-    let args: std::collections::HashMap<String, String> = url
+    let url = tauri::Url::parse(&uri).map_err(|error| Error::refused(error.to_string()))?;
+    let parameters: std::collections::HashMap<String, String> = url
         .query_pairs()
-        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
         .collect();
-    let get = |key: &str| args.get(key).map(String::as_str).unwrap_or_default();
+    let get = |key: &str| parameters.get(key).map(String::as_str).unwrap_or_default();
     let repo = app.state::<Registry>().get(get("repo")).await?;
     let path = get("path");
     if diff::size(

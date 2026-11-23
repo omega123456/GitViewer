@@ -28,8 +28,10 @@ pub struct Tab {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Geometry {
-    pub x: i32,
-    pub y: i32,
+    #[serde(rename = "x")]
+    pub left: i32,
+    #[serde(rename = "y")]
+    pub top: i32,
     pub width: u32,
     pub height: u32,
     pub maximized: bool,

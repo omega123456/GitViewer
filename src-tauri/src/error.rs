@@ -1,3 +1,4 @@
+use reqwest::StatusCode;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, thiserror::Error)]
@@ -26,7 +27,7 @@ impl Error {
             "credential",
         ]
         .iter()
-        .any(|s| lower.contains(s))
+        .any(|keyword| lower.contains(keyword))
         {
             "authentication"
         } else if [
@@ -37,7 +38,7 @@ impl Error {
             "timed out",
         ]
         .iter()
-        .any(|s| lower.contains(s))
+        .any(|keyword| lower.contains(keyword))
         {
             "network"
         } else {
@@ -95,16 +96,16 @@ impl From<async_openai::error::OpenAIError> for Error {
         use async_openai::error::OpenAIError;
         match error {
             OpenAIError::Reqwest(error) => Self::from(error),
-            OpenAIError::ApiError(response) => {
-                let status = response.status_code.as_u16();
-                match status {
-                    401 | 403 => Self::new("authentication", "The endpoint rejected the API key"),
-                    404 => Self::refused("The endpoint does not serve this route"),
-                    _ => Self::refused(format!(
-                        "The endpoint refused the request with status {status}"
-                    )),
+            OpenAIError::ApiError(response) => match response.status_code {
+                StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
+                    Self::new("authentication", "The endpoint rejected the API key")
                 }
-            }
+                StatusCode::NOT_FOUND => Self::refused("The endpoint does not serve this route"),
+                status => Self::refused(format!(
+                    "The endpoint refused the request with status {}",
+                    status.as_u16()
+                )),
+            },
             OpenAIError::JSONDeserialize(..) => {
                 Self::refused("The endpoint returned a response the application could not read")
             }

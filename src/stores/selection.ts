@@ -26,6 +26,7 @@ interface Selections {
 }
 const modes: SidebarMode[] = ['working', 'history', 'compare'];
 const noTabs: FileTab[] = [];
+const DEFAULT_MAX_FILE_TABS = 8;
 let clock = 0;
 export function tabKey(selection: Selection) {
   return `${selection.source}:${selection.revision ?? ''}:${selection.base ?? ''}:${selection.path}`;
@@ -33,7 +34,7 @@ export function tabKey(selection: Selection) {
 function tabLimit() {
   return (
     client.getQueryData<SettingsResponse>(queryKey('settings_get', {}))
-      ?.maxFileTabs ?? 8
+      ?.maxFileTabs ?? DEFAULT_MAX_FILE_TABS
   );
 }
 function overview(mode: SidebarMode, selection: Selection): Stack | undefined {
@@ -59,7 +60,7 @@ function oldestClean(id: string, tabs: FileTab[], opened: FileTab) {
         tab !== opened &&
         !(tab.selection.editing && isProtected(id, tab.selection.path)),
     )
-    .sort((a, b) => a.used - b.used)
+    .sort((left, right) => left.used - right.used)
     .slice(0, Math.max(0, tabs.length - tabLimit()));
 }
 const pendingLeave = new Map<string, () => void>();
@@ -83,8 +84,10 @@ function guarded(id: string, leaving: string | undefined, apply: () => void) {
 }
 function commitStack(state: Selections, id: string): Partial<Selections> {
   const mode = tabLayout(id).mode;
+  const current = state[mode][id];
+  if (!current) return {};
   return {
-    [mode]: { ...state[mode], [id]: { ...state[mode][id]!, path: '' } },
+    [mode]: { ...state[mode], [id]: { ...current, path: '' } },
   };
 }
 export const useSelection = create<Selections>((set, get) => ({
@@ -100,13 +103,13 @@ export const useSelection = create<Selections>((set, get) => ({
     const find = () =>
       (get().tabs[mode][id] ?? []).find((tab) => tabKey(tab.selection) === key);
     const current = find();
-    const was = current?.selection.editing;
+    const previouslyEditing = current?.selection.editing;
     const selection =
-      was && requested.editing === undefined
+      previouslyEditing && requested.editing === undefined
         ? { ...requested, editing: true }
         : requested;
     const leaving =
-      was &&
+      previouslyEditing &&
       !selection.editing &&
       !editingElsewhere(id, requested.path, current)
         ? requested.path
@@ -114,7 +117,7 @@ export const useSelection = create<Selections>((set, get) => ({
     guarded(id, leaving, () => {
       const list = get().tabs[mode][id] ?? [];
       const existing = find();
-      const opened = { selection, used: ++clock };
+      const opened = { selection: selection, used: ++clock };
       const next = !selection.path
         ? list
         : existing
@@ -122,13 +125,13 @@ export const useSelection = create<Selections>((set, get) => ({
           : [...list, opened];
       const closing =
         selection.path && !existing ? oldestClean(id, next, opened) : [];
-      set((s) => ({
-        [mode]: { ...s[mode], [id]: selection },
-        all: { ...s.all, [id]: overview(mode, selection) },
+      set((state) => ({
+        [mode]: { ...state[mode], [id]: selection },
+        all: { ...state.all, [id]: overview(mode, selection) },
         tabs: {
-          ...s.tabs,
+          ...state.tabs,
           [mode]: {
-            ...s.tabs[mode],
+            ...state.tabs[mode],
             [id]: next.filter((tab) => !closing.includes(tab)),
           },
         },
@@ -137,15 +140,16 @@ export const useSelection = create<Selections>((set, get) => ({
     });
   },
   viewAll: (id, stack) =>
-    set((s) => ({
+    set((state) => ({
       ...(stack === 'commit'
-        ? commitStack(s, id)
+        ? commitStack(state, id)
         : stack === 'compare'
-          ? { compare: { ...s.compare, [id]: undefined } }
-          : { working: { ...s.working, [id]: undefined } }),
-      all: { ...s.all, [id]: stack },
+          ? { compare: { ...state.compare, [id]: undefined } }
+          : { working: { ...state.working, [id]: undefined } }),
+      all: { ...state.all, [id]: stack },
     })),
-  setPath: (id, path) => set((s) => ({ paths: { ...s.paths, [id]: path } })),
+  setPath: (id, path) =>
+    set((state) => ({ paths: { ...state.paths, [id]: path } })),
   closeTab: async (id, mode, key) => {
     const tab = get().tabs[mode][id]?.find(
       (tab) => tabKey(tab.selection) === key,
@@ -158,14 +162,17 @@ export const useSelection = create<Selections>((set, get) => ({
       !(await approveDiscard(id, path))
     )
       return;
-    set((s) => {
-      const rest = (s.tabs[mode][id] ?? []).filter(
+    set((state) => {
+      const rest = (state.tabs[mode][id] ?? []).filter(
         (open) => tabKey(open.selection) !== key,
       );
-      const active = s[mode][id];
-      const tabs = { ...s.tabs, [mode]: { ...s.tabs[mode], [id]: rest } };
+      const active = state[mode][id];
+      const tabs = {
+        ...state.tabs,
+        [mode]: { ...state.tabs[mode], [id]: rest },
+      };
       if (!active?.path || tabKey(active) !== key) return { tabs };
-      const recent = [...rest].sort((a, b) => b.used - a.used)[0];
+      const recent = [...rest].sort((left, right) => right.used - left.used)[0];
       const selection = recent?.selection ?? {
         path: '',
         source: tab.selection.source,
@@ -173,9 +180,9 @@ export const useSelection = create<Selections>((set, get) => ({
         base: tab.selection.base,
       };
       return {
-        tabs,
-        [mode]: { ...s[mode], [id]: selection },
-        all: { ...s.all, [id]: overview(mode, selection) },
+        tabs: tabs,
+        [mode]: { ...state[mode], [id]: selection },
+        all: { ...state.all, [id]: overview(mode, selection) },
       };
     });
     release(id, path);
@@ -191,38 +198,38 @@ export const useSelection = create<Selections>((set, get) => ({
   },
   forget: (id) => {
     drop(id);
-    set((s) => ({
-      working: { ...s.working, [id]: undefined },
-      history: { ...s.history, [id]: undefined },
-      compare: { ...s.compare, [id]: undefined },
-      all: { ...s.all, [id]: undefined },
-      paths: { ...s.paths, [id]: '' },
+    set((state) => ({
+      working: { ...state.working, [id]: undefined },
+      history: { ...state.history, [id]: undefined },
+      compare: { ...state.compare, [id]: undefined },
+      all: { ...state.all, [id]: undefined },
+      paths: { ...state.paths, [id]: '' },
       tabs: {
-        working: { ...s.tabs.working, [id]: undefined },
-        history: { ...s.tabs.history, [id]: undefined },
-        compare: { ...s.tabs.compare, [id]: undefined },
+        working: { ...state.tabs.working, [id]: undefined },
+        history: { ...state.tabs.history, [id]: undefined },
+        compare: { ...state.tabs.compare, [id]: undefined },
       },
     }));
   },
 }));
 export function useCurrentSelection(id: string, mode: SidebarMode) {
-  return useSelection((s) => s[mode][id]);
+  return useSelection((state) => state[mode][id]);
 }
 export function useWorkingSelection(id: string) {
-  return useSelection((s) => s.working[id]);
+  return useSelection((state) => state.working[id]);
 }
 export function useAllChanges(id: string) {
-  return useSelection((s) => s.all[id]);
+  return useSelection((state) => state.all[id]);
 }
 export function useHistoryPath(id: string) {
-  return useSelection((s) => s.paths[id] ?? '');
+  return useSelection((state) => state.paths[id] ?? '');
 }
 export function useFileTabs(id: string, mode: SidebarMode) {
-  return useSelection((s) => s.tabs[mode][id] ?? noTabs);
+  return useSelection((state) => state.tabs[mode][id] ?? noTabs);
 }
 export function useActiveTabKey(id: string, mode: SidebarMode) {
-  return useSelection((s) => {
-    const active = s[mode][id];
+  return useSelection((state) => {
+    const active = state[mode][id];
     return active?.path ? tabKey(active) : '';
   });
 }

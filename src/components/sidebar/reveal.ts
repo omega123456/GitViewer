@@ -30,11 +30,13 @@ export function revealInSidebar(repo: string, selection: Selection) {
   }
   if (selection.source === 'stash')
     useLayout.getState().update(repo, { stashOpen: true });
-  useReveal.getState().request(repo, { tree, path: selection.path });
+  useReveal.getState().request(repo, { tree: tree, path: selection.path });
 }
 function ancestors(path: string) {
   const parts = path.split('/');
-  return parts.slice(1).map((_, index) => parts.slice(0, index + 1).join('/'));
+  return parts
+    .slice(1)
+    .map((_part, index) => parts.slice(0, index + 1).join('/'));
 }
 function expand<T>(tree: TreeInstance<T>, id: string) {
   const item = tree.getItemInstance(id);

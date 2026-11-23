@@ -4,6 +4,8 @@ use std::path::Path;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{filter::Targets, fmt::writer::MakeWriterExt, layer::SubscriberExt};
 
+const LOG_RETENTION_DAYS: i64 = 7;
+
 pub fn cleanup(directory: &Path, today: NaiveDate) -> std::io::Result<()> {
     for entry in std::fs::read_dir(directory)? {
         let path = entry?.path();
@@ -12,7 +14,7 @@ pub fn cleanup(directory: &Path, today: NaiveDate) -> std::io::Result<()> {
             .and_then(|name| name.to_str())
             .and_then(|name| name.strip_prefix("gitviewer.")?.strip_suffix(".log"))
             .and_then(|date| NaiveDate::parse_from_str(date, "%Y-%m-%d").ok());
-        if date.is_some_and(|date| date < today - Duration::days(7)) {
+        if date.is_some_and(|date| date < today - Duration::days(LOG_RETENTION_DAYS)) {
             std::fs::remove_file(path)?;
         }
     }

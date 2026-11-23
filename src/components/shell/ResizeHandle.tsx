@@ -1,9 +1,10 @@
 import type { PointerEvent as ReactPointerEvent } from 'react';
+import { boundsOf, percentOf } from '../../lib/geometry';
 export function percentBelow(event: ReactPointerEvent<HTMLDivElement>) {
   const handle = event.currentTarget;
-  const pane = handle.nextElementSibling!.getBoundingClientRect();
-  const column = handle.parentElement!.getBoundingClientRect();
-  return ((pane.bottom - event.clientY) / column.height) * 100;
+  const pane = boundsOf(handle.nextElementSibling);
+  const column = boundsOf(handle.parentElement);
+  return percentOf(pane.bottom - event.clientY, column.height);
 }
 export function ResizeHandle({
   label,

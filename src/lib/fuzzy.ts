@@ -14,7 +14,8 @@ export function fuzzySearch<T>(
   key: (item: T) => string,
 ): FuzzyMatch<T>[] {
   const trimmed = query.trim();
-  if (!trimmed) return items.map((item) => ({ item, positions: noPositions }));
+  if (!trimmed)
+    return items.map((item) => ({ item: item, positions: noPositions }));
   const results = fuzzysort.go(trimmed, items, {
     keys: [(item: T) => fileName(key(item)), key],
     threshold: anyMatch,
