@@ -8,7 +8,7 @@ import {
 import { StatusBadge } from './StatusBadge';
 import { LineCount } from '../shared/LineCount';
 import type { Lines } from '../../lib/types';
-import { useCompact } from '../../stores/density';
+import { useCompact } from '../../lib/theme';
 import { clickable, focus, selectedRow } from '../shared/styles';
 import { VirtualCanvas } from '../shared/VirtualCanvas';
 import {

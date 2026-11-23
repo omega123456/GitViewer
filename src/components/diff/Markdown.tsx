@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import DOMPurify from 'dompurify';
 import { Marked, type Token, type Tokens } from 'marked';
 import { highlight } from '../../lib/highlight';
-import { useDark } from '../../stores/theme';
+import { useDark } from '../../lib/theme';
 const extensions = ['md', 'markdown'];
 export function isMarkdown(path: string) {
   return extensions.includes(path.split('.').pop()?.toLowerCase() ?? '');

@@ -1,6 +1,13 @@
 import { useEffect, useRef } from 'react';
 import type { TreeInstance } from '@headless-tree/core';
-import type { Entry, Lines, Source, Status, TreeEntry } from '../../lib/types';
+import type {
+  Entry,
+  Lines,
+  LineTotals,
+  Source,
+  Status,
+  TreeEntry,
+} from '../../lib/types';
 import type { Group } from '../../stores/selection';
 import { UNTRACKED, UNMODIFIED } from '../../lib/git';
 import { addedInk, removedInk } from '../shared/styles';
@@ -142,7 +149,7 @@ export function folderLines(
 ) {
   const sums: Record<string, Lines> = Object.create(null);
   if (!lines) return sums;
-  const walk = (id: string): [number, number] => {
+  const walk = (id: string): LineTotals => {
     const node = nodes[id];
     if (!node.directory) return lines[node.path] ?? [0, 0];
     let added = 0;

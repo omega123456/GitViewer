@@ -86,6 +86,26 @@ interface Batch {
   settled: boolean;
   version: number;
 }
+interface StackEntry {
+  selection: Selection;
+  badge?: string;
+}
+interface PaneContext {
+  repo: string;
+  batch: Batch;
+  settings: Settings;
+  disabled: boolean;
+  scroller: RefObject<HTMLDivElement | null>;
+  eager: RefObject<boolean>;
+  setClosed: Dispatch<SetStateAction<Record<string, boolean>>>;
+  setOpenings: Dispatch<SetStateAction<Record<string, Openings>>>;
+  onJumped: () => void;
+}
+interface GateRefs {
+  box: RefObject<HTMLDivElement | null>;
+  scroller: RefObject<HTMLDivElement | null>;
+  eager: RefObject<boolean>;
+}
 function note(data: Diff | undefined, error: Error | null) {
   if (error) return error.message;
   if (!data) return 'Loading…';
@@ -113,14 +133,14 @@ function estimate(data: Diff | undefined, open: boolean) {
 function commitEntries(
   commit: Selection | undefined,
   statuses: Record<string, string>,
-) {
+): StackEntry[] {
   if (!commit) return [];
   return Object.entries(statuses).map(([path, badge]) => ({
     selection: { ...commit, path },
     badge: badge,
   }));
 }
-function compareEntries(compared: Comparison | undefined) {
+function compareEntries(compared: Comparison | undefined): StackEntry[] {
   if (!compared) return [];
   return compared.files.map((file) => ({
     selection: {
@@ -208,7 +228,12 @@ export const AllChangesPane = memo(function AllChangesPane({
     }),
     { additions: 0, deletions: 0 },
   );
-  const stackArgs = viewStack(repo, stack, commit, compared);
+  const stackArgs = viewStack({
+    repo: repo,
+    stack: stack,
+    commit: commit,
+    compared: compared,
+  });
   const stacked = useBackend(
     'diff_stack',
     stackArgs ?? { repo: repo, source: 'unstaged' },
@@ -270,6 +295,20 @@ export const AllChangesPane = memo(function AllChangesPane({
   );
   const [jump, setJump] = useState<Located>();
   const clearJump = useCallback(() => setJump(undefined), []);
+  const pane = useMemo<PaneContext>(
+    () => ({
+      repo: repo,
+      batch: batch,
+      settings: settings,
+      disabled: disabled,
+      scroller: scroller,
+      eager: eager,
+      setClosed: setClosed,
+      setOpenings: setOpenings,
+      onJumped: clearJump,
+    }),
+    [repo, batch, settings, disabled, clearJump],
+  );
   const find = useFind(texts, (index) => {
     const line = searchable[index];
     const position = ordered.findIndex(
@@ -378,22 +417,13 @@ export const AllChangesPane = memo(function AllChangesPane({
                     style={dynamic({ '--row-offset': `${item.start}px` })}
                   >
                     <FileDiff
-                      repo={repo}
-                      selection={entry.selection}
-                      badge={entry.badge}
-                      batch={batch}
-                      settings={settings}
-                      disabled={disabled}
-                      scroller={scroller}
+                      pane={pane}
+                      entry={entry}
                       start={item.start}
                       closed={Boolean(closed[path])}
-                      setClosed={setClosed}
                       opening={openings[path]}
-                      setOpenings={setOpenings}
-                      eager={eager}
                       found={located.get(path)}
                       jump={jump?.path === path ? jump : undefined}
-                      onJumped={clearJump}
                     />
                   </div>
                 );
@@ -405,12 +435,8 @@ export const AllChangesPane = memo(function AllChangesPane({
     </section>
   );
 });
-function useGate(
-  box: RefObject<HTMLDivElement | null>,
-  scroller: RefObject<HTMLDivElement | null>,
-  eager: RefObject<boolean>,
-  report: (visible: boolean) => void,
-) {
+function useGate(refs: GateRefs, report: (visible: boolean) => void) {
+  const { box, scroller, eager } = refs;
   const latest = useRef(report);
   useEffect(() => {
     latest.current = report;
@@ -437,40 +463,33 @@ function useGate(
   }, [box, scroller, eager]);
 }
 const FileDiff = memo(function FileDiff({
-  repo,
-  selection,
-  badge,
-  batch,
-  settings,
-  disabled,
-  scroller,
+  pane,
+  entry: { selection, badge },
   start,
   closed,
-  setClosed,
   opening,
-  setOpenings,
-  eager,
   found,
   jump,
-  onJumped,
 }: {
-  repo: string;
-  selection: Selection;
-  badge?: string;
-  batch: Batch;
-  settings: Settings;
-  disabled: boolean;
-  scroller: RefObject<HTMLDivElement | null>;
+  pane: PaneContext;
+  entry: StackEntry;
   start: number;
   closed: boolean;
-  setClosed: Dispatch<SetStateAction<Record<string, boolean>>>;
   opening?: Openings;
-  setOpenings: Dispatch<SetStateAction<Record<string, Openings>>>;
-  eager: RefObject<boolean>;
   found?: LineFound;
   jump?: Located;
-  onJumped: () => void;
 }) {
+  const {
+    repo,
+    batch,
+    settings,
+    disabled,
+    scroller,
+    eager,
+    setClosed,
+    setOpenings,
+    onJumped,
+  } = pane;
   const path = selection.path;
   const open = !closed;
   const box = useRef<HTMLDivElement>(null);
@@ -478,22 +497,22 @@ const FileDiff = memo(function FileDiff({
   const [near, setNear] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [inner, setInner] = useState(0);
-  useGate(box, scroller, eager, (visible) => {
+  useGate({ box: box, scroller: scroller, eager: eager }, (visible) => {
     setNear(visible);
     if (visible) setMounted(true);
   });
-  const entry = batch.data?.files[path];
-  const missing = batch.settled && !entry;
+  const stacked = batch.data?.files[path];
+  const missing = batch.settled && !stacked;
   const fallback = useBackend(
     'diff',
     { repo: repo, ...selection, context: DIFF_CONTEXT_LINES },
     missing && near,
   );
-  const data = entry ?? (missing ? fallback.data : undefined);
-  const error = entry
+  const data = stacked ?? (missing ? fallback.data : undefined);
+  const error = stacked
     ? null
     : (batch.error ?? (missing ? fallback.error : null));
-  const version = entry ? batch.version : fallback.dataUpdatedAt;
+  const version = stacked ? batch.version : fallback.dataUpdatedAt;
   const setOpening = useCallback(
     (action: SetStateAction<Openings>) =>
       setOpenings((all) => ({
@@ -505,11 +524,12 @@ const FileDiff = memo(function FileDiff({
       })),
     [path, setOpenings],
   );
-  const expansion = useExpansion(repo, selection, data, [
-    opening ?? noOpenings,
-    setOpening,
-  ]);
-  const tokens = useTokens(repo, selection, data, near);
+  const target = { repo: repo, selection: selection, data: data };
+  const expansion = useExpansion(target, {
+    openings: opening ?? noOpenings,
+    setOpenings: setOpening,
+  });
+  const tokens = useTokens(target, near);
   const { split, rows, counts, hunkAction } = useDiffFile({
     repo: repo,
     selection: selection,
@@ -572,7 +592,11 @@ const FileDiff = memo(function FileDiff({
             onClick={() =>
               useSelection
                 .getState()
-                .select(repo, { ...selection, editing: true })
+                .select(
+                  repo,
+                  { ...selection, editing: true },
+                  settings.maxFileTabs,
+                )
             }
           />
         )}
@@ -608,17 +632,15 @@ const FileDiff = memo(function FileDiff({
                 ref={handle}
                 found={marked}
                 rows={rows}
-                hunks={data.hunks}
-                patches={data.patches}
-                split={split}
-                wrap={false}
-                whitespace={false}
+                diff={data}
+                display={{ split: split, wrap: false, whitespace: false }}
                 tokens={tokens}
-                source={selection.source}
-                disabled={disabled}
-                scroller={scroller}
-                scrollMargin={start + inner}
-                hunkAction={hunkAction}
+                controls={{
+                  source: selection.source,
+                  disabled: disabled,
+                  act: hunkAction,
+                }}
+                embedding={{ scroller: scroller, margin: start + inner }}
                 expansion={expansion}
               />
             )}

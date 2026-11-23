@@ -38,6 +38,13 @@ fn pinned(arguments: &mut Vec<&str>) {
     arguments.extend(STACK_FLAGS);
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct StackRef<'a> {
+    pub source: DiffSource,
+    pub revision: &'a str,
+    pub base: &'a str,
+}
+
 #[derive(Debug, Default, Serialize)]
 pub struct Stack {
     pub files: BTreeMap<String, Diff>,
@@ -159,13 +166,17 @@ async fn raw(stream: &mut Stream) -> Result<Vec<Raw>> {
 async fn path_token(stream: &mut Stream) -> Result<String> {
     Ok(String::from_utf8_lossy(&stream.token(0).await?.unwrap_or_default()).into_owned())
 }
-async fn open(repo: &Repo, arguments: &[&str]) -> Result<(Stream, Vec<Raw>)> {
+struct StackHandle {
+    stream: Stream,
+    records: Vec<Raw>,
+}
+async fn open(repo: &Repo, arguments: &[&str]) -> Result<StackHandle> {
     let mut stream = Stream::start(repo, arguments, Vec::new())?;
     let records = raw(&mut stream).await?;
     if records.is_empty() {
         stream.close().await?;
     }
-    Ok((stream, records))
+    Ok(StackHandle { stream, records })
 }
 
 fn controlled(path: &str) -> bool {
@@ -188,6 +199,21 @@ struct Record {
     new_size: usize,
 }
 impl Record {
+    fn omit(&mut self) {
+        self.kind = Kind::Omit;
+    }
+    fn sized(&mut self, old_size: usize, new_size: usize) {
+        self.old_size = old_size;
+        self.new_size = new_size;
+        let image = is_image(&self.raw.path);
+        self.kind = if old_size.max(new_size) > size_limit(image) {
+            Kind::Large
+        } else if image {
+            Kind::Image
+        } else {
+            Kind::Text
+        };
+    }
     fn entry(&self, source: DiffSource) -> Diff {
         Diff {
             image: is_image(&self.raw.path),
@@ -206,21 +232,29 @@ struct Section {
     over: bool,
 }
 impl Section {
+    fn overflow(&mut self) {
+        self.over = true;
+        self.text = String::new();
+    }
+    fn count(&mut self, line: &str) {
+        if line.starts_with("@@ ") {
+            self.hunk = true;
+            return;
+        }
+        if self.hunk && line.starts_with(['+', '-', ' ']) {
+            self.counted += 1;
+        }
+    }
     fn push(&mut self, line: &str) {
         self.lines += 1;
         if self.over {
             return;
         }
         if self.lines > LINE_LIMIT {
-            self.over = true;
-            self.text = String::new();
+            self.overflow();
             return;
         }
-        if line.starts_with("@@ ") {
-            self.hunk = true;
-        } else if self.hunk && line.starts_with(['+', '-', ' ']) {
-            self.counted += 1;
-        }
+        self.count(line);
         self.text.push_str(line);
         self.text.push('\n');
     }
@@ -233,8 +267,21 @@ struct Builder {
     images: Vec<usize>,
     used: usize,
 }
+struct OpenSection {
+    index: usize,
+    section: Section,
+}
+impl OpenSection {
+    fn empty(index: usize) -> Self {
+        Self {
+            index,
+            section: Section::default(),
+        }
+    }
+}
 impl Builder {
-    fn finish(&mut self, index: usize, section: Section) -> Result<()> {
+    fn finish(&mut self, open: OpenSection) -> Result<()> {
+        let OpenSection { index, section } = open;
         let record = &self.records[index];
         match record.kind {
             Kind::Omit => {}
@@ -254,26 +301,34 @@ impl Builder {
         self.used += section.counted;
         Ok(())
     }
-    fn exceeds(&self, index: usize, section: &Section) -> bool {
-        self.records[index].kind == Kind::Text && self.used + section.counted > BUDGET
+    fn exceeds(&self, open: &OpenSection) -> bool {
+        self.records[open.index].kind == Kind::Text && self.used + open.section.counted > BUDGET
     }
 }
 
-async fn listing(repo: &Repo, sha: &str) -> Result<Vec<(String, String, usize)>> {
+struct UntrackedEntry {
+    path: String,
+    oid: String,
+    size: usize,
+}
+fn parse_tree_entry(entry: &str) -> Option<UntrackedEntry> {
+    let (meta, path) = entry.split_once('\t')?;
+    let mut fields = meta.split_whitespace();
+    let _mode = fields.next()?;
+    let kind = fields.next()?;
+    let oid = fields.next()?;
+    let size = fields.next()?;
+    (kind == "blob").then(|| UntrackedEntry {
+        path: path.to_owned(),
+        oid: oid.to_owned(),
+        size: size.parse().unwrap_or(usize::MAX),
+    })
+}
+async fn listing(repo: &Repo, sha: &str) -> Result<Vec<UntrackedEntry>> {
     Ok(git::untracked_in_stash(&repo.root, sha, &["-l"])
         .await?
         .iter()
-        .filter_map(|entry| {
-            let (meta, path) = entry.split_once('\t')?;
-            let fields: Vec<&str> = meta.split_whitespace().collect();
-            (fields.get(1) == Some(&"blob")).then(|| {
-                (
-                    path.to_owned(),
-                    fields[2].to_owned(),
-                    fields[3].parse().unwrap_or(usize::MAX),
-                )
-            })
-        })
+        .filter_map(|entry| parse_tree_entry(entry))
         .collect())
 }
 fn working_size(full: &Path) -> Option<usize> {
@@ -282,11 +337,20 @@ fn working_size(full: &Path) -> Option<usize> {
 fn working_bytes(full: &Path) -> Option<Vec<u8>> {
     fs::read_if_present(full).ok()
 }
-fn content(path: &str, source: DiffSource, size: usize, bytes: Option<&[u8]>) -> (Diff, usize) {
+struct Content<'a> {
+    path: &'a str,
+    source: DiffSource,
+    size: usize,
+}
+struct SizedDiff {
+    diff: Diff,
+    cost: usize,
+}
+fn content(file: Content<'_>, bytes: Option<&[u8]>) -> SizedDiff {
     let mut entry = Diff {
-        image: is_image(path),
-        new_size: size,
-        ..Diff::empty(path, source)
+        image: is_image(file.path),
+        new_size: file.size,
+        ..Diff::empty(file.path, file.source)
     };
     match bytes {
         None => entry.too_large = true,
@@ -300,24 +364,30 @@ fn content(path: &str, source: DiffSource, size: usize, bytes: Option<&[u8]>) ->
             } else {
                 entry.content = Some(text.into_owned());
                 entry.added = true;
-                return (entry, lines);
+                return SizedDiff {
+                    diff: entry,
+                    cost: lines,
+                };
             }
         }
     }
-    (entry, 0)
+    SizedDiff {
+        diff: entry,
+        cost: 0,
+    }
 }
 
-pub async fn read_patched(
-    repo: &Repo,
-    source: DiffSource,
-    revision: &str,
-    base: &str,
-) -> Result<Stack> {
-    let mut stack = read(repo, source, revision, base).await?;
+pub async fn read_patched(repo: &Repo, reference: StackRef<'_>) -> Result<Stack> {
+    let mut stack = read(repo, reference).await?;
     stack.files.values_mut().for_each(add_patches);
     Ok(stack)
 }
-pub async fn read(repo: &Repo, source: DiffSource, revision: &str, base: &str) -> Result<Stack> {
+pub async fn read(repo: &Repo, reference: StackRef<'_>) -> Result<Stack> {
+    let StackRef {
+        source,
+        revision,
+        base,
+    } = reference;
     let mut range = Vec::new();
     let mut sha = String::new();
     match source {
@@ -343,7 +413,7 @@ pub async fn read(repo: &Repo, source: DiffSource, revision: &str, base: &str) -
     } else {
         Vec::new()
     };
-    let hidden: HashSet<&str> = untracked.iter().map(|(path, ..)| path.as_str()).collect();
+    let hidden: HashSet<&str> = untracked.iter().map(|entry| entry.path.as_str()).collect();
     let status = if source.is_uncommitted() {
         repo.snapshot().await?
     } else {
@@ -356,7 +426,10 @@ pub async fn read(repo: &Repo, source: DiffSource, revision: &str, base: &str) -
     }];
     pinned(&mut arguments);
     arguments.extend(range.iter().map(String::as_str));
-    let (mut stream, raws) = match open(repo, &arguments).await {
+    let StackHandle {
+        mut stream,
+        records: raws,
+    } = match open(repo, &arguments).await {
         Err(_) if source.is_revision() => {
             let mut root = vec!["show", "--root", git::EMPTY_FORMAT, "--no-renames"];
             pinned(&mut root);
@@ -429,25 +502,16 @@ pub async fn read(repo: &Repo, source: DiffSource, revision: &str, base: &str) -
         .iter_mut()
         .filter(|record| record.kind != Kind::Omit)
     {
-        record.old_size = size(&record.raw.old_oid);
         let new = if source == DiffSource::Unstaged {
             record.full.as_deref().and_then(working_size)
         } else {
             Some(size(&record.raw.new_oid))
         };
         let Some(new) = new else {
-            record.kind = Kind::Omit;
+            record.omit();
             continue;
         };
-        record.new_size = new;
-        let image = is_image(&record.raw.path);
-        record.kind = if record.old_size.max(new) > size_limit(image) {
-            Kind::Large
-        } else if image {
-            Kind::Image
-        } else {
-            Kind::Text
-        };
+        record.sized(size(&record.raw.old_oid), new);
     }
     let mut builder = Builder {
         source,
@@ -457,35 +521,35 @@ pub async fn read(repo: &Repo, source: DiffSource, revision: &str, base: &str) -
         used: 0,
     };
     let mut next = 0;
-    let mut open_section: Option<(usize, Section)> = None;
+    let mut open_section: Option<OpenSection> = None;
     while let Some(bytes) = stream.token(b'\n').await? {
         let line = String::from_utf8_lossy(&bytes);
         if line.starts_with("diff --git ") {
             if open_section
                 .as_ref()
-                .is_none_or(|(index, _)| builder.records[*index].header != line)
+                .is_none_or(|open| builder.records[open.index].header != line)
             {
-                if let Some((index, section)) = open_section.take() {
-                    builder.finish(index, section)?;
+                if let Some(open) = open_section.take() {
+                    builder.finish(open)?;
                 }
                 if let Some(found) = (next..builder.records.len())
                     .find(|&index| builder.records[index].header == line)
                 {
                     for index in next..found {
-                        builder.finish(index, Section::default())?;
+                        builder.finish(OpenSection::empty(index))?;
                     }
                     next = found + 1;
-                    open_section = Some((found, Section::default()));
+                    open_section = Some(OpenSection::empty(found));
                 }
             }
         } else if line.starts_with("* ") {
             continue;
         }
-        if let Some((index, section)) = open_section.as_mut() {
-            if builder.records[*index].kind == Kind::Text {
-                section.push(&line);
+        if let Some(open) = open_section.as_mut() {
+            if builder.records[open.index].kind == Kind::Text {
+                open.section.push(&line);
             }
-            if builder.exceeds(*index, section) {
+            if builder.exceeds(open) {
                 builder.stack.truncated = true;
                 break;
             }
@@ -494,11 +558,11 @@ pub async fn read(repo: &Repo, source: DiffSource, revision: &str, base: &str) -
     if builder.stack.truncated {
         drop(stream);
     } else {
-        if let Some((index, section)) = open_section.take() {
-            builder.finish(index, section)?;
+        if let Some(open) = open_section.take() {
+            builder.finish(open)?;
         }
         for index in next..builder.records.len() {
-            builder.finish(index, Section::default())?;
+            builder.finish(OpenSection::empty(index))?;
         }
         stream.close().await?;
     }
@@ -507,13 +571,13 @@ pub async fn read(repo: &Repo, source: DiffSource, revision: &str, base: &str) -
         mut stack, used, ..
     } = builder;
     let mut budget = BUDGET - used.min(BUDGET);
-    let mut add = |stack: &mut Stack, entry: Diff, cost: usize| {
-        if cost > budget {
+    let mut add = |stack: &mut Stack, sized: SizedDiff| {
+        if sized.cost > budget {
             stack.truncated = true;
             return false;
         }
-        budget -= cost;
-        stack.files.insert(entry.path.clone(), entry);
+        budget -= sized.cost;
+        stack.files.insert(sized.diff.path.clone(), sized.diff);
         true
     };
     if source == DiffSource::Unstaged {
@@ -541,36 +605,45 @@ pub async fn read(repo: &Repo, source: DiffSource, revision: &str, base: &str) -
                     None => continue,
                 }
             };
-            let (entry, cost) = content(path, DiffSource::File, size, bytes.as_deref());
-            if !add(&mut stack, entry, cost) {
+            let file = Content {
+                path,
+                source: DiffSource::File,
+                size,
+            };
+            if !add(&mut stack, content(file, bytes.as_deref())) {
                 break;
             }
         }
     }
-    let readable: Vec<&(String, String, usize)> = untracked
+    let readable: Vec<&UntrackedEntry> = untracked
         .iter()
-        .filter(|(path, ..)| !controlled(path) && paths.resolve(path).is_ok())
+        .filter(|entry| !controlled(&entry.path) && paths.resolve(&entry.path).is_ok())
         .collect();
     let wanted: Vec<&str> = readable
         .iter()
-        .filter(|(path, _, size)| *size <= size_limit(is_image(path)))
-        .map(|(_, oid, _)| oid.as_str())
+        .filter(|entry| entry.size <= size_limit(is_image(&entry.path)))
+        .map(|entry| entry.oid.as_str())
         .collect();
     if !readable.is_empty() {
         let mut objects = (!wanted.is_empty())
             .then(|| batch(repo, &wanted))
             .transpose()?;
-        for (path, _, size) in readable {
+        for entry in readable {
             let bytes = match objects.as_mut() {
-                Some(stream) if *size <= size_limit(is_image(path)) => match stream.object().await?
-                {
-                    Some(bytes) => Some(bytes),
-                    None => continue,
-                },
+                Some(stream) if entry.size <= size_limit(is_image(&entry.path)) => {
+                    match stream.object().await? {
+                        Some(bytes) => Some(bytes),
+                        None => continue,
+                    }
+                }
                 _ => None,
             };
-            let (entry, cost) = content(path, DiffSource::Stash, *size, bytes.as_deref());
-            if !add(&mut stack, entry, cost) {
+            let file = Content {
+                path: &entry.path,
+                source: DiffSource::Stash,
+                size: entry.size,
+            };
+            if !add(&mut stack, content(file, bytes.as_deref())) {
                 break;
             }
         }

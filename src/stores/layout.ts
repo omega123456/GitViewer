@@ -1,37 +1,15 @@
 import { create } from 'zustand';
 import { without } from '../lib/record';
 import { projectOf } from './tabs';
-export type SidebarMode = 'working' | 'history' | 'compare';
-export interface TabLayout {
-  mode: SidebarMode;
-  width: number;
-  historyWidth: number;
-  blameWidth: number;
-  filesHeight: number;
-  filesOpen: boolean;
-  stashHeight: number;
-  stashFilesHeight: number;
-  stashOpen: boolean;
-  commitMessageHeight: number;
-  compareBase: string;
-  compareTarget: string;
-  mergeBase: boolean;
-}
-export const layoutDefaults: TabLayout = {
-  mode: 'working',
-  width: 300,
-  historyWidth: 440,
-  blameWidth: 480,
-  filesHeight: 40,
-  filesOpen: false,
-  stashHeight: 30,
-  stashFilesHeight: 50,
-  stashOpen: false,
-  commitMessageHeight: 160,
-  compareBase: '',
-  compareTarget: '',
-  mergeBase: true,
-};
+import {
+  layoutDefaults,
+  projectWide,
+  updated,
+  type LayoutState,
+  type TabLayout,
+} from './layout/transitions';
+export type { SidebarMode, TabLayout } from './layout/transitions';
+export { layoutDefaults } from './layout/transitions';
 export interface ResizeBounds {
   min: number;
   max: number;
@@ -54,7 +32,6 @@ export const stashFilesHeightBounds: ResizeBounds = {
   max: 80,
   step: 2,
 };
-const projectWide = ['width', 'historyWidth', 'blameWidth'] as const;
 function siblingsOf(id: string) {
   return projectOf(id)?.members ?? [id];
 }
@@ -62,25 +39,16 @@ export function projectWidths(id: string) {
   const layout = useLayout.getState().tabs[id] ?? layoutDefaults;
   return Object.fromEntries(projectWide.map((key) => [key, layout[key]]));
 }
-interface Layout {
-  tabs: Record<string, TabLayout>;
+interface Layout extends LayoutState {
   update: (id: string, patch: Partial<TabLayout>) => void;
   forget: (id: string) => void;
 }
 export const useLayout = create<Layout>((set) => ({
   tabs: {},
   update: (id, patch) =>
-    set((state) => {
-      const shared = Object.fromEntries(
-        projectWide.flatMap((key) => (key in patch ? [[key, patch[key]]] : [])),
-      );
-      const tabs = { ...state.tabs };
-      for (const member of siblingsOf(id))
-        if (member !== id)
-          tabs[member] = { ...layoutDefaults, ...tabs[member], ...shared };
-      tabs[id] = { ...layoutDefaults, ...tabs[id], ...patch };
-      return { tabs };
-    }),
+    set((state) =>
+      updated(state, { id: id, siblings: siblingsOf(id), patch: patch }),
+    ),
   forget: (id) => set((state) => ({ tabs: without(state.tabs, id) })),
 }));
 export function useTabLayout(id: string) {

@@ -79,14 +79,32 @@ pub struct Status {
     pub branch: String,
     pub oid: String,
     pub upstream: Option<String>,
-    pub ahead: Option<u32>,
-    pub behind: Option<u32>,
+    #[serde(flatten)]
+    pub divergence: Divergence,
     pub entries: Vec<Entry>,
     pub conflicted: bool,
     #[serde(default)]
     pub merging: Option<String>,
     #[serde(default)]
     pub fetched: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct Divergence {
+    pub ahead: Option<u32>,
+    pub behind: Option<u32>,
+}
+impl Divergence {
+    fn parse(value: &str) -> Self {
+        let mut counts = value.split_whitespace();
+        let ahead = counts
+            .next()
+            .and_then(|count| count.trim_start_matches('+').parse().ok());
+        let behind = counts
+            .next()
+            .and_then(|count| count.trim_start_matches('-').parse().ok());
+        Self { ahead, behind }
+    }
 }
 
 const UNTRACKED_PATH_START: usize = 2;
@@ -114,21 +132,59 @@ impl RecordKind {
         }
     }
 }
-fn record_fields(record: &str, count: usize) -> Result<Vec<&str>> {
-    let parts: Vec<&str> = record.splitn(count, ' ').collect();
-    if parts.len() != count || parts[1].len() != STATE_CODES {
-        return Err(Error::unexpected("Malformed status record"));
+fn malformed() -> Error {
+    Error::unexpected("Malformed status record")
+}
+struct Fields<'a> {
+    parts: std::str::SplitN<'a, char>,
+}
+impl<'a> Fields<'a> {
+    fn of(record: &'a str, count: usize) -> Self {
+        Self {
+            parts: record.splitn(count, ' '),
+        }
     }
-    Ok(parts)
+    fn next(&mut self) -> Result<&'a str> {
+        self.parts.next().ok_or_else(malformed)
+    }
 }
-fn path_field(parts: &[&str]) -> String {
-    parts[parts.len() - 1].into()
+struct Header<'a> {
+    state: &'a str,
 }
-fn index_state(parts: &[&str]) -> String {
-    parts[1][..1].into()
+impl Header<'_> {
+    fn index(&self) -> String {
+        self.state[..1].into()
+    }
+    fn worktree(&self) -> String {
+        self.state[1..].into()
+    }
 }
-fn worktree_state(parts: &[&str]) -> String {
-    parts[1][1..].into()
+fn parse_header<'a>(fields: &mut Fields<'a>) -> Result<Header<'a>> {
+    let _kind = fields.next()?;
+    let state = fields.next()?;
+    let _submodule = fields.next()?;
+    if state.len() != STATE_CODES {
+        return Err(malformed());
+    }
+    Ok(Header { state })
+}
+struct Changed<'a> {
+    header: Header<'a>,
+    index_mode: &'a str,
+    index_hash: &'a str,
+}
+fn parse_changed<'a>(fields: &mut Fields<'a>) -> Result<Changed<'a>> {
+    let header = parse_header(fields)?;
+    let _head_mode = fields.next()?;
+    let index_mode = fields.next()?;
+    let _worktree_mode = fields.next()?;
+    let _head_hash = fields.next()?;
+    let index_hash = fields.next()?;
+    Ok(Changed {
+        header,
+        index_mode,
+        index_hash,
+    })
 }
 fn untracked_entry(record: &str) -> Entry {
     Entry::Untracked {
@@ -137,42 +193,59 @@ fn untracked_entry(record: &str) -> Entry {
         worktree: git::UNTRACKED.into(),
     }
 }
-fn ordinary_entry(parts: &[&str]) -> Entry {
-    Entry::Ordinary {
-        path: path_field(parts),
-        index: index_state(parts),
-        worktree: worktree_state(parts),
-        index_hash: parts[7].into(),
-        index_mode: parts[4].into(),
-    }
+fn ordinary_entry(record: &str) -> Result<Entry> {
+    let mut fields = Fields::of(record, ORDINARY_FIELDS);
+    let changed = parse_changed(&mut fields)?;
+    let path = fields.next()?;
+    Ok(Entry::Ordinary {
+        path: path.into(),
+        index: changed.header.index(),
+        worktree: changed.header.worktree(),
+        index_hash: changed.index_hash.into(),
+        index_mode: changed.index_mode.into(),
+    })
 }
-fn renamed_entry(parts: &[&str], original_path: Option<&str>) -> Result<Entry> {
+fn renamed_entry(record: &str, original_path: Option<&str>) -> Result<Entry> {
+    let mut fields = Fields::of(record, RENAMED_FIELDS);
+    let changed = parse_changed(&mut fields)?;
+    let score = fields.next()?;
+    let path = fields.next()?;
     Ok(Entry::Renamed {
-        path: path_field(parts),
+        path: path.into(),
         original_path: original_path
             .ok_or_else(|| Error::unexpected("Missing rename source"))?
             .into(),
-        score: parts[8].into(),
-        index: index_state(parts),
-        worktree: worktree_state(parts),
-        index_hash: parts[7].into(),
-        index_mode: parts[4].into(),
+        score: score.into(),
+        index: changed.header.index(),
+        worktree: changed.header.worktree(),
+        index_hash: changed.index_hash.into(),
+        index_mode: changed.index_mode.into(),
     })
 }
-fn unmerged_entry(parts: &[&str]) -> Entry {
-    Entry::Unmerged {
-        path: path_field(parts),
-        stage: parts[1].into(),
+fn unmerged_entry(record: &str) -> Result<Entry> {
+    let mut fields = Fields::of(record, UNMERGED_FIELDS);
+    let header = parse_header(&mut fields)?;
+    let first_mode = fields.next()?;
+    let second_mode = fields.next()?;
+    let third_mode = fields.next()?;
+    let worktree_mode = fields.next()?;
+    let first_hash = fields.next()?;
+    let second_hash = fields.next()?;
+    let third_hash = fields.next()?;
+    let path = fields.next()?;
+    Ok(Entry::Unmerged {
+        path: path.into(),
+        stage: header.state.into(),
         modes: [
-            parts[3].into(),
-            parts[4].into(),
-            parts[5].into(),
-            parts[6].into(),
+            first_mode.into(),
+            second_mode.into(),
+            third_mode.into(),
+            worktree_mode.into(),
         ],
-        hashes: [parts[7].into(), parts[8].into(), parts[9].into()],
+        hashes: [first_hash.into(), second_hash.into(), third_hash.into()],
         index: "C".into(),
         worktree: "C".into(),
-    }
+    })
 }
 pub fn parse(bytes: &[u8]) -> Result<Status> {
     let mut status = Status::default();
@@ -191,25 +264,17 @@ pub fn parse(bytes: &[u8]) -> Result<Status> {
                 status.upstream = Some(value.into());
             }
             if let Some(value) = header.strip_prefix("branch.ab ") {
-                let mut counts = value.split_whitespace();
-                status.ahead = counts
-                    .next()
-                    .and_then(|count| count.trim_start_matches('+').parse().ok());
-                status.behind = counts
-                    .next()
-                    .and_then(|count| count.trim_start_matches('-').parse().ok());
+                status.divergence = Divergence::parse(value);
             }
             continue;
         }
         let entry = match RecordKind::of(record)? {
             RecordKind::Untracked => untracked_entry(record),
-            RecordKind::Ordinary => ordinary_entry(&record_fields(record, ORDINARY_FIELDS)?),
-            RecordKind::Renamed => {
-                renamed_entry(&record_fields(record, RENAMED_FIELDS)?, records.next())?
-            }
+            RecordKind::Ordinary => ordinary_entry(record)?,
+            RecordKind::Renamed => renamed_entry(record, records.next())?,
             RecordKind::Unmerged => {
                 status.conflicted = true;
-                unmerged_entry(&record_fields(record, UNMERGED_FIELDS)?)
+                unmerged_entry(record)?
             }
         };
         status.entries.push(entry);

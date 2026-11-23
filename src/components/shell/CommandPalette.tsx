@@ -11,7 +11,14 @@ import { recentTabs, useTabs } from '../../stores/tabs';
 import { Button } from '../shared/Button';
 import { Modal } from '../shared/Modal';
 import { clickable, focusInset, pill, selectedRow } from '../shared/styles';
-import { stepIndex } from '../../lib/list';
+import {
+  emptyCursor,
+  moved,
+  paged,
+  pointedAt,
+  searched,
+} from './palette-cursor';
+import { useFileTabLimit } from '../../lib/settings';
 import { emptyHints, groupBuilders, type Row } from './palette-groups';
 const modes = {
   commands: {
@@ -38,8 +45,8 @@ export function CommandPalette({ repo }: { repo: string }) {
   const scopes = useActionRegistry((state) => state.scopes);
   const open = usePalette((state) => state.open);
   const mode = usePalette((state) => state.mode);
-  const [filter, setFilter] = useState('');
-  const [index, setIndex] = useState(0);
+  const [cursor, setCursor] = useState(emptyCursor);
+  const { filter, index } = cursor;
   const list = useRef<HTMLDivElement>(null);
   const pointed = useRef(false);
   const preference = usePalette((state) => state.ignored);
@@ -71,9 +78,9 @@ export function CommandPalette({ repo }: { repo: string }) {
     () => new Map(status.data?.entries.map((entry) => [entry.path, entry])),
     [status.data],
   );
+  const tabLimit = useFileTabLimit();
   const close = () => {
-    setFilter('');
-    setIndex(0);
+    setCursor(emptyCursor);
     usePalette.getState().setOpen(false);
   };
   const groups = groupBuilders[mode]({
@@ -85,6 +92,7 @@ export function CommandPalette({ repo }: { repo: string }) {
     statuses: statuses,
     matches: matches,
     entries: entries,
+    tabLimit: tabLimit,
   });
   const visible = groups.filter((group) => group.rows.length);
   const rows = visible.flatMap((group) => group.rows);
@@ -102,10 +110,8 @@ export function CommandPalette({ repo }: { repo: string }) {
     row.run();
   };
   const move = (delta: number) =>
-    setIndex((value) =>
-      enabled.length
-        ? stepIndex(Math.min(value, enabled.length - 1), delta, enabled.length)
-        : 0,
+    setCursor((latest) =>
+      moved(latest, { delta: delta, count: enabled.length }),
     );
   const page = (direction: number) => {
     const row = list.current?.querySelector<HTMLElement>('[data-current]');
@@ -113,14 +119,8 @@ export function CommandPalette({ repo }: { repo: string }) {
       1,
       Math.floor((list.current?.clientHeight ?? 0) / (row?.offsetHeight || 1)),
     );
-    setIndex((value) =>
-      Math.max(
-        0,
-        Math.min(
-          enabled.length - 1,
-          Math.min(value, enabled.length - 1) + direction * step,
-        ),
-      ),
+    setCursor((latest) =>
+      paged(latest, { delta: direction * step, count: enabled.length }),
     );
   };
   useEffect(() => {
@@ -132,10 +132,6 @@ export function CommandPalette({ repo }: { repo: string }) {
       ?.querySelector('[data-current]')
       ?.scrollIntoView({ block: 'nearest' });
   }, [current?.id]);
-  const update = (value: string) => {
-    setFilter(value);
-    setIndex(0);
-  };
   return (
     <Modal
       hideChrome
@@ -154,7 +150,7 @@ export function CommandPalette({ repo }: { repo: string }) {
           placeholder={modes[mode].placeholder}
           className="w-full bg-transparent text-base outline-none placeholder:text-muted dark:placeholder:text-muted-dark"
           value={filter}
-          onChange={(event) => update(event.target.value)}
+          onChange={(event) => setCursor(searched(event.target.value))}
           onKeyDown={(event) =>
             handleKeyByTable(event, {
               ArrowDown: () => move(1),
@@ -201,7 +197,9 @@ export function CommandPalette({ repo }: { repo: string }) {
                   button.title = truncated ? row.title : '';
                   if (row.disabled || row === current) return;
                   pointed.current = true;
-                  setIndex(enabled.indexOf(row));
+                  setCursor((latest) =>
+                    pointedAt(latest, enabled.indexOf(row)),
+                  );
                 }}
                 onClick={() => run(row)}
                 className={`relative flex h-10 w-full items-center gap-3 rounded px-3 text-sm disabled:opacity-40 ${row === current ? selectedRow : ''} ${clickable} ${focusInset}`}

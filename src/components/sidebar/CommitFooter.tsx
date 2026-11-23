@@ -8,7 +8,14 @@ import type {
 import { shortcutLabel } from '../../lib/keyboard';
 import { saveSettings } from '../../lib/settings';
 import { useCommit, useCommitState } from '../../stores/commit';
-import { useGenerate, useGenerateState } from '../../stores/generate';
+import {
+  appliedMessage,
+  generationError,
+  isGenerating,
+  useGenerate,
+  useGeneration,
+} from '../../stores/generate';
+import { runCommit } from '../../lib/commit';
 import {
   useLayout,
   useTabLayout,
@@ -77,12 +84,13 @@ export function CommitFooter({
 }) {
   const message = useMessage(repo);
   const mode = useCommitMode(repo);
-  const generate = useGenerateState(repo);
+  const generation = useGeneration(repo);
+  const generating = isGenerating(generation);
+  const generationFailure = generationError(generation);
+  const applied = appliedMessage(generation);
   const flow = useCommitState(repo);
   const notice =
-    generate.applied && generate.applied.message === message
-      ? sourceNotice(generate.applied)
-      : null;
+    applied && applied.message === message ? sourceNotice(applied) : null;
   const changes = status.entries.map((entry) => entry.path);
   const active = pushable ? mode : 'commit';
   const label =
@@ -94,7 +102,7 @@ export function CommitFooter({
   const stageAll = (always: boolean) => {
     const pending = flow.prompt ?? 'commit';
     if (always) void saveSettings(settings, { smartCommit: 'always' });
-    void useCommit.getState().run(repo, {
+    void runCommit(repo, {
       message: message,
       mode: pending,
       stage: changes,
@@ -110,15 +118,15 @@ export function CommitFooter({
         {aiConfigured(settings) && (
           <div className="flex justify-end">
             <Button
-              disabled={generate.busy}
+              disabled={generating}
               onClick={() => void useGenerate.getState().generate(repo)}
             >
               <BusyIcon
-                busy={generate.busy}
+                busy={generating}
                 icon={Sparkles}
                 className="size-3.5"
               />
-              {generate.busy ? 'Generating' : 'Generate'}
+              {generating ? 'Generating' : 'Generate'}
             </Button>
           </div>
         )}
@@ -126,9 +134,7 @@ export function CommitFooter({
           <ResizeHandle
             label="Resize commit message"
             orientation="vertical"
-            min={commitMessageHeightBounds.min}
-            max={commitMessageHeightBounds.max}
-            step={commitMessageHeightBounds.step}
+            bounds={commitMessageHeightBounds}
             value={commitMessageHeight}
             className="absolute inset-x-0 top-0 z-10 h-2 cursor-row-resize rounded-t focus-visible:bg-accent"
             measure={(event) =>
@@ -150,7 +156,7 @@ export function CommitFooter({
             }
           />
         </div>
-        {generate.error && <FieldError>{generate.error}</FieldError>}
+        {generationFailure && <FieldError>{generationFailure}</FieldError>}
         {notice && <p className={mutedLabel}>{notice}</p>}
         {flow.prompt && (
           <div

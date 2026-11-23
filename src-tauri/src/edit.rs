@@ -54,7 +54,13 @@ pub fn read(repo: &Repo, path: &str) -> Result<Option<Opened>> {
     Ok(current(&repo.path(path)?)?.and_then(open))
 }
 
-pub fn write(repo: &Repo, path: &str, content: &str, expected: Option<&str>) -> Result<Written> {
+pub struct Save<'a> {
+    pub content: &'a str,
+    pub expected: Option<&'a str>,
+}
+
+pub fn write(repo: &Repo, path: &str, save: Save<'_>) -> Result<Written> {
+    let Save { content, expected } = save;
     let full = repo.path(path)?;
     let existing = current(&full)?;
     if existing.as_deref().map(version).as_deref() != expected {

@@ -13,12 +13,13 @@ export function percentBelow(event: ReactPointerEvent<HTMLDivElement>) {
   const column = boundsOf(handle.parentElement);
   return percentOf(pane.bottom - event.clientY, column.height);
 }
+export function clampedTo(bounds: ResizeBounds, value: number) {
+  return Math.min(bounds.max, Math.max(bounds.min, value));
+}
 export function ResizeHandle({
   label,
   orientation,
-  min,
-  max,
-  step,
+  bounds,
   value,
   className,
   measure,
@@ -26,15 +27,14 @@ export function ResizeHandle({
 }: {
   label: string;
   orientation: Orientation;
-  min: number;
-  max: number;
-  step: number;
+  bounds: ResizeBounds;
   value: number;
   className: string;
   measure: (event: ReactPointerEvent<HTMLDivElement>) => number;
   onChange: (value: number) => void;
 }) {
-  const clamp = (next: number) => Math.min(max, Math.max(min, next));
+  const { min, max, step } = bounds;
+  const clamp = (next: number) => clampedTo(bounds, next);
   const { back, forward } = arrowKeys[orientation];
   return (
     <div
@@ -81,9 +81,7 @@ export function SectionResizeHandle({
     <ResizeHandle
       label={label}
       orientation="vertical"
-      min={bounds.min}
-      max={bounds.max}
-      step={bounds.step}
+      bounds={bounds}
       value={value}
       className={sectionHandle}
       measure={percentBelow}

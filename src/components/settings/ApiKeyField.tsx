@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useFormState } from '../../lib/form-state';
 import { Eye, EyeOff, KeyRound } from 'lucide-react';
 import { invoke, normalizeError } from '../../lib/ipc';
 import { saveSettings } from '../../lib/settings';
@@ -8,25 +8,33 @@ import { TextInput } from '../shared/TextInput';
 import { field, mutedLabel } from '../shared/styles';
 import { FieldError } from '../states/Errors';
 import { SettingCard } from './SettingCard';
+interface KeyForm {
+  draft: string;
+  replacing: boolean;
+  visible: boolean;
+  confirming: boolean;
+  error: string | null;
+}
+const emptyKeyForm: KeyForm = {
+  draft: '',
+  replacing: false,
+  visible: false,
+  confirming: false,
+  error: null,
+};
 export function ApiKeyField({ settings }: { settings: SettingsResponse }) {
-  const [draft, setDraft] = useState('');
-  const [replacing, setReplacing] = useState(false);
-  const [visible, setVisible] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { form, update, reset } = useFormState(emptyKeyForm);
+  const { draft, replacing, visible, confirming, error } = form;
   const editing = replacing || !settings.keyStored;
   const write = async (key: string) => {
-    setError(null);
+    update({ error: null });
     try {
       await invoke('ai_key_set', { key });
     } catch (failure) {
-      setError(normalizeError(failure).message);
+      update({ error: normalizeError(failure).message });
       return;
     }
-    setDraft('');
-    setReplacing(false);
-    setVisible(false);
-    setConfirming(false);
+    reset();
     await saveSettings(settings);
   };
   const below = confirming ? (
@@ -35,7 +43,7 @@ export function ApiKeyField({ settings }: { settings: SettingsResponse }) {
       <Button
         variant="standard"
         className="ml-auto h-8"
-        onClick={() => setConfirming(false)}
+        onClick={() => update({ confirming: false })}
       >
         Keep key
       </Button>
@@ -52,13 +60,13 @@ export function ApiKeyField({ settings }: { settings: SettingsResponse }) {
           type={visible ? 'text' : 'password'}
           value={draft}
           className={`${field} h-8 text-sm`}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => update({ draft: event.target.value })}
         />
         <Button
           variant="command"
           aria-label="Show API key"
           aria-pressed={visible}
-          onClick={() => setVisible(!visible)}
+          onClick={() => update({ visible: !visible })}
         >
           {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
         </Button>
@@ -74,7 +82,7 @@ export function ApiKeyField({ settings }: { settings: SettingsResponse }) {
           <Button
             variant="standard"
             className="h-8"
-            onClick={() => setReplacing(false)}
+            onClick={() => update({ replacing: false })}
           >
             Cancel
           </Button>
@@ -108,11 +116,14 @@ export function ApiKeyField({ settings }: { settings: SettingsResponse }) {
           <Button
             variant="standard"
             className="h-8"
-            onClick={() => setReplacing(true)}
+            onClick={() => update({ replacing: true })}
           >
             Replace
           </Button>
-          <Button variant="command" onClick={() => setConfirming(true)}>
+          <Button
+            variant="command"
+            onClick={() => update({ confirming: true })}
+          >
             Clear
           </Button>
         </>

@@ -13,7 +13,17 @@ use std::{
 };
 
 pub type Lines = Option<[u32; 2]>;
-pub type Counted = (u64, SystemTime, Lines);
+#[derive(Clone, Copy, Debug)]
+pub struct CachedCount {
+    size: u64,
+    modified: SystemTime,
+    lines: Lines,
+}
+impl CachedCount {
+    fn matches(&self, size: u64, modified: SystemTime) -> bool {
+        self.size == size && self.modified == modified
+    }
+}
 
 #[derive(Debug, Default, Serialize)]
 pub struct Working {
@@ -73,11 +83,11 @@ pub async fn working(repo: &Repository) -> Result<Working> {
     })
 }
 
-fn untracked(repo: &Repository, entries: &[Entry]) -> Vec<(String, Lines)> {
+fn untracked(repo: &Repository, entries: &[Entry]) -> BTreeMap<String, Lines> {
     let mut cache = lock_recovering(&repo.untracked_lines);
     let mut kept = HashMap::new();
     let mut paths = repo.paths();
-    let mut counted = Vec::new();
+    let mut counted = BTreeMap::new();
     for entry in entries {
         let Entry::Untracked { path, .. } = entry else {
             continue;
@@ -94,14 +104,19 @@ fn untracked(repo: &Repository, entries: &[Entry]) -> Vec<(String, Lines)> {
         }
         let modified = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
         let lines = match cache.remove(path) {
-            Some((size, time, lines)) if size == metadata.len() && time == modified => lines,
+            Some(cached) if cached.matches(metadata.len(), modified) => cached.lines,
             _ => match std::fs::read(&full) {
                 Ok(bytes) => count(&bytes),
                 Err(_) => continue,
             },
         };
-        kept.insert(path.clone(), (metadata.len(), modified, lines));
-        counted.push((path.clone(), lines));
+        let cached = CachedCount {
+            size: metadata.len(),
+            modified,
+            lines,
+        };
+        kept.insert(path.clone(), cached);
+        counted.insert(path.clone(), lines);
     }
     *cache = kept;
     counted

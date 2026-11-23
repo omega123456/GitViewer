@@ -262,7 +262,10 @@ async fn typed_commands_events_and_protocol_are_wired() {
         .append_pair("source", "file")
         .append_pair("side", "new");
     assert_eq!(
-        blob::serve(app.handle(), url.to_string()).await.unwrap().0,
+        blob::serve(app.handle(), url.to_string())
+            .await
+            .unwrap()
+            .bytes,
         b"image bytes"
     );
     for extension in ["svg", "jpg", "gif", "webp", "bmp", "ico", "avif"] {
@@ -276,7 +279,7 @@ async fn typed_commands_events_and_protocol_are_wired() {
         assert!(blob::serve(app.handle(), url.to_string())
             .await
             .unwrap()
-            .1
+            .mime
             .starts_with("image/"));
     }
     assert!(blob::serve(app.handle(), "not a url".into()).await.is_err());
@@ -286,8 +289,11 @@ async fn typed_commands_events_and_protocol_are_wired() {
     )
     .await
     .unwrap();
-    assert_eq!(plain.1, "text/plain; charset=utf-8");
-    assert_eq!(plain.0, std::fs::read(dir.path().join("file.txt")).unwrap());
+    assert_eq!(plain.mime, "text/plain; charset=utf-8");
+    assert_eq!(
+        plain.bytes,
+        std::fs::read(dir.path().join("file.txt")).unwrap()
+    );
     assert_eq!(media::mime("archive.tar.gz"), "text/plain; charset=utf-8");
     std::fs::File::create(dir.path().join("large.png"))
         .unwrap()

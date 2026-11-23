@@ -1,54 +1,19 @@
-import {
-  Archive,
-  ChevronLeft,
-  ChevronRight,
-  Download,
-  GitCommitHorizontal,
-  GitCompare,
-  GitMerge,
-  History,
-  ListChecks,
-  PanelLeft,
-  PanelRight,
-  RefreshCw,
-  Trash2,
-  RotateCw,
-  Sparkles,
-  SquareMinus,
-  SquarePlus,
-  Upload,
-  X,
-} from 'lucide-react';
+import { GitMerge } from 'lucide-react';
 import { memo, useState } from 'react';
-import { confirm } from '@tauri-apps/plugin-dialog';
-import { useActions } from '../../lib/actions';
+import { commitPlan, routeCommit } from '../../lib/commit';
+import { isDetached } from '../../lib/git';
 import { perform, useBackend } from '../../lib/query';
-import { pull } from '../../lib/pull';
-import type { Action } from '../../lib/keyboard';
 import type { SettingsResponse } from '../../lib/types';
+import { pluralWord } from '../../lib/text';
 import { useBusy } from '../../stores/activity';
-import { useCommit } from '../../stores/commit';
-import { useGenerate, useGenerateState } from '../../stores/generate';
-import {
-  type CommitMode,
-  tabMessage,
-  useHasMessage,
-  useTabs,
-} from '../../stores/tabs';
+import { useHasMessage } from '../../stores/tabs';
 import {
   useLayout,
   useSidebarMode,
   useSidebarWidth,
   sidebarWidthBounds,
 } from '../../stores/layout';
-import {
-  tabKey,
-  useAllChanges,
-  useCurrentSelection,
-  useFileTabs,
-  useSelection,
-} from '../../stores/selection';
-import { useFilterStore } from '../../stores/filter';
+import { useAllChanges, useCurrentSelection } from '../../stores/selection';
 import { Button } from '../shared/Button';
 import { dynamic } from '../shared/styles';
 import { ErrorState } from '../states/Errors';
@@ -58,12 +23,8 @@ import { DiffPane } from '../diff/DiffPane';
 import { FileTabStrip } from '../diff/FileTabStrip';
 import { CommitList } from '../history/CommitList';
 import { ChangesSection } from '../sidebar/ChangesSection';
-import {
-  baseFieldId,
-  CompareSection,
-  openCompare,
-} from '../sidebar/CompareSection';
-import { aiConfigured, CommitFooter } from '../sidebar/CommitFooter';
+import { CompareSection } from '../sidebar/CompareSection';
+import { CommitFooter } from '../sidebar/CommitFooter';
 import { FilesSection } from '../sidebar/FilesSection';
 import { SidebarModeToggle } from '../sidebar/SidebarModeToggle';
 import { StashDialog } from '../stash/StashDialog';
@@ -71,9 +32,7 @@ import { StashSection } from '../stash/StashSection';
 import { ResizeHandle } from './ResizeHandle';
 import { StatusBar } from './StatusBar';
 import { Toolbar } from './Toolbar';
-import { isDetached, scopeKey, UNTRACKED, UNMODIFIED } from '../../lib/git';
-import { pluralWord } from '../../lib/text';
-import { stepIndex } from '../../lib/list';
+import { useRepositoryActions } from './useRepositoryActions';
 export const RepositoryView = memo(function RepositoryView({
   repo,
   settings,
@@ -85,285 +44,32 @@ export const RepositoryView = memo(function RepositoryView({
 }) {
   const query = useBackend('status', { repo });
   const busy = useBusy(repo);
-  const generate = useGenerateState(repo);
   const hasMessage = useHasMessage(repo);
   const mode = useSidebarMode(repo);
   const sidebarWidth = useSidebarWidth(repo);
   const select = useCurrentSelection(repo, mode);
   const all = useAllChanges(repo);
-  const fileTabs = useFileTabs(repo, mode);
   const status = query.data;
   const [naming, setNaming] = useState(false);
   const disabled = busy || !status || status.conflicted;
   const conflicts = (status?.entries ?? []).filter(
     (entry) => entry.kind === 'unmerged',
   ).length;
-  const selectedEntry = status?.entries.find(
-    (entry) => entry.path === select?.path,
-  );
-  const moveFile = (direction: number) => {
-    const filter = (useFilterStore.getState().text[repo] ?? '').toLowerCase();
-    const files =
-      status?.entries
-        .flatMap((entry) => [
-          ...(entry.index !== UNMODIFIED && entry.index !== UNTRACKED
-            ? [{ path: entry.path, source: 'staged' as const }]
-            : []),
-          ...(entry.worktree !== UNMODIFIED
-            ? [
-                {
-                  path: entry.path,
-                  source:
-                    entry.index === UNTRACKED
-                      ? ('file' as const)
-                      : ('unstaged' as const),
-                },
-              ]
-            : []),
-        ])
-        .filter((entry) => entry.path.toLowerCase().includes(filter)) ?? [];
-    if (!files.length) return;
-    const current = files.findIndex(
-      (entry) => entry.path === select?.path && entry.source === select.source,
-    );
-    useLayout.getState().update(repo, { mode: 'working' });
-    useSelection
-      .getState()
-      .select(repo, files[stepIndex(current, direction, files.length)]);
-  };
-  const changeSelectedFile = async (action: 'stage' | 'unstage') => {
-    if (!select) return;
-    await perform('files_action', {
-      repo: repo,
-      paths: [select.path],
-      action: action,
-    });
-  };
-  const discard = async () => {
-    if (
-      select &&
-      (await confirm(
-        `Discard changes to ${select.path}? These changes cannot be recovered by Git.`,
-        { title: 'Discard file', kind: 'warning' },
-      ))
-    )
-      await perform('files_action', {
-        repo: repo,
-        paths: [select.path],
-        action: 'discard',
-      });
-  };
-  const staged = Boolean(
-    status?.entries.some(
-      (entry) => entry.index !== UNMODIFIED && entry.index !== UNTRACKED,
-    ),
-  );
-  const changes = status?.entries.map((entry) => entry.path) ?? [];
-  const committable =
-    hasMessage &&
-    (staged || (changes.length > 0 && settings.smartCommit !== 'never'));
-  const commit = (mode: CommitMode) => {
-    const store = useCommit.getState();
-    const message = tabMessage(repo);
-    if (staged)
-      return store.run(repo, { message: message, mode: mode, stage: [] });
-    if (settings.smartCommit === 'always')
-      return store.run(repo, { message: message, mode: mode, stage: changes });
-    store.ask(repo, mode);
-  };
-  const fileTabsCyclable = fileTabs.length > 1;
-  const actions: Action[] = [
-    {
-      id: 'refresh',
-      icon: <RotateCw className="size-3.5" />,
-      label: 'Refresh repository',
-      key: 'Mod+r',
-      run: () => perform('refresh', { repo }),
-    },
-    {
-      id: 'stage',
-      icon: <SquarePlus className="size-3.5" />,
-      label: 'Stage selected file',
-      key: 's',
-      disabled:
-        disabled ||
-        mode !== 'working' ||
-        !selectedEntry ||
-        selectedEntry.worktree === UNMODIFIED,
-      run: () => changeSelectedFile('stage'),
-    },
-    {
-      id: 'unstage',
-      icon: <SquareMinus className="size-3.5" />,
-      label: 'Unstage selected file',
-      key: 'u',
-      disabled:
-        disabled ||
-        mode !== 'working' ||
-        !selectedEntry ||
-        [UNMODIFIED, UNTRACKED].includes(selectedEntry.index),
-      run: () => changeSelectedFile('unstage'),
-    },
-    {
-      id: 'discard-file',
-      icon: <Trash2 className="size-3.5" />,
-      label: 'Discard selected file',
-      key: 'Mod+Shift+d',
-      disabled:
-        disabled ||
-        mode !== 'working' ||
-        !selectedEntry ||
-        [UNMODIFIED, UNTRACKED].includes(selectedEntry.worktree),
-      run: discard,
-    },
-    {
-      id: 'next-file',
-      icon: <ChevronRight className="size-3.5" />,
-      label: 'Next changed file',
-      key: 'Alt+ArrowRight',
-      disabled: !status?.entries.length,
-      run: () => moveFile(1),
-    },
-    {
-      id: 'previous-file',
-      icon: <ChevronLeft className="size-3.5" />,
-      label: 'Previous changed file',
-      key: 'Alt+ArrowLeft',
-      disabled: !status?.entries.length,
-      run: () => moveFile(-1),
-    },
-    {
-      id: 'all',
-      icon: <ListChecks className="size-3.5" />,
-      label: 'Stage all changes',
-      key: 'Mod+Shift+a',
-      disabled: disabled,
-      run: () =>
-        perform('files_action', {
-          repo: repo,
-          paths: changes,
-          action: 'stage',
-        }),
-    },
-    {
-      id: 'commit',
-      icon: <GitCommitHorizontal className="size-3.5" />,
-      label: 'Commit changes',
-      key: 'Mod+Enter',
-      disabled: disabled || !committable,
-      run: () => commit('commit'),
-    },
-    {
-      id: 'commit-push',
-      icon: <Upload className="size-3.5" />,
-      label: 'Commit and push changes',
-      key: 'Mod+Shift+Enter',
-      disabled: disabled || !committable || isDetached(status?.branch),
-      run: () => commit('commitPush'),
-    },
-    {
-      id: 'generate-message',
-      icon: <Sparkles className="size-3.5" />,
-      label: 'Generate commit message',
-      key: 'Mod+Alt+g',
-      disabled: !aiConfigured(settings) || generate.busy,
-      run: () => useGenerate.getState().generate(repo),
-    },
-    {
-      id: 'fetch',
-      icon: <RefreshCw className="size-3.5" />,
-      label: 'Fetch',
-      key: 'Mod+Shift+f',
-      disabled: disabled,
-      run: () => perform('sync', { repo: repo, action: 'fetch' }),
-    },
-    {
-      id: 'pull',
-      icon: <Download className="size-3.5" />,
-      label: 'Pull',
-      key: 'Mod+Shift+l',
-      disabled: disabled || isDetached(status?.branch),
-      run: () => pull(repo),
-    },
-    {
-      id: 'push',
-      icon: <Upload className="size-3.5" />,
-      label: 'Push',
-      key: 'Mod+Shift+u',
-      disabled: disabled || isDetached(status?.branch),
-      run: () => perform('sync', { repo: repo, action: 'push' }),
-    },
-    {
-      id: 'history',
-      icon: <History className="size-3.5" />,
-      label: 'Toggle history',
-      key: 'Mod+h',
-      run: () =>
-        useLayout.getState().update(repo, {
-          mode: mode === 'history' ? 'working' : 'history',
-        }),
-    },
-    {
-      id: 'compare',
-      icon: <GitCompare className="size-3.5" />,
-      label: 'Compare branches',
-      key: 'Mod+Shift+c',
-      run: () => {
-        openCompare(repo);
-        requestAnimationFrame(() =>
-          document.getElementById(baseFieldId(repo))?.focus(),
-        );
-      },
-    },
-    {
-      id: 'stash',
-      icon: <Archive className="size-3.5" />,
-      label: 'Stash changes',
-      key: 'Mod+Shift+s',
-      disabled: disabled,
-      run: () => setNaming(true),
-    },
-    {
-      id: 'close-file-tab',
-      icon: <X className="size-3.5" />,
-      label: 'Close file tab',
-      key: 'Mod+w',
-      disabled: !select?.path,
-      run: () =>
-        select && useSelection.getState().closeTab(repo, mode, tabKey(select)),
-    },
-    {
-      id: 'next-file-tab',
-      icon: <ChevronRight className="size-3.5" />,
-      label: 'Next file tab',
-      key: 'Ctrl+Tab',
-      disabled: !fileTabsCyclable,
-      run: () => useSelection.getState().cycleTab(repo, mode, 1),
-    },
-    {
-      id: 'previous-file-tab',
-      icon: <ChevronLeft className="size-3.5" />,
-      label: 'Previous file tab',
-      key: 'Ctrl+Shift+Tab',
-      disabled: !fileTabsCyclable,
-      run: () => useSelection.getState().cycleTab(repo, mode, -1),
-    },
-    {
-      id: 'next-tab',
-      icon: <PanelRight className="size-3.5" />,
-      label: 'Next repository',
-      key: 'Mod+Alt+ArrowRight',
-      run: () => moveTab(1),
-    },
-    {
-      id: 'previous-tab',
-      icon: <PanelLeft className="size-3.5" />,
-      label: 'Previous repository',
-      key: 'Mod+Alt+ArrowLeft',
-      run: () => moveTab(-1),
-    },
-  ];
-  useActions(scopeKey(repo, 'repository'), actions);
+  const plan = commitPlan({
+    entries: status?.entries ?? [],
+    hasMessage: hasMessage,
+    smartCommit: settings.smartCommit,
+  });
+  const actions = useRepositoryActions({
+    repo: repo,
+    settings: settings,
+    status: status,
+    mode: mode,
+    selection: select,
+    disabled: disabled,
+    plan: plan,
+    startStash: () => setNaming(true),
+  });
   if (query.error)
     return (
       <ErrorState
@@ -442,18 +148,18 @@ export const RepositoryView = memo(function RepositoryView({
               repo={repo}
               status={status}
               settings={settings}
-              disabled={disabled || !committable}
+              disabled={disabled || !plan.committable}
               pushable={!isDetached(status.branch)}
-              commit={(mode) => void commit(mode)}
+              commit={(commitMode) =>
+                void routeCommit({ repo: repo, mode: commitMode, plan: plan })
+              }
             />
           )}
         </aside>
         <ResizeHandle
           label="Resize sidebar"
           orientation="horizontal"
-          min={sidebarWidthBounds.min}
-          max={sidebarWidthBounds.max}
-          step={sidebarWidthBounds.step}
+          bounds={sidebarWidthBounds}
           value={sidebarWidth}
           className="w-1 shrink-0 cursor-col-resize bg-line hover:bg-accent focus-visible:bg-accent dark:bg-line-dark"
           measure={(event) => event.clientX}
@@ -498,8 +204,3 @@ export const RepositoryView = memo(function RepositoryView({
     </>
   );
 });
-function moveTab(direction: number) {
-  const state = useTabs.getState();
-  const index = state.tabs.findIndex((tab) => tab.id === state.active);
-  state.activate(state.tabs[stepIndex(index, direction, state.tabs.length)].id);
-}

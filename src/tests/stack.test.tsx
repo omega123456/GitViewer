@@ -11,7 +11,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { QueryProvider } from '../providers/QueryProvider';
 import { useTabs } from '../stores/tabs';
 import { useLayout } from '../stores/layout';
-import { useSelection } from '../stores/selection';
+import { selectionOf, allChangesOf } from '../stores/selection';
 import { useImageViews } from '../stores/image-view';
 import { DiffPane } from '../components/diff/DiffPane';
 import { AllChangesPane } from '../components/diff/AllChangesPane';
@@ -380,7 +380,7 @@ describe('all changes pane', () => {
     expect(
       await screen.findByRole('region', { name: 'Diff viewer' }),
     ).toBeInTheDocument();
-    expect(useSelection.getState().all[repository.id]).toBeUndefined();
+    expect(allChangesOf(repository.id)).toBeUndefined();
   });
   it('finds across every stacked file, reopens a collapsed file to reach a match, and closes with Escape', async () => {
     setup();
@@ -574,6 +574,6 @@ describe('all changes pane', () => {
     expect(useLayout.getState().tabs[repository.id].mode).toBe('compare');
     act(() => useTabs.getState().close(repository.id));
     expect(useLayout.getState().tabs[repository.id]).toBeUndefined();
-    expect(useSelection.getState().compare[repository.id]).toBeUndefined();
+    expect(selectionOf(repository.id, 'compare')).toBeUndefined();
   });
 });

@@ -1,22 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
 import { tokenize } from '../../lib/highlight';
 import { useBackend } from '../../lib/query';
-import type { Diff, Selection } from '../../lib/types';
-import { useDark } from '../../stores/theme';
+import type { Diff } from '../../lib/types';
+import { useDark } from '../../lib/theme';
 import { splitLines } from './expansion';
-export type Tokens = Record<string, { content: string; color?: string }[]>;
+import {
+  highlighted,
+  idleHighlight,
+  noTokens,
+  sameInputs,
+  type Highlighted,
+  type HighlightInputs,
+  type Tokens,
+} from './highlight-state';
+import type { DiffTarget } from './target';
+export type { Tokens } from './highlight-state';
 type Side = 'old' | 'new';
-const none: Tokens = {};
+type FileTarget = Omit<DiffTarget, 'data'>;
 const cache = new WeakMap<Diff, Map<string, Tokens>>();
-interface Highlighted {
-  data?: Diff;
-  oldText?: string;
-  newText?: string;
-  path: string;
-  dark: boolean;
-  done: boolean;
-  tokens: Tokens;
-}
 function needed(data: Diff | undefined, side: Side) {
   return Boolean(
     data &&
@@ -54,12 +55,8 @@ function sideLines(data: Diff, side: Side, text?: string) {
     .slice(0, end)
     .map((content, index) => ({ content: content, line: index + 1 }));
 }
-function useSideText(
-  repo: string,
-  selection: Selection,
-  side: Side,
-  enabled: boolean,
-) {
+function useSideText(target: FileTarget, side: Side, enabled: boolean) {
+  const { repo, selection } = target;
   const args = {
     repo: repo,
     path: selection.path,
@@ -95,60 +92,36 @@ function cached(data: Diff, keys: Record<Side, string>) {
 function sideKey(base: string, side: Side, text?: string) {
   return text === undefined ? `${base}\n${side}` : `${base}\n${side}\n${text}`;
 }
-export function useTokens(
-  repo: string,
-  selection: Selection,
-  data: Diff | undefined,
-  enabled = true,
-) {
+export function useTokens(target: DiffTarget, enabled = true) {
+  const { data, selection } = target;
   const dark = useDark();
   const path = selection.path;
-  const old = useSideText(
-    repo,
-    selection,
-    'old',
-    enabled && needed(data, 'old'),
-  );
-  const fresh = useSideText(
-    repo,
-    selection,
-    'new',
-    enabled && needed(data, 'new'),
-  );
+  const old = useSideText(target, 'old', enabled && needed(data, 'old'));
+  const fresh = useSideText(target, 'new', enabled && needed(data, 'new'));
   const oldText = old.text;
   const newText = fresh.text;
   const settled = old.settled && fresh.settled;
   const base = `${dark ? 'dark' : 'light'}\n${path}`;
   const oldKey = sideKey(base, 'old', oldText);
   const newKey = sideKey(base, 'new', newText);
-  const [state, setState] = useState<Highlighted>({
+  const [state, setState] = useState<Highlighted>(() =>
+    idleHighlight(path, dark),
+  );
+  const inputs: HighlightInputs = {
+    data: data,
+    oldText: oldText,
+    newText: newText,
     path: path,
     dark: dark,
-    done: false,
-    tokens: none,
-  });
-  const current =
-    state.data === data &&
-    state.oldText === oldText &&
-    state.newText === newText &&
-    state.path === path &&
-    state.dark === dark;
+  };
+  const current = sameInputs(state.inputs, inputs);
   const hit =
     !current && data && settled
       ? cached(data, { old: oldKey, new: newKey })
       : undefined;
-  if (hit)
-    setState({
-      data: data,
-      oldText: oldText,
-      newText: newText,
-      path: path,
-      dark: dark,
-      done: true,
-      tokens: hit,
-    });
-  else if (!enabled && !current && state.tokens !== none)
-    setState({ path: path, dark: dark, done: false, tokens: none });
+  if (hit) setState(highlighted(inputs, hit, true));
+  else if (!enabled && !current && state.tokens !== noTokens)
+    setState(idleHighlight(path, dark));
   const finished = current && state.done;
   const shown = useRef(state.tokens);
   useEffect(() => {
@@ -156,6 +129,13 @@ export function useTokens(
   });
   useEffect(() => {
     if (!enabled || !data || !settled || finished) return;
+    const latest: HighlightInputs = {
+      data: data,
+      oldText: oldText,
+      newText: newText,
+      path: path,
+      dark: dark,
+    };
     const keys = { old: oldKey, new: newKey };
     const texts = { old: oldText, new: newText };
     const entry = cache.get(data) ?? new Map<string, Tokens>();
@@ -166,44 +146,27 @@ export function useTokens(
       if (!entry.has(keys[side]) && !lines.length) entry.set(keys[side], {});
       if (entry.has(keys[side])) return undefined;
       const progress: Tokens = {};
-      return tokenize(
-        lines.map((line) => line.content),
-        path,
-        dark,
-        (start, chunk, done) => {
-          const part = Object.fromEntries(
-            chunk.map((tokens, index) => [
-              `${side}:${lines[start + index].line}`,
-              tokens,
-            ]),
-          );
-          Object.assign(progress, part);
-          if (done) entry.set(keys[side], progress);
-          const all = joined(entry, keys);
-          display = all ?? Object.assign(display ?? { ...shown.current }, part);
-          setState({
-            data: data,
-            oldText: oldText,
-            newText: newText,
-            path: path,
-            dark: dark,
-            done: Boolean(all),
-            tokens: display,
-          });
-        },
-      );
-    });
-    const all = joined(entry, keys);
-    if (all)
-      setState({
-        data: data,
-        oldText: oldText,
-        newText: newText,
+      const job = {
+        lines: lines.map((line) => line.content),
         path: path,
         dark: dark,
-        done: true,
-        tokens: all,
+      };
+      return tokenize(job, (start, chunk, done) => {
+        const part = Object.fromEntries(
+          chunk.map((tokens, index) => [
+            `${side}:${lines[start + index].line}`,
+            tokens,
+          ]),
+        );
+        Object.assign(progress, part);
+        if (done) entry.set(keys[side], progress);
+        const all = joined(entry, keys);
+        display = all ?? Object.assign(display ?? { ...shown.current }, part);
+        setState(highlighted(latest, display, Boolean(all)));
       });
+    });
+    const all = joined(entry, keys);
+    if (all) setState(highlighted(latest, all, true));
     return () => cancels.forEach((cancel) => cancel?.());
   }, [
     data,

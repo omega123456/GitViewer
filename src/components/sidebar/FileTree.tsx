@@ -2,6 +2,7 @@ import { revertFiles } from '../../lib/revert';
 import { Button } from '../shared/Button';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTree } from '@headless-tree/react';
+import type { TreeInstance } from '@headless-tree/core';
 import {
   asyncDataLoaderFeature,
   expandAllFeature,
@@ -19,9 +20,11 @@ import {
 import { client, perform, queryKey } from '../../lib/query';
 import { invoke, normalizeError } from '../../lib/ipc';
 import { useErrors } from '../../stores/errors';
-import { useSelection, useWorkingSelection } from '../../stores/selection';
+import { useWorkingSelection } from '../../stores/selection';
+import { useOpenFile } from '../../lib/open-file';
+import { watchTreeInvalidation } from '../../lib/tree-refresh';
 import { useDeferredFilter } from '../../stores/filter';
-import { useCompact } from '../../stores/density';
+import { useCompact } from '../../lib/theme';
 import type { Lines, Source, Status, TreeEntry } from '../../lib/types';
 import { LineCount } from '../shared/LineCount';
 import {
@@ -62,33 +65,52 @@ import {
   useTreeVirtualizer,
 } from './TreeRow';
 const slot = `${revealSlot} right-badge-slot`;
-export function ChangesTree({
-  repo,
-  status,
-  source,
-  disabled,
-  fill,
-  title,
-  count,
-  lines,
-  total,
-  actions,
-}: {
+export interface ChangesContext {
   repo: string;
   status: Status;
-  source: Section;
   disabled: boolean;
-  fill: boolean;
+}
+export interface ChangesGroup {
+  source: Section;
   title: string;
   count: number;
-  lines?: Record<string, Lines>;
+  fill: boolean;
+}
+export interface GroupLines {
+  files?: Record<string, Lines>;
   total?: Lines;
+}
+function relistVisible(tree: TreeInstance<TreeEntry>) {
+  const expandedFolders = tree
+    .getItems()
+    .filter((item) => item.isFolder() && item.isExpanded());
+  const visible = [tree.getItemInstance(treeRoot), ...expandedFolders];
+  for (const item of visible) void item.invalidateChildrenIds(true);
+}
+export function ChangesTree({
+  context,
+  group,
+  lines: groupLines,
+  actions,
+}: {
+  context: ChangesContext;
+  group: ChangesGroup;
+  lines: GroupLines;
   actions: ReactNode;
 }) {
+  const { repo, status, disabled } = context;
+  const { source, title, count, fill } = group;
+  const { files: lines, total } = groupLines;
   const filter = useDeferredFilter(repo);
   const compact = useCompact();
   const selection = useWorkingSelection(repo);
+  const openFile = useOpenFile(repo);
   const target: Source = source === 'conflicts' ? 'unstaged' : source;
+  const openNode = (node: Node) =>
+    openFile({
+      path: node.path,
+      source: node.status === UNTRACKED ? 'file' : target,
+    });
   const nodes = useMemo(
     () => changeNodes(status.entries, source, filter),
     [status.entries, source, filter],
@@ -106,11 +128,7 @@ export function ChangesTree({
     },
     onPrimaryAction: (item) => {
       const node = item.getItemData();
-      if (node && !node.directory)
-        useSelection.getState().select(repo, {
-          path: node.path,
-          source: node.status === UNTRACKED ? 'file' : target,
-        });
+      if (node && !node.directory) openNode(node);
     },
     features: [
       syncDataLoaderFeature,
@@ -192,11 +210,7 @@ export function ChangesTree({
                     {...item.getProps()}
                     onClick={(event) => {
                       item.getProps().onClick?.(event);
-                      if (!node.directory)
-                        useSelection.getState().select(repo, {
-                          path: node.path,
-                          source: node.status === UNTRACKED ? 'file' : target,
-                        });
+                      if (!node.directory) openNode(node);
                     }}
                     className={`relative flex min-w-0 flex-1 items-center gap-1.5 pr-2 pl-indent text-left text-sm ${treeRowHeightClass(compact)} ${clickable} ${focus}`}
                   >
@@ -244,18 +258,18 @@ export function ChangesTree({
                         : `Discard ${node.path}`
                     }
                     onClick={() =>
-                      void revertFiles(
-                        repo,
-                        node.directory
+                      void revertFiles({
+                        repo: repo,
+                        paths: node.directory
                           ? status.entries
                               .filter((entry) =>
                                 entry.path.startsWith(`${node.path}/`),
                               )
                               .map((entry) => entry.path)
                           : [node.path],
-                        false,
-                        node.directory ? node.path : undefined,
-                      )
+                        all: false,
+                        folder: node.directory ? node.path : undefined,
+                      })
                     }
                   >
                     <Trash2 className="size-3" />
@@ -293,6 +307,14 @@ export function FilesTree({ repo, status }: { repo: string; status: Status }) {
   const filter = useDeferredFilter(repo);
   const compact = useCompact();
   const selection = useWorkingSelection(repo);
+  const openFile = useOpenFile(repo);
+  const openEntryFile = (node: TreeEntry) =>
+    openFile({
+      path: node.path,
+      source: sourceFor(
+        status.entries.find((entry) => entry.path === node.path),
+      ),
+    });
   const cache = useRef(new Map<string, TreeEntry>());
   const load = async (path: string) => {
     const args = { repo: repo, path: path === treeRoot ? '' : path };
@@ -340,53 +362,14 @@ export function FilesTree({ repo, status }: { repo: string; status: Status }) {
     },
     onPrimaryAction: (item) => {
       const node = item.getItemData();
-      if (node && !node.directory)
-        useSelection.getState().select(repo, {
-          path: node.path,
-          source: sourceFor(
-            status.entries.find((entry) => entry.path === node.path),
-          ),
-        });
+      if (node && !node.directory) openEntryFile(node);
     },
     features: [asyncDataLoaderFeature, selectionFeature, hotkeysCoreFeature],
   });
-  useEffect(() => {
-    let pending = false;
-    const relist = () => {
-      pending = false;
-      const visible = [
-        tree.getItemInstance(treeRoot),
-        ...tree
-          .getItems()
-          .filter((item) => item.isFolder() && item.isExpanded()),
-      ];
-      for (const item of visible) void item.invalidateChildrenIds(true);
-    };
-    const schedule = () => {
-      pending = true;
-      queueMicrotask(relist);
-    };
-    const stop = client.getQueryCache().subscribe((event) => {
-      const [scope, command] = event.query.queryKey;
-      if (
-        pending ||
-        event.type !== 'updated' ||
-        event.action.type !== 'invalidate' ||
-        scope !== repo ||
-        command !== 'tree'
-      )
-        return;
-      schedule();
-    });
-    if (
-      client
-        .getQueryCache()
-        .findAll({ queryKey: [repo, 'tree'] })
-        .some((query) => query.state.isInvalidated)
-    )
-      schedule();
-    return stop;
-  }, [tree, repo]);
+  useEffect(
+    () => watchTreeInvalidation(repo, () => relistVisible(tree)),
+    [tree, repo],
+  );
   const items = tree
     .getItems()
     .filter(
@@ -430,15 +413,7 @@ export function FilesTree({ repo, status }: { repo: string; status: Status }) {
                 {...item.getProps()}
                 onClick={(event) => {
                   item.getProps().onClick?.(event);
-                  if (!node.directory)
-                    useSelection.getState().select(repo, {
-                      path: node.path,
-                      source: sourceFor(
-                        status.entries.find(
-                          (entry) => entry.path === node.path,
-                        ),
-                      ),
-                    });
+                  if (!node.directory) openEntryFile(node);
                 }}
                 className={`${treeRowButton} ${treeRowHeightClass(compact)} ${node.ignored ? 'opacity-55' : ''} ${selection?.path === node.path ? selectedRow : ''} ${clickable} ${focus}`}
                 style={treeRowPosition(row.start, item.getItemMeta().level)}

@@ -11,7 +11,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { useTabs } from '../stores/tabs';
 import { useSuccesses } from '../stores/successes';
 import { useLayout } from '../stores/layout';
-import { useSelection } from '../stores/selection';
+import { useSelection, selectionOf, allChangesOf } from '../stores/selection';
 import { useDiffView } from '../stores/diff-view';
 import { useSettingsNav } from '../stores/settings-nav';
 import { initials } from '../components/shared/Avatar';
@@ -35,6 +35,7 @@ import {
   action,
   run,
 } from './workbench';
+import { DEFAULT_MAX_FILE_TABS } from '../lib/settings';
 const notices = () =>
   (useSuccesses.getState().scopes[repository.id] ?? []).map(
     (notice) => notice.title,
@@ -547,13 +548,9 @@ describe('repository workflows', () => {
     mount();
     await screen.findAllByLabelText('Commit message');
     await action('next-file');
-    expect(useSelection.getState().working[repository.id]?.source).toBe(
-      'staged',
-    );
+    expect(selectionOf(repository.id, 'working')?.source).toBe('staged');
     await action('next-file');
-    expect(useSelection.getState().working[repository.id]?.source).toBe(
-      'unstaged',
-    );
+    expect(selectionOf(repository.id, 'working')?.source).toBe('unstaged');
     await screen.findByTitle('Stage hunk');
     await action('stage');
     await action('unstage');
@@ -607,7 +604,11 @@ describe('repository workflows', () => {
     setup();
     useSelection
       .getState()
-      .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
+      .select(
+        repository.id,
+        { path: 'src/app.ts', source: 'unstaged' },
+        DEFAULT_MAX_FILE_TABS,
+      );
     mockCommand('blame', () => [
       {
         hash: commit.hash,
@@ -637,9 +638,7 @@ describe('repository workflows', () => {
         'Review commit',
       ),
     );
-    expect(useSelection.getState().history[repository.id]?.path).toBe(
-      'src/app.ts',
-    );
+    expect(selectionOf(repository.id, 'history')?.path).toBe('src/app.ts');
     const fileTree = await screen.findByRole('tree', { name: 'Commit files' });
     await within(fileTree).findByRole('treeitem', { name: 'app.ts' });
     expect(within(fileTree).getByText('M')).toBeInTheDocument();
@@ -657,16 +656,14 @@ describe('repository workflows', () => {
         .getByRole('treeitem', { name: 'app.ts' })
         .querySelector('.w-accent'),
     ).not.toBeNull();
-    expect(useSelection.getState().history[repository.id]?.revision).toBe(
-      commit.hash,
-    );
+    expect(selectionOf(repository.id, 'history')?.revision).toBe(commit.hash);
     await user.click(
       screen.getByRole('button', { name: 'All changes in commit' }),
     );
     const stack = await screen.findByRole('region', {
       name: 'All changes in commit',
     });
-    expect(useSelection.getState().history[repository.id]?.path).toBe('');
+    expect(selectionOf(repository.id, 'history')?.path).toBe('');
     await within(stack).findByText(commit.hash.slice(0, 7));
     await within(stack).findByRole('button', { name: /app\.ts/ });
     expect(within(stack).queryByTitle('Stage hunk')).not.toBeInTheDocument();
@@ -674,7 +671,7 @@ describe('repository workflows', () => {
       within(fileTree).getByRole('treeitem', { name: 'app.ts' }),
     );
     await screen.findByRole('region', { name: 'Diff viewer' });
-    expect(useSelection.getState().all[repository.id]).toBeUndefined();
+    expect(allChangesOf(repository.id)).toBeUndefined();
     await user.click(screen.getByRole('button', { name: 'All files' }));
     await user.click(
       await within(await screen.findByLabelText('Commit history')).findByText(
@@ -682,15 +679,13 @@ describe('repository workflows', () => {
       ),
     );
     await screen.findByRole('region', { name: 'All changes in commit' });
-    expect(useSelection.getState().all[repository.id]).toBe('commit');
+    expect(allChangesOf(repository.id)).toBe('commit');
     fireEvent.keyDown(screen.getByLabelText('Resize sidebar'), {
       key: 'ArrowRight',
     });
     expect(useLayout.getState().tabs[repository.id].historyWidth).toBe(450);
     await action('history');
-    expect(useSelection.getState().working[repository.id]?.source).toBe(
-      'unstaged',
-    );
+    expect(selectionOf(repository.id, 'working')?.source).toBe('unstaged');
     fireEvent.keyDown(screen.getByLabelText('Resize sidebar'), {
       key: 'ArrowLeft',
     });
@@ -740,9 +735,7 @@ describe('repository workflows', () => {
     fireEvent.pointerMove(annotations, { clientX: 800 });
     expect(useLayout.getState().tabs[repository.id].blameWidth).toBe(430);
     await user.click(screen.getByRole('button', { name: 'aaaaaaa' }));
-    expect(useSelection.getState().history[repository.id]?.source).toBe(
-      'commit',
-    );
+    expect(selectionOf(repository.id, 'history')?.source).toBe('commit');
     expect(
       (
         await within(await screen.findByLabelText('Commit history')).findByText(
@@ -851,11 +844,15 @@ describe('repository workflows', () => {
         block: true,
       },
     ]);
-    useSelection.getState().select(repository.id, {
-      path: 'src/app.ts',
-      source: 'unstaged',
-      blame: true,
-    });
+    useSelection.getState().select(
+      repository.id,
+      {
+        path: 'src/app.ts',
+        source: 'unstaged',
+        blame: true,
+      },
+      DEFAULT_MAX_FILE_TABS,
+    );
     const user = userEvent.setup();
     mount();
     const scroll = vi.mocked(HTMLElement.prototype.scrollTo);
@@ -1051,11 +1048,9 @@ describe('repository workflows', () => {
     await user.click(
       within(fileTree).getByRole('treeitem', { name: 'app.ts' }),
     );
-    expect(useSelection.getState().working[repository.id]?.source).toBe(
-      'stash',
-    );
+    expect(selectionOf(repository.id, 'working')?.source).toBe('stash');
     await user.click(screen.getByLabelText('All changes in stash'));
-    expect(useSelection.getState().all[repository.id]).toBe('commit');
+    expect(allChangesOf(repository.id)).toBe('commit');
     await screen.findByRole('region', { name: 'All changes in stash' });
     const smartApply = (pop: boolean) => ({
       command: 'stash_apply',

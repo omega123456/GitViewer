@@ -69,6 +69,7 @@ export default tseslint.config(
         },
       ],
       'object-shorthand': ['error', 'consistent'],
+      'max-params': ['error', 3],
     },
   },
   {

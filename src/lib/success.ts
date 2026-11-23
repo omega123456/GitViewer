@@ -180,7 +180,7 @@ function changed(
     return { key: 'revert', title: 'Reverted', description: description };
   return null;
 }
-interface Finished {
+export interface Finished {
   args: Record<string, unknown>;
   result: unknown;
   before: Before;
@@ -282,11 +282,9 @@ const successDescribers: Partial<Record<keyof Commands, SuccessDescriber>> = {
 };
 export function describeSuccess(
   command: keyof Commands,
-  args: Record<string, unknown>,
-  result: unknown,
-  before: Before,
+  finished: Finished,
 ): Success | null {
   const describe = successDescribers[command];
   if (!describe) return null;
-  return describe({ args: args, result: result, before: before });
+  return describe(finished);
 }

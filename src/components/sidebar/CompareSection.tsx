@@ -15,6 +15,7 @@ import { State } from '../states/State';
 import { revisionTree } from './reveal';
 import { RevisionTree } from './RevisionTree';
 import { isDetached, shortHash, scopeKey } from '../../lib/git';
+import { useOpenFile } from '../../lib/open-file';
 export function openCompare(repo: string, patch: Partial<TabLayout> = {}) {
   useLayout.getState().update(repo, { ...patch, mode: 'compare' });
   useSelection.getState().viewAll(repo, 'compare');
@@ -96,6 +97,12 @@ export function SameRefState() {
     </State>
   );
 }
+interface PickerField {
+  label: string;
+  value: string;
+  key: 'compareBase' | 'compareTarget';
+  id?: string;
+}
 export function CompareSection({
   repo,
   status,
@@ -106,6 +113,7 @@ export function CompareSection({
   const { base, target, same, mergeBase, files, data, error, known, branches } =
     useComparison(repo, status, true);
   const selection = useCurrentSelection(repo, 'compare');
+  const openFile = useOpenFile(repo);
   const update = (patch: Partial<TabLayout>) =>
     useLayout.getState().update(repo, patch);
   const references = scopeKey(repo, 'compare-references');
@@ -125,12 +133,7 @@ export function CompareSection({
       run: () => swapCompare(repo, base, target),
     },
   ]);
-  const picker = (
-    label: string,
-    value: string,
-    key: 'compareBase' | 'compareTarget',
-    id?: string,
-  ) => (
+  const picker = ({ label, value, key, id }: PickerField) => (
     <label className="flex cursor-pointer flex-col gap-0.5">
       <span className="text-label font-semibold text-muted dark:text-muted-dark">
         {label}
@@ -151,7 +154,12 @@ export function CompareSection({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 flex-col gap-2 border-b border-line px-2.5 py-3 text-sm dark:border-line-dark">
-        {picker('Base', base, 'compareBase', baseFieldId(repo))}
+        {picker({
+          label: 'Base',
+          value: base,
+          key: 'compareBase',
+          id: baseFieldId(repo),
+        })}
         <div className="flex justify-center">
           <Button
             variant="standard"
@@ -164,7 +172,7 @@ export function CompareSection({
             Swap
           </Button>
         </div>
-        {picker('Compare', target, 'compareTarget')}
+        {picker({ label: 'Compare', value: target, key: 'compareTarget' })}
         <datalist id={references}>
           {branches.data?.map((branch) => (
             <option key={branch.name} value={branch.name} />
@@ -217,7 +225,7 @@ export function CompareSection({
           statuses={statuses}
           selectedPath={selection?.path}
           onSelect={(path) =>
-            useSelection.getState().select(repo, {
+            openFile({
               path: path,
               source: 'compare',
               base: data.base,

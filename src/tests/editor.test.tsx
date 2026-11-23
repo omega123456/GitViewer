@@ -23,14 +23,20 @@ import {
 } from '../components/editor/setup';
 import { registeredActions } from '../lib/actions';
 import { closeRepository } from '../lib/repository';
-import type { Opened, Selection } from '../lib/types';
+import type { Opened, Selection, SettingsResponse } from '../lib/types';
+import { client, queryKey } from '../lib/query';
 import { useEditor } from '../stores/editor';
 import { useLayout } from '../stores/layout';
-import { useSelection } from '../stores/selection';
+import {
+  useSelection,
+  selectionOf,
+  allChangesOf,
+  fileTabsOf,
+} from '../stores/selection';
 import { useTabs } from '../stores/tabs';
-import { useTheme } from '../stores/theme';
 import { calls, dialog, emit, host, mockCommand } from './harness';
 import { diff, repository, settings, stack, status } from './fixtures';
+import { DEFAULT_MAX_FILE_TABS } from '../lib/settings';
 
 const index = 'a\nb\nc\nd\ne\nf\ng\nh\n';
 const working = 'a\nB\nc\nd\nf\ng\nh\ni\n';
@@ -74,7 +80,7 @@ function setup(file: Opened | null = opened(working, 'v1')) {
   };
 }
 function mount(start: Selection = selection) {
-  useSelection.getState().select(repository.id, start);
+  useSelection.getState().select(repository.id, start, DEFAULT_MAX_FILE_TABS);
   return render(
     <Providers>
       <App />
@@ -109,17 +115,21 @@ function gutter(view: EditorView) {
 function buffer(path = 'src/app.ts') {
   return useEditor.getState().buffers[repository.id]?.[path];
 }
+function tabLimit() {
+  const current = client.getQueryData<SettingsResponse>(
+    queryKey('settings_get', {}),
+  );
+  return current?.maxFileTabs ?? DEFAULT_MAX_FILE_TABS;
+}
 function open(path: string, editing?: boolean) {
   return act(async () => {
     useSelection
       .getState()
-      .select(repository.id, { path, source: 'unstaged', editing });
+      .select(repository.id, { path, source: 'unstaged', editing }, tabLimit());
   });
 }
 function openTabs() {
-  return useSelection
-    .getState()
-    .tabs.working[repository.id]?.map((tab) => tab.selection.path);
+  return fileTabsOf(repository.id, 'working')?.map((tab) => tab.selection.path);
 }
 function strip() {
   return screen.getByRole('tablist', { name: 'Open files' });
@@ -176,7 +186,7 @@ describe('working-tree editor', () => {
       content: `x\n${working}`,
       expected: 'v1',
     });
-    expect(buffer()?.version).toBe(`saved:${working.length + 2}`);
+    expect(buffer()?.disk.version).toBe(`saved:${working.length + 2}`);
     act(() => {
       fireEvent.keyDown(view.contentDOM, { key: 'Escape' });
     });
@@ -204,12 +214,15 @@ describe('working-tree editor', () => {
     expect(
       await screen.findByRole('textbox', { name: 'Find in file' }),
     ).toHaveFocus();
-    act(() => useTheme.setState({ preference: 'dark' }));
-    expect(view.state.facet(EditorView.darkTheme)).toBe(true);
+    mockCommand('settings_get', () => ({ ...settings, theme: 'dark' }));
+    await act(async () => emit('settings://changed', null));
+    await waitFor(() =>
+      expect(view.state.facet(EditorView.darkTheme)).toBe(true),
+    );
     fireEvent.contextMenu(view.contentDOM);
     expect(calls.some((call) => call.command === 'edit_menu')).toBe(true);
     await user.click(screen.getByRole('button', { name: 'Blame' }));
-    expect(useSelection.getState().working[repository.id]?.editing).toBe(false);
+    expect(selectionOf(repository.id, 'working')?.editing).toBe(false);
   });
   it('keeps find apart from replace and replaces quotes verbatim', async () => {
     setup(opened("say 'a' and 'a'\nend\n", 'v1'));
@@ -396,7 +409,7 @@ describe('working-tree editor', () => {
     await user.click(
       within(banner).getByRole('button', { name: 'Keep my edits' }),
     );
-    expect(buffer()?.version).toBe('v3');
+    expect(buffer()?.disk.version).toBe('v3');
     await user.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(writes()).toHaveLength(1));
     expect(writes()[0].args).toMatchObject({
@@ -421,12 +434,12 @@ describe('working-tree editor', () => {
       'app.ts was deleted on disk.',
     );
     await user.click(screen.getByRole('button', { name: 'Keep my edits' }));
-    expect(buffer()?.version).toBeNull();
+    expect(buffer()?.disk.version).toBeNull();
     disk.change(opened('back', 'v5'));
     await user.click(
       await screen.findByRole('button', { name: 'Keep my edits' }),
     );
-    expect(buffer()?.version).toBe('v5');
+    expect(buffer()?.disk.version).toBe('v5');
     disk.change(null);
     await user.click(
       await screen.findByRole('button', { name: 'Discard edits' }),
@@ -477,34 +490,46 @@ describe('working-tree editor', () => {
     await act(async () => {
       useSelection
         .getState()
-        .select(repository.id, { path: 'new.txt', source: 'file' });
+        .select(
+          repository.id,
+          { path: 'new.txt', source: 'file' },
+          DEFAULT_MAX_FILE_TABS,
+        );
       useSelection.getState().viewAll(repository.id, 'unstaged');
     });
     expect(dialog.asked).toBe(0);
     expect(buffer()?.dirty).toBe(true);
     await act(async () => {
-      useSelection.getState().select(repository.id, { ...selection });
+      useSelection
+        .getState()
+        .select(repository.id, { ...selection }, DEFAULT_MAX_FILE_TABS);
     });
-    expect(useSelection.getState().working[repository.id]?.editing).toBe(true);
+    expect(selectionOf(repository.id, 'working')?.editing).toBe(true);
     expect((await editor()).state.doc.toString()).toBe(`x${working}`);
     dialog.approved = false;
     await act(async () => {
       useSelection
         .getState()
-        .select(repository.id, { ...selection, editing: false });
+        .select(
+          repository.id,
+          { ...selection, editing: false },
+          DEFAULT_MAX_FILE_TABS,
+        );
     });
     expect(dialog.asked).toBe(1);
-    expect(useSelection.getState().working[repository.id]?.editing).toBe(true);
+    expect(selectionOf(repository.id, 'working')?.editing).toBe(true);
     dialog.approved = true;
     await act(async () => {
       useSelection
         .getState()
-        .select(repository.id, { ...selection, editing: false });
+        .select(
+          repository.id,
+          { ...selection, editing: false },
+          DEFAULT_MAX_FILE_TABS,
+        );
     });
     await waitFor(() =>
-      expect(useSelection.getState().working[repository.id]?.editing).toBe(
-        false,
-      ),
+      expect(selectionOf(repository.id, 'working')?.editing).toBe(false),
     );
     expect(buffer()).toBeUndefined();
   });
@@ -568,9 +593,7 @@ describe('working-tree editor', () => {
     await waitFor(() => expect(openTabs()).toEqual(['src/app.ts', 'b.ts']));
     key({ key: 'w', metaKey: true });
     await waitFor(() => expect(openTabs()).toEqual(['src/app.ts']));
-    expect(useSelection.getState().working[repository.id]?.path).toBe(
-      'src/app.ts',
-    );
+    expect(selectionOf(repository.id, 'working')?.path).toBe('src/app.ts');
     dialog.approved = false;
     await user.click(screen.getByRole('button', { name: 'Close app.ts' }));
     expect(dialog.asked).toBe(1);
@@ -589,11 +612,15 @@ describe('working-tree editor', () => {
     const { view } = await startEditing();
     type(view, 'x');
     await act(async () => {
-      useSelection.getState().select(repository.id, {
-        path: 'src/app.ts',
-        source: 'staged',
-        editing: true,
-      });
+      useSelection.getState().select(
+        repository.id,
+        {
+          path: 'src/app.ts',
+          source: 'staged',
+          editing: true,
+        },
+        DEFAULT_MAX_FILE_TABS,
+      );
     });
     expect(
       within(strip())
@@ -614,7 +641,7 @@ describe('working-tree editor', () => {
     await screen.findByRole('button', { name: 'Edit' });
     await open('a.ts');
     await open('b.ts');
-    const active = () => useSelection.getState().working[repository.id]?.path;
+    const active = () => selectionOf(repository.id, 'working')?.path;
     key({ key: 'Tab', ctrlKey: true });
     expect(active()).toBe('src/app.ts');
     key({ key: 'Tab', ctrlKey: true, shiftKey: true });
@@ -636,23 +663,27 @@ describe('working-tree editor', () => {
   });
   it('falls back to the commit overview after closing the last commit tab', async () => {
     setup();
-    useSelection.getState().select(repository.id, {
-      path: 'src/app.ts',
-      source: 'commit',
-      revision: 'abc',
-    });
+    useSelection.getState().select(
+      repository.id,
+      {
+        path: 'src/app.ts',
+        source: 'commit',
+        revision: 'abc',
+      },
+      DEFAULT_MAX_FILE_TABS,
+    );
     await act(() =>
       useSelection
         .getState()
         .closeTab(repository.id, 'working', 'commit:abc::src/app.ts'),
     );
-    expect(useSelection.getState().working[repository.id]).toEqual({
+    expect(selectionOf(repository.id, 'working')).toEqual({
       path: '',
       source: 'commit',
       revision: 'abc',
       base: undefined,
     });
-    expect(useSelection.getState().all[repository.id]).toBe('commit');
+    expect(allChangesOf(repository.id)).toBe('commit');
   });
   it('confirms closing a tab and quitting with unsaved edits', async () => {
     setup();
@@ -689,7 +720,9 @@ describe('working-tree editor', () => {
       screen.queryByRole('button', { name: 'Edit' }),
     ).not.toBeInTheDocument();
     await act(async () => {
-      useSelection.getState().select(repository.id, selection);
+      useSelection
+        .getState()
+        .select(repository.id, selection, DEFAULT_MAX_FILE_TABS);
     });
     await userEvent
       .setup()
@@ -723,10 +756,10 @@ describe('working-tree editor', () => {
     const user = userEvent.setup();
     const [edit] = await screen.findAllByRole('button', { name: 'Edit' });
     await user.click(edit);
-    expect(useSelection.getState().working[repository.id]).toMatchObject({
+    expect(selectionOf(repository.id, 'working')).toMatchObject({
       editing: true,
     });
-    expect(useSelection.getState().all[repository.id]).toBeUndefined();
+    expect(allChangesOf(repository.id)).toBeUndefined();
   });
 });
 

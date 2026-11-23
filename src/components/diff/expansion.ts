@@ -1,10 +1,18 @@
 import { useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { useBackend } from '../../lib/query';
-import type { Diff, Selection } from '../../lib/types';
-import { gaps, hidden, type Gap, type Opening, type Reveal } from './rows';
-export const step = 20;
-export type Direction = 'down' | 'up' | 'all';
-export type Openings = Record<string, Opening>;
+import { gaps, hidden, type Gap, type Reveal } from './rows';
+import {
+  expanded,
+  toggledFull,
+  type Direction,
+  type Openings,
+} from './openings';
+import type { DiffTarget } from './target';
+export { step, type Direction, type Openings } from './openings';
+export interface OpeningsControl {
+  openings: Openings;
+  setOpenings: Dispatch<SetStateAction<Openings>>;
+}
 export function splitLines(text: string) {
   const split = text.split(/\r?\n/);
   if (split[split.length - 1] === '') split.pop();
@@ -20,13 +28,13 @@ export interface Expansion {
   toggleFull: () => void;
 }
 export function useExpansion(
-  repo: string,
-  selection: Selection,
-  data: Diff | undefined,
-  controlled?: [Openings, Dispatch<SetStateAction<Openings>>],
+  target: DiffTarget,
+  controlled?: OpeningsControl,
 ): Expansion {
-  const local = useState<Openings>({});
-  const [open, setOpen] = controlled ?? local;
+  const { repo, selection, data } = target;
+  const [localOpenings, setLocalOpenings] = useState<Openings>({});
+  const open = controlled?.openings ?? localOpenings;
+  const setOpen = controlled?.setOpenings ?? setLocalOpenings;
   const list = useMemo(() => (data ? gaps(data) : []), [data]);
   const wanted = list.length > 0 && Object.keys(open).length > 0;
   const text = useBackend(
@@ -60,28 +68,13 @@ export function useExpansion(
     tooLarge: wanted && text.data === null,
     expand: (gap, direction) => {
       if (text.isError) void text.refetch();
-      setOpen((current) => {
-        const opening = current[gap.key] ?? { down: 0, up: 0 };
-        return {
-          ...current,
-          [gap.key]:
-            direction === 'all'
-              ? { down: opening.down, up: Infinity }
-              : direction === 'down'
-                ? { ...opening, down: opening.down + step }
-                : { ...opening, up: opening.up + step },
-        };
-      });
+      setOpen((current) =>
+        expanded(current, { gap: gap, direction: direction }),
+      );
     },
     toggleFull: () => {
       if (text.isError) void text.refetch();
-      setOpen(
-        full
-          ? {}
-          : Object.fromEntries(
-              list.map((gap) => [gap.key, { down: 0, up: Infinity }]),
-            ),
-      );
+      setOpen(toggledFull(list, full));
     },
   };
 }

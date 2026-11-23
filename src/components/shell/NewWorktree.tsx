@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useFormState } from '../../lib/form-state';
 import { open as choose } from '@tauri-apps/plugin-dialog';
 import { baseOrHead, branchRefs, nameProblem } from '../../lib/branch-name';
 import { createThenSwitch, type CreateMode } from '../../lib/create';
@@ -26,6 +27,20 @@ const kinds = {
   'existing branch': 'existing',
 } satisfies Record<string, WorktreeMode>;
 type Kind = keyof typeof kinds;
+interface WorktreeForm {
+  kind: Kind;
+  name: string;
+  base: string;
+  existing: string;
+  custom: string | null;
+}
+const emptyWorktreeForm: WorktreeForm = {
+  kind: 'detached',
+  name: '',
+  base: '',
+  existing: '',
+  custom: null,
+};
 export function NewWorktree({
   repo,
   project,
@@ -39,11 +54,8 @@ export function NewWorktree({
   disabled: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const [kind, setKind] = useState<Kind>('detached');
-  const [name, setName] = useState('');
-  const [base, setBase] = useState('');
-  const [existing, setExisting] = useState('');
-  const [custom, setCustom] = useState<string | null>(null);
+  const { form, update, reset } = useFormState(emptyWorktreeForm);
+  const { kind, name, base, existing, custom } = form;
   const [mode, setMode] = useState<CreateMode>('switch');
   const branches = useBackend('branches', { repo }, open).data ?? [];
   const refs = branchRefs(branches);
@@ -77,18 +89,14 @@ export function NewWorktree({
     : '';
   const close = () => {
     onOpenChange(false);
-    setKind('detached');
-    setName('');
-    setBase('');
-    setExisting('');
-    setCustom(null);
+    reset();
   };
   const baseSelect = (label: string) => (
     <BaseBranchSelect
       label={label}
       value={chosenBase}
       refs={refs}
-      onChange={setBase}
+      onChange={(next) => update({ base: next })}
     >
       {worktreeMode === 'detached' && target && (
         <p className={mutedLabel}>
@@ -142,10 +150,7 @@ export function NewWorktree({
           appearance="radio"
           value={kind}
           options={keysOf(kinds)}
-          onChange={(next) => {
-            setKind(next);
-            setCustom(null);
-          }}
+          onChange={(next) => update({ kind: next, custom: null })}
         />
         {worktreeMode === 'detached' && baseSelect('Start from')}
         {worktreeMode === 'new' && (
@@ -156,7 +161,7 @@ export function NewWorktree({
               label="Branch name"
               value={name}
               problem={problem}
-              onChange={setName}
+              onChange={(next) => update({ name: next })}
             />
             {baseSelect('Based on')}
           </>
@@ -177,10 +182,7 @@ export function NewWorktree({
               badges={Object.fromEntries(
                 remote.map((branch) => [branch, 'remote']),
               )}
-              onChange={(next) => {
-                setExisting(next);
-                setCustom(null);
-              }}
+              onChange={(next) => update({ existing: next, custom: null })}
             />
             {tracked && (
               <p className={mutedLabel}>
@@ -199,7 +201,7 @@ export function NewWorktree({
               aria-describedby="new-worktree-folder-hint"
               className={`${field} h-8 min-w-0 flex-1 font-mono text-diff`}
               value={folder}
-              onChange={(event) => setCustom(event.target.value)}
+              onChange={(event) => update({ custom: event.target.value })}
             />
             <Button
               variant="standard"
@@ -210,7 +212,7 @@ export function NewWorktree({
                   multiple: false,
                   title: 'Choose worktree folder',
                 });
-                if (typeof chosen === 'string') setCustom(chosen);
+                if (typeof chosen === 'string') update({ custom: chosen });
               }}
             >
               Choose…

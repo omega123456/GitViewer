@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   FileWarning,
   Replace,
@@ -15,21 +15,23 @@ import { fileName } from '../../lib/paths';
 import { useBackend } from '../../lib/query';
 import type { Opened } from '../../lib/types';
 import {
+  applyReconciliation,
   approveDiscard,
-  conflict,
   current,
   drop,
   keepEdits,
   openBuffer,
+  reconcile,
   reload,
   remember,
   save,
   track,
   useBuffer,
   type Buffer,
+  type FileKey,
 } from '../../stores/editor';
-import { stopEditing } from '../../stores/selection';
-import { useDark } from '../../stores/theme';
+import { useStopEditing } from '../../lib/open-file';
+import { useDark } from '../../lib/theme';
 import { Button } from '../shared/Button';
 import { Spinner } from '../shared/Spinner';
 import { ErrorState } from '../states/Errors';
@@ -69,22 +71,23 @@ export default function EditSurface({
     path: path,
     source: 'staged',
   });
-  const ready = useBuffer(repo, path);
+  const file = useMemo(() => ({ repo: repo, path: path }), [repo, path]);
+  const ready = useBuffer(file);
   const dark = useDark();
+  const stopEditing = useStopEditing(repo);
   const seen = useRef(opened.data);
   useEffect(() => {
     const data = opened.data;
     if (!opened.isSuccess || !data || ready || base.isPending) return;
     seen.current = data;
     openBuffer(
-      repo,
-      path,
+      file,
       data,
       createState({
         text: data.text,
         base: base.data,
         dark: dark,
-        leave: () => stopEditing(repo),
+        leave: stopEditing,
       }),
     );
   }, [
@@ -94,19 +97,16 @@ export default function EditSurface({
     base.isPending,
     base.data,
     dark,
-    repo,
-    path,
+    file,
+    stopEditing,
   ]);
   useEffect(() => {
     if (!opened.isSuccess || !ready || ready.saving || ready.conflict) return;
     const data = opened.data;
     if (data === seen.current) return;
     seen.current = data;
-    if ((data?.version ?? null) === ready.version) return;
-    if (ready.dirty) conflict(repo, path, data);
-    else if (data) reload(repo, path, data);
-    else drop(repo, path);
-  }, [opened.isSuccess, opened.data, ready, repo, path]);
+    applyReconciliation(file, reconcile(ready, data ?? null));
+  }, [opened.isSuccess, opened.data, ready, file]);
   if (opened.error)
     return (
       <ErrorState
@@ -124,8 +124,7 @@ export default function EditSurface({
   if (!ready) return <State title="Loading file…" />;
   return (
     <Editor
-      repo={repo}
-      path={path}
+      file={file}
       buffer={ready}
       base={base.data}
       dark={dark}
@@ -135,22 +134,21 @@ export default function EditSurface({
   );
 }
 function Editor({
-  repo,
-  path,
+  file,
   buffer,
   base,
   dark,
   wrap,
   toggleWrap,
 }: {
-  repo: string;
-  path: string;
+  file: FileKey;
   buffer: Buffer;
   base: string | null | undefined;
   dark: boolean;
   wrap: boolean;
   toggleWrap: () => void;
 }) {
+  const { repo, path } = file;
   const host = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<EditorView>();
   const [language, setLanguage] = useState(
@@ -159,16 +157,16 @@ function Editor({
   useLayoutEffect(() => {
     const parent = host.current;
     if (!parent) return;
-    const latest = current(repo, path);
+    const latest = current(file);
     const created = new EditorView({
       state: latest?.state,
       parent: parent,
       dispatchTransactions: (transactions: readonly Transaction[], target) => {
         target.update(transactions);
-        track(repo, path, target.state);
+        track(file, target.state);
       },
     });
-    const scroll = latest?.scroll;
+    const scroll = latest?.memory?.scroll;
     if (scroll)
       created.requestMeasure({
         read: () => null,
@@ -176,13 +174,16 @@ function Editor({
           created.scrollDOM.scrollTop = scroll;
         },
       });
-    if (latest?.focused) created.focus();
+    if (latest?.memory?.focused) created.focus();
     setView(created);
     return () => {
-      remember(repo, path, created.scrollDOM.scrollTop, created.hasFocus);
+      remember(file, {
+        scroll: created.scrollDOM.scrollTop,
+        focused: created.hasFocus,
+      });
       created.destroy();
     };
-  }, [repo, path]);
+  }, [file]);
   useEffect(() => {
     if (view && view.state !== buffer.state) view.setState(buffer.state);
   }, [view, buffer.state]);
@@ -244,8 +245,8 @@ function Editor({
       <div className="flex h-8 shrink-0 items-center gap-3 border-b border-line bg-sub px-2 dark:border-line-dark dark:bg-sub-dark">
         <span className="flex gap-2.5 text-meta text-muted dark:text-muted-dark">
           <span>{language}</span>
-          <span>{buffer.bom ? 'UTF-8 with BOM' : 'UTF-8'}</span>
-          <span>{buffer.crlf ? 'CRLF' : 'LF'}</span>
+          <span>{buffer.disk.bom ? 'UTF-8 with BOM' : 'UTF-8'}</span>
+          <span>{buffer.disk.crlf ? 'CRLF' : 'LF'}</span>
           <span className="tabular-nums">
             Ln {line.number}, Col {head - line.from + 1}
           </span>
@@ -274,12 +275,12 @@ function Editor({
             className="text-muted dark:text-muted-dark"
             disabled={!view || !buffer.dirty || buffer.saving}
             onClick={async () => {
-              if (!view || !(await approveDiscard(repo, path))) return;
+              if (!view || !(await approveDiscard(file))) return;
               view.dispatch({
                 changes: {
                   from: 0,
                   to: view.state.doc.length,
-                  insert: buffer.saved,
+                  insert: buffer.disk.saved,
                 },
                 annotations: isolateHistory.of('full'),
               });
@@ -297,7 +298,7 @@ function Editor({
             <Button
               variant="primary"
               disabled={!buffer.dirty}
-              onClick={() => void save(repo, path)}
+              onClick={() => void save(file)}
             >
               Save
             </Button>
@@ -306,8 +307,7 @@ function Editor({
       </div>
       {buffer.conflict && (
         <ConflictBanner
-          repo={repo}
-          path={path}
+          file={file}
           name={fileName(path)}
           current={buffer.conflict.current}
         />
@@ -318,16 +318,15 @@ function Editor({
   );
 }
 function ConflictBanner({
-  repo,
-  path,
+  file,
   name,
   current,
 }: {
-  repo: string;
-  path: string;
+  file: FileKey;
   name: string;
   current: Opened | null;
 }) {
+  const stopEditing = useStopEditing(file.repo);
   return (
     <div
       role="alert"
@@ -345,24 +344,21 @@ function ConflictBanner({
       )}
       <span className="ml-auto flex gap-1.5">
         {current ? (
-          <Button
-            className={outline}
-            onClick={() => reload(repo, path, current)}
-          >
+          <Button className={outline} onClick={() => reload(file, current)}>
             Reload from disk
           </Button>
         ) : (
           <Button
             className={outline}
             onClick={() => {
-              drop(repo, path);
-              stopEditing(repo);
+              drop(file);
+              stopEditing();
             }}
           >
             Discard edits
           </Button>
         )}
-        <Button variant="primary" onClick={() => keepEdits(repo, path)}>
+        <Button variant="primary" onClick={() => keepEdits(file)}>
           Keep my edits
         </Button>
       </span>

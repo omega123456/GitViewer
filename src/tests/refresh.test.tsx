@@ -32,6 +32,7 @@ import {
   run,
   repoCalls,
 } from './workbench';
+import { DEFAULT_MAX_FILE_TABS } from '../lib/settings';
 describe('focus refresh and hidden tabs', () => {
   it('refreshes only the active tab on focus, untracked, and reports to its scope', async () => {
     setup();
@@ -139,7 +140,11 @@ describe('focus refresh and hidden tabs', () => {
     useTabs.getState().open('/second', 'Second');
     useSelection
       .getState()
-      .select('/second', { path: 'src/app.ts', source: 'unstaged' });
+      .select(
+        '/second',
+        { path: 'src/app.ts', source: 'unstaged' },
+        DEFAULT_MAX_FILE_TABS,
+      );
     mount();
     await waitFor(() => expect(repoCalls('/second')).toContain('diff'));
     await run('/second', 'previous-tab');
@@ -247,7 +252,11 @@ describe('focus refresh and hidden tabs', () => {
     useTabs.getState().activate(repository.id);
     useSelection
       .getState()
-      .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
+      .select(
+        repository.id,
+        { path: 'src/app.ts', source: 'unstaged' },
+        DEFAULT_MAX_FILE_TABS,
+      );
     const user = userEvent.setup();
     mount();
     await user.click(await screen.findByRole('button', { name: 'Edit' }));

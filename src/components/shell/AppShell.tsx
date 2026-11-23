@@ -1,15 +1,14 @@
 import { Activity, useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { milliseconds } from 'date-fns';
 import { UpdateBanner } from '../states/UpdateBanner';
 import type { SettingsResponse } from '../../lib/types';
 import { fetchIntervals } from '../../lib/intervals';
-import { invoke, reportAppError } from '../../lib/ipc';
+import { reportAppError } from '../../lib/ipc';
+import { scheduleAutoFetch } from '../../lib/fetch-schedule';
 import { folderName } from '../../lib/paths';
 import { mica } from '../../lib/platform';
-import { useCompact } from '../../stores/density';
 import { useActiveTab, useActiveView, useTabs } from '../../stores/tabs';
-import { useDark } from '../../stores/theme';
+import { useCompact, useDark } from '../../lib/theme';
 import { SettingsSurface } from '../settings/SettingsSurface';
 import { FirstRun } from '../states/FirstRun';
 import { CommandPalette } from './CommandPalette';
@@ -37,20 +36,7 @@ export function AppShell({
       .catch(reportAppError);
   }, [project]);
   const every = fetchIntervals[settings.autoFetchInterval].every;
-  useEffect(() => {
-    if (!every) return;
-    const fetching = new Set<string>();
-    const timer = setInterval(() => {
-      for (const { view } of useTabs.getState().tabs) {
-        if (fetching.has(view)) continue;
-        fetching.add(view);
-        invoke('sync', { repo: view, action: 'fetch' })
-          .catch(() => undefined)
-          .finally(() => fetching.delete(view));
-      }
-    }, milliseconds(every));
-    return () => clearInterval(timer);
-  }, [every]);
+  useEffect(() => scheduleAutoFetch(every), [every]);
   return (
     <main
       data-theme={dark ? 'dark' : 'light'}

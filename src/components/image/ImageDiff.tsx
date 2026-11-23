@@ -107,7 +107,12 @@ export function ImageDiff({
         alt={side === 'old' ? 'Before' : 'After'}
         width={dimensions[side]?.width}
         height={dimensions[side]?.height}
-        src={imageUrl(repo, selection, side, version)}
+        src={imageUrl({
+          repo: repo,
+          selection: selection,
+          side: side,
+          version: version,
+        })}
         onError={() => setImageError(true)}
         className={`max-h-full object-contain ${zoom ? 'w-image max-w-none shrink-0' : 'max-w-full'}`}
         style={dynamic({ '--image-width': `${zoom}px` })}

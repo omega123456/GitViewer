@@ -10,16 +10,16 @@ import {
   perform,
   queryKey,
   useBackend,
+  useSeededBackend,
 } from '../lib/query';
 import { useTabs } from '../stores/tabs';
 import { useLayout } from '../stores/layout';
-import { useSelection } from '../stores/selection';
+import { useSelection, historyPathOf, selectionOf } from '../stores/selection';
 import { useFilterStore } from '../stores/filter';
 import { useDiffView } from '../stores/diff-view';
 import { useImageViews } from '../stores/image-view';
 import { usePalette } from '../stores/palette';
-import { useTheme } from '../stores/theme';
-import { useDensity } from '../stores/density';
+import { useSystemTheme } from '../stores/theme';
 import { matches, runShortcut } from '../lib/keyboard';
 import { highlight, terminate, tokenize } from '../lib/highlight';
 import { highlightWorker, type Reply } from '../lib/highlight.worker';
@@ -51,6 +51,7 @@ import { describeSuccess, type Before } from '../lib/success';
 import { useSuccesses } from '../stores/successes';
 import { answer, ask, useDecision } from '../stores/decision';
 import { diff, gapped, gappedText, status } from './fixtures';
+import { DEFAULT_MAX_FILE_TABS } from '../lib/settings';
 describe('IPC and events', () => {
   it('rejects unmocked commands honestly', async () => {
     await expect(invoke('env', {})).rejects.toMatchObject({
@@ -334,10 +335,11 @@ describe('IPC and events', () => {
       createElement(QueryClientProvider, { client }, children);
     const { result } = renderHook(
       () =>
-        useBackend('status', { repo: 'one' }, true, {
-          data: status,
-          updatedAt: 42,
-        }),
+        useSeededBackend(
+          'status',
+          { repo: 'one' },
+          { enabled: true, initial: { data: status, updatedAt: 42 } },
+        ),
       { wrapper },
     );
     expect(result.current.data).toBe(status);
@@ -352,11 +354,15 @@ describe('presentation state', () => {
     tabs.open('two', 'Two');
     tabs.open('one', 'One');
     tabs.setMessage('one', 'draft');
-    useSelection.getState().select('one', { path: 'a', source: 'staged' });
+    useSelection
+      .getState()
+      .select('one', { path: 'a', source: 'staged' }, DEFAULT_MAX_FILE_TABS);
     useLayout.getState().update('one', { mode: 'history' });
-    useSelection.getState().select('one', { path: 'b', source: 'commit' });
-    expect(useSelection.getState().working.one?.path).toBe('a');
-    expect(useSelection.getState().history.one?.path).toBe('b');
+    useSelection
+      .getState()
+      .select('one', { path: 'b', source: 'commit' }, DEFAULT_MAX_FILE_TABS);
+    expect(selectionOf('one', 'working')?.path).toBe('a');
+    expect(selectionOf('one', 'history')?.path).toBe('b');
     expect(useTabs.getState().messages.two).toBeUndefined();
     tabs.activate('two');
     tabs.close('one');
@@ -372,10 +378,12 @@ describe('presentation state', () => {
     useLayout.getState().forget('one');
     expect(useLayout.getState().tabs.one).toBeUndefined();
     useSelection.getState().setPath('one', 'src/app.ts');
-    useSelection.getState().select('one', { path: 'a', source: 'staged' });
+    useSelection
+      .getState()
+      .select('one', { path: 'a', source: 'staged' }, DEFAULT_MAX_FILE_TABS);
     useSelection.getState().forget('one');
-    expect(useSelection.getState().paths.one).toBe('');
-    expect(useSelection.getState().working.one).toBeUndefined();
+    expect(historyPathOf('one')).toBe('');
+    expect(selectionOf('one', 'working')).toBeUndefined();
     useFilterStore.getState().set('one', 'app');
     expect(useFilterStore.getState().text.one).toBe('app');
     useFilterStore.getState().forget('one');
@@ -390,11 +398,8 @@ describe('presentation state', () => {
     usePalette.getState().setSettings(true);
     expect(usePalette.getState().open).toBe(true);
     expect(usePalette.getState().settings).toBe(true);
-    useTheme.getState().setPreference('dark');
-    useTheme.getState().setSystem(true);
-    expect(useTheme.getState().preference).toBe('dark');
-    useDensity.getState().setDensity('compact');
-    expect(useDensity.getState().density).toBe('compact');
+    useSystemTheme.getState().setDark(true);
+    expect(useSystemTheme.getState().dark).toBe(true);
   });
   it('builds both changes trees and partial directory checkboxes', () => {
     expect(changeNodes(status.entries, 'staged', '')['src'].partial).toBe(true);
@@ -669,10 +674,19 @@ describe('presentation state', () => {
       'plain',
     );
     expect(
-      imageUrl('a & b', { path: 'a#b.png', source: 'staged' }, 'old'),
+      imageUrl({
+        repo: 'a & b',
+        selection: { path: 'a#b.png', source: 'staged' },
+        side: 'old',
+      }),
     ).toContain('path=a%23b.png');
     expect(
-      imageUrl('r', { path: 'a.png', source: 'unstaged' }, 'new', 17),
+      imageUrl({
+        repo: 'r',
+        selection: { path: 'a.png', source: 'unstaged' },
+        side: 'new',
+        version: 17,
+      }),
     ).toContain('version=17');
   });
 });
@@ -918,7 +932,12 @@ describe('success notices', () => {
       args: Record<string, unknown>,
       result: unknown = null,
       before: Before = { status },
-    ) => describeSuccess(command, args, result, before);
+    ) =>
+      describeSuccess(command, {
+        args: args,
+        result: result,
+        before: before,
+      });
     const stashes = [
       {
         hash: 'h',
@@ -1199,8 +1218,9 @@ describe('highlighting worker', () => {
     for (const type of ['error', 'messageerror'] as const) {
       workers.held = true;
       const streamed: [number, number, boolean][] = [];
-      tokenize(['a', 'b'], 'a.ts', false, (start, lines, done) =>
-        streamed.push([start, lines.length, done]),
+      tokenize(
+        { lines: ['a', 'b'], path: 'a.ts', dark: false },
+        (start, lines, done) => streamed.push([start, lines.length, done]),
       );
       const oneShot = highlight('x', 'a.ts', false);
       const broken = workers.live!;

@@ -6,9 +6,14 @@ import { useErrors } from '../stores/errors';
 async function mergeUpstream(repo: string) {
   const { branch, upstream } = await freshStatus(repo);
   if (!upstream) return;
-  await mergeBranch(repo, upstream, branch, {
-    title: 'Pull',
-    lead: `${branch} and ${upstream} have diverged.`,
+  await mergeBranch({
+    repo: repo,
+    name: upstream,
+    current: branch,
+    framing: {
+      title: 'Pull',
+      lead: `${branch} and ${upstream} have diverged.`,
+    },
   });
 }
 

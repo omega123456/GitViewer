@@ -143,7 +143,8 @@ describe('virtualized all changes pane', () => {
       renders.of(
         'FileDiff',
         (props) =>
-          (props as { selection: { path: string } }).selection.path === path,
+          (props as { entry: { selection: { path: string } } }).entry.selection
+            .path === path,
       );
     expect(blocks('src/file000.ts')).toBeGreaterThan(0);
     expect(blocks('src/file001.ts')).toBe(0);

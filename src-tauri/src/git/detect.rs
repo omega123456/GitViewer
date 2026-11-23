@@ -1,6 +1,6 @@
 use crate::git::{run_binary, EXIT_SUCCESS};
 use serde::Serialize;
-use std::{fmt, future::Future, path::Path};
+use std::{fmt, future::Future};
 
 const VERSION_SEPARATOR: char = '.';
 const VERSION_PARTS: usize = 2;
@@ -23,11 +23,32 @@ pub const MINIMUM_GIT_VERSION: GitVersion = GitVersion {
 };
 
 #[derive(Clone, Debug, Serialize)]
-pub struct Environment {
+pub struct GitEnvironment {
     pub found: bool,
     pub version: String,
     pub supported: bool,
     pub minimum: String,
+}
+impl GitEnvironment {
+    fn missing() -> Self {
+        Self {
+            found: false,
+            supported: false,
+            version: String::new(),
+            minimum: MINIMUM_GIT_VERSION.to_string(),
+        }
+    }
+    fn reported(reported: &str) -> Self {
+        Self {
+            found: true,
+            supported: version_supported(reported),
+            version: reported
+                .trim()
+                .trim_start_matches("git version ")
+                .to_string(),
+            minimum: MINIMUM_GIT_VERSION.to_string(),
+        }
+    }
 }
 
 fn parse_version(version: &str) -> Option<GitVersion> {
@@ -51,43 +72,31 @@ pub fn version_supported(version: &str) -> bool {
     parse_version(version).is_some_and(|parsed| parsed >= MINIMUM_GIT_VERSION)
 }
 
-pub async fn with<P, F>(probe: P) -> Environment
+pub async fn with<P, F>(probe: P) -> GitEnvironment
 where
     P: FnOnce() -> F,
     F: Future<Output = Option<String>>,
 {
-    match probe().await {
-        Some(reported) => Environment {
-            found: true,
-            supported: version_supported(&reported),
-            version: reported
-                .trim()
-                .trim_start_matches("git version ")
-                .to_string(),
-            minimum: MINIMUM_GIT_VERSION.to_string(),
-        },
-        None => Environment {
-            found: false,
-            supported: false,
-            version: String::new(),
-            minimum: MINIMUM_GIT_VERSION.to_string(),
-        },
-    }
+    probe()
+        .await
+        .map_or_else(GitEnvironment::missing, |reported| {
+            GitEnvironment::reported(&reported)
+        })
 }
 
 pub async fn binary_version(binary: &str) -> Option<String> {
-    match run_binary(binary, Path::new("."), &["--version"], None).await {
+    match run_binary(binary, &["--version"]).await {
         Ok(output) if output.code == EXIT_SUCCESS => Some(output.text()),
         _ => None,
     }
 }
 
-pub struct Detector(tokio::sync::OnceCell<Environment>);
+pub struct Detector(tokio::sync::OnceCell<GitEnvironment>);
 impl Detector {
     pub const fn new() -> Self {
         Self(tokio::sync::OnceCell::const_new())
     }
-    pub async fn detect<P, F>(&self, probe: P) -> Environment
+    pub async fn detect<P, F>(&self, probe: P) -> GitEnvironment
     where
         P: FnOnce() -> F,
         F: Future<Output = Option<String>>,
@@ -116,6 +125,6 @@ impl Default for Detector {
 }
 static DETECTED: Detector = Detector::new();
 
-pub async fn environment() -> Environment {
+pub async fn environment() -> GitEnvironment {
     DETECTED.detect(|| binary_version("git")).await
 }

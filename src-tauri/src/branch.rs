@@ -49,7 +49,6 @@ pub struct MergePreview {
     pub changed: usize,
     pub conflicts: Vec<String>,
 }
-const BRANCH_FIELDS: usize = 6;
 const DELETE_BATCH: usize = 100;
 const BRANCH_FORMAT: &str = "--format=%(refname)%00%(HEAD)%00%(upstream:short)%00%(worktreepath)%00%(upstream:track)%00%(symref:short)";
 pub async fn list(repo: &Repo) -> Result<Vec<Branch>> {
@@ -58,43 +57,62 @@ pub async fn list(repo: &Repo) -> Result<Vec<Branch>> {
         &["for-each-ref", BRANCH_FORMAT, "refs/heads", "refs/remotes"],
     )
     .await?;
-    let records: Vec<Vec<&str>> = text
-        .lines()
-        .map(|line| line.split(git::NUL).collect::<Vec<&str>>())
-        .filter(|fields| fields.len() == BRANCH_FIELDS)
-        .collect();
+    let records: Vec<RefRecord> = text.lines().filter_map(parse_ref_record).collect();
     let remote_defaults: Vec<&str> = records
         .iter()
-        .filter(|fields| is_remote_head(fields[0]))
-        .map(|fields| fields[5])
+        .filter(|record| is_remote_head(record.refname))
+        .map(|record| record.symref)
         .filter(|target| !target.is_empty())
         .collect();
     Ok(records
         .iter()
-        .filter(|fields| !is_remote_head(fields[0]))
-        .map(|fields| {
-            let name = fields[0]
-                .trim_start_matches("refs/heads/")
-                .trim_start_matches("refs/remotes/");
-            let remote = fields[0].starts_with("refs/remotes/");
-            Branch {
-                name: name.into(),
-                remote,
-                current: fields[1] == "*",
-                default: is_default(name, remote, &remote_defaults),
-                upstream: fields[2].into(),
-                gone: fields[4] == "[gone]",
-                worktree: Some(fields[3])
-                    .filter(|path| !path.is_empty())
-                    .map(|path| {
-                        crate::worktree::canonical(path)
-                            .to_string_lossy()
-                            .into_owned()
-                    })
-                    .unwrap_or_default(),
-            }
-        })
+        .filter(|record| !is_remote_head(record.refname))
+        .map(|record| branch_of(record, &remote_defaults))
         .collect())
+}
+struct RefRecord<'a> {
+    refname: &'a str,
+    head: &'a str,
+    upstream: &'a str,
+    worktree: &'a str,
+    track: &'a str,
+    symref: &'a str,
+}
+fn parse_ref_record(line: &str) -> Option<RefRecord<'_>> {
+    let mut fields = line.split(git::NUL);
+    let record = RefRecord {
+        refname: fields.next()?,
+        head: fields.next()?,
+        upstream: fields.next()?,
+        worktree: fields.next()?,
+        track: fields.next()?,
+        symref: fields.next()?,
+    };
+    fields.next().is_none().then_some(record)
+}
+fn worktree_path(path: &str) -> String {
+    if path.is_empty() {
+        return String::new();
+    }
+    crate::worktree::canonical(path)
+        .to_string_lossy()
+        .into_owned()
+}
+fn branch_of(record: &RefRecord<'_>, remote_defaults: &[&str]) -> Branch {
+    let name = record
+        .refname
+        .trim_start_matches("refs/heads/")
+        .trim_start_matches("refs/remotes/");
+    let remote = record.refname.starts_with("refs/remotes/");
+    Branch {
+        name: name.into(),
+        remote,
+        current: record.head == "*",
+        default: is_default(name, remote, remote_defaults),
+        upstream: record.upstream.into(),
+        gone: record.track == "[gone]",
+        worktree: worktree_path(record.worktree),
+    }
 }
 fn is_remote_head(refname: &str) -> bool {
     refname.ends_with("/HEAD")
@@ -345,12 +363,16 @@ async fn parse_and_sync<F: Fn(&str)>(
 ) -> Result<Option<u32>> {
     sync(repo, SyncAction::parse(action)?, progress).await
 }
+pub struct ProgressTarget<'a, R: Runtime> {
+    pub app: &'a AppHandle<R>,
+    pub id: &'a str,
+}
 pub async fn sync_reporting<R: Runtime>(
-    app: &AppHandle<R>,
     repo: &Repo,
-    id: &str,
     action: &str,
+    target: ProgressTarget<'_, R>,
 ) -> Result<Option<u32>> {
+    let ProgressTarget { app, id } = target;
     let reporter = app.clone();
     let reported = id.to_string();
     let outcome = parse_and_sync(repo, action, move |line| {
@@ -371,15 +393,15 @@ pub async fn sync_reporting<R: Runtime>(
     .map_err(Error::from)?;
     outcome
 }
-pub async fn create_and_checkout(
-    repo: &Repo,
-    name: &str,
-    base: &str,
-    checkout: bool,
-) -> Result<()> {
-    create(repo, name, base).await?;
-    if checkout {
-        switch(repo, name).await?;
+pub struct NewBranch<'a> {
+    pub name: &'a str,
+    pub base: &'a str,
+    pub checkout: bool,
+}
+pub async fn create_and_checkout(repo: &Repo, branch: NewBranch<'_>) -> Result<()> {
+    create(repo, branch.name, branch.base).await?;
+    if branch.checkout {
+        switch(repo, branch.name).await?;
     }
     Ok(())
 }

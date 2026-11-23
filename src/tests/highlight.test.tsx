@@ -13,12 +13,11 @@ import { Profiler } from 'react';
 import App from '../App';
 import { Providers } from '../providers';
 import { QueryProvider } from '../providers/QueryProvider';
-import { useSelection } from '../stores/selection';
+import { useSelection, selectionOf } from '../stores/selection';
 import { useDiffView } from '../stores/diff-view';
-import { useTheme } from '../stores/theme';
 import { DiffPane } from '../components/diff/DiffPane';
 import { useTokens } from '../components/diff/tokens';
-import { mockCommand, calls } from './harness';
+import { mockCommand, calls, emit } from './harness';
 import { release, workers } from './setup';
 import { renders } from './renders';
 import {
@@ -42,6 +41,7 @@ import {
   blockOf,
   jobsFor,
 } from './workbench';
+import { DEFAULT_MAX_FILE_TABS } from '../lib/settings';
 describe('highlighting in a worker', () => {
   it('streams a long file in chunks, colours the top first, and leaves an overlong line plain', async () => {
     setup();
@@ -210,7 +210,8 @@ describe('highlighting in a worker', () => {
   it('hands every remount the same merged tokens without copying them again', async () => {
     setup();
     const selection = { path: 'src/app.ts', source: 'unstaged' as const };
-    const useAppTokens = () => useTokens(repository.id, selection, diff);
+    const useAppTokens = () =>
+      useTokens({ repo: repository.id, selection: selection, data: diff });
     const first = renderHook(useAppTokens, { wrapper: QueryProvider });
     await waitFor(() =>
       expect(Object.keys(first.result.current).length).toBeGreaterThan(0),
@@ -233,7 +234,11 @@ describe('highlighting in a worker', () => {
     act(() =>
       useSelection
         .getState()
-        .select(repository.id, { path: 'src/app.ts', source: 'unstaged' }),
+        .select(
+          repository.id,
+          { path: 'src/app.ts', source: 'unstaged' },
+          DEFAULT_MAX_FILE_TABS,
+        ),
     );
     const pane = await screen.findByRole('region', { name: 'Diff viewer' });
     await user.click(await screen.findByTitle('Show full file'));
@@ -244,7 +249,11 @@ describe('highlighting in a worker', () => {
     act(() =>
       useSelection
         .getState()
-        .select(repository.id, { path: 'new.txt', source: 'file' }),
+        .select(
+          repository.id,
+          { path: 'new.txt', source: 'file' },
+          DEFAULT_MAX_FILE_TABS,
+        ),
     );
     await waitFor(() => expect(jobsFor('new.txt')).toBeGreaterThan(0));
     const strip = screen.getByRole('tablist', { name: 'Open files' });
@@ -255,7 +264,8 @@ describe('highlighting in a worker', () => {
     await screen.findByTitle('Collapse to changes');
     await act(settled);
     expect(jobsFor('src/app.ts')).toBe(2);
-    act(() => useTheme.getState().setPreference('dark'));
+    mockCommand('settings_get', () => ({ ...settings, theme: 'dark' }));
+    await act(async () => emit('settings://changed', null));
     await waitFor(() => expect(jobsFor('src/app.ts')).toBe(4));
     expect(workers.jobs.slice(-2).every((job) => job.dark)).toBe(true);
   });
@@ -296,7 +306,11 @@ describe('render isolation', () => {
     act(() =>
       useSelection
         .getState()
-        .select(repository.id, { path: 'src/app.ts', source: 'unstaged' }),
+        .select(
+          repository.id,
+          { path: 'src/app.ts', source: 'unstaged' },
+          DEFAULT_MAX_FILE_TABS,
+        ),
     );
     const pane = await screen.findByRole('region', { name: 'Diff viewer' });
     await waitFor(() => expect(colored(pane)).toBeGreaterThan(0));
@@ -348,8 +362,6 @@ describe('render isolation', () => {
     });
     await user.type(screen.getByPlaceholderText('Filter files…'), 'new');
     await action('next-file');
-    expect(useSelection.getState().working[repository.id]?.path).toBe(
-      'new.txt',
-    );
+    expect(selectionOf(repository.id, 'working')?.path).toBe('new.txt');
   });
 });

@@ -11,6 +11,12 @@ export interface Failure {
   retryLabel?: string;
 }
 type Extra = Omit<Failure, 'id' | 'error'>;
+export function relabeled(list: Failure[], command: string, patch: Extra) {
+  const last = list.filter((failure) => failure.command === command).pop();
+  return list.map((failure) =>
+    failure === last ? { ...failure, ...patch } : failure,
+  );
+}
 export const useErrors = createNoticeStore<
   Failure,
   {
@@ -32,10 +38,5 @@ export const useErrors = createNoticeStore<
       );
   },
   relabel: (scope, command, patch) =>
-    edit(scope, (list) => {
-      const last = list.filter((failure) => failure.command === command).pop();
-      return list.map((failure) =>
-        failure === last ? { ...failure, ...patch } : failure,
-      );
-    }),
+    edit(scope, (list) => relabeled(list, command, patch)),
 }));

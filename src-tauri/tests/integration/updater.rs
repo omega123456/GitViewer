@@ -1,7 +1,9 @@
 use gitviewer_lib::{
     error::{Error, Result},
     settings::Settings,
-    updater::{Availability, Backend, Phase, Progress, Release, Service, Summary, Task},
+    updater::{
+        Availability, Backend, Configuration, Phase, Progress, Release, Service, Summary, Task,
+    },
 };
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -84,12 +86,14 @@ fn service(automatic: bool) -> (Arc<Service>, Arc<Fake>) {
     let fake = Arc::new(Fake::default());
     let service = Arc::new(Service::new(
         "0.1.0".into(),
-        Availability::Enabled,
-        Settings {
-            install_update_on_quit: automatic,
-            ..Default::default()
+        Configuration {
+            availability: Availability::Enabled,
+            backend: Some(Box::new(Source(fake.clone()))),
+            settings: Settings {
+                install_update_on_quit: automatic,
+                ..Default::default()
+            },
         },
-        Some(Box::new(Source(fake.clone()))),
         || {},
     ));
     (service, fake)
@@ -103,7 +107,7 @@ async fn checks_downloads_and_install_intents_are_serialized() {
     assert!(!service.finish_close().unwrap());
     service.check().await.unwrap();
     assert_eq!(service.get().phase, Phase::Ready);
-    assert_eq!(service.get().downloaded, 4);
+    assert_eq!(service.get().progress.downloaded, 4);
     assert!(service.get().last_checked.is_some());
     service.check().await.unwrap();
     assert_eq!(fake.checks.load(Ordering::SeqCst), 2);
@@ -231,9 +235,11 @@ async fn development_and_missing_configuration_never_access_the_backend() {
     for availability in [Availability::Development, Availability::Unconfigured] {
         let service = Arc::new(Service::new(
             "0.1.0".into(),
-            availability,
-            Settings::default(),
-            None,
+            Configuration {
+                availability,
+                backend: None,
+                settings: Settings::default(),
+            },
             || {},
         ));
         assert!(service.check().await.is_err());

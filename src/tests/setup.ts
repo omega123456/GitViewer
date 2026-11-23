@@ -19,8 +19,7 @@ import { usePalette } from '../stores/palette';
 import { useSettingsNav } from '../stores/settings-nav';
 import { useCommit } from '../stores/commit';
 import { useGenerate } from '../stores/generate';
-import { useTheme } from '../stores/theme';
-import { useDensity } from '../stores/density';
+import { useSystemTheme } from '../stores/theme';
 import { useUpdate } from '../stores/update';
 import { resetHarness } from './harness';
 import { renders } from './renders';
@@ -236,14 +235,7 @@ beforeEach(() => {
   useSuccesses.setState({ scopes: {} });
   useDecision.setState({ pending: {} });
   useLayout.setState({ tabs: {} });
-  useSelection.setState({
-    working: {},
-    history: {},
-    compare: {},
-    all: {},
-    paths: {},
-    tabs: { working: {}, history: {}, compare: {} },
-  });
+  useSelection.setState({ repos: {} });
   useFilterStore.setState({ text: {} });
   useDiffView.setState({ mode: null });
   useEditor.setState({ buffers: {} });
@@ -252,8 +244,7 @@ beforeEach(() => {
   useSettingsNav.setState({ pane: 'general' });
   useGenerate.setState({ repos: {} });
   useCommit.setState({ repos: {} });
-  useTheme.setState({ preference: 'system', system: false });
-  useDensity.setState({ density: 'comfortable' });
+  useSystemTheme.setState({ dark: false });
 });
 afterEach(() => {
   cleanup();

@@ -35,7 +35,7 @@ pub struct Repo {
     pub histories: Mutex<HashMap<String, crate::history::Session>>,
     pub watchers: std::sync::Mutex<Vec<crate::watch::Watcher>>,
     pub directory_reads: AtomicUsize,
-    pub untracked_lines: std::sync::Mutex<HashMap<String, crate::lines::Counted>>,
+    pub untracked_lines: std::sync::Mutex<HashMap<String, crate::lines::CachedCount>>,
 }
 pub struct Reread {
     pub status: Arc<Status>,
@@ -89,12 +89,12 @@ impl Registry {
             .next()
             .map(|main| PathBuf::from(main.id))
             .unwrap_or_default();
-        let repo = Arc::new(Repo {
+        let repo = Arc::new(Repo::at(Location {
+            root,
             git_dir,
             common_dir,
             project,
-            ..Repo::new(root)
-        });
+        }));
         repo.refresh().await?;
         let winner = self.repos.lock().await.entry(id).or_insert(repo).clone();
         Ok(winner.info().await)
@@ -125,13 +125,38 @@ fn last_fetch(common_dir: &Path) -> Option<String> {
         .max()
         .map(|time| chrono::DateTime::<chrono::Utc>::from(time).to_rfc3339())
 }
-impl Repo {
-    pub fn new(root: PathBuf) -> Self {
+pub struct Location {
+    pub root: PathBuf,
+    pub git_dir: PathBuf,
+    pub common_dir: PathBuf,
+    pub project: PathBuf,
+}
+impl Location {
+    pub fn standalone(root: PathBuf) -> Self {
         Self {
             git_dir: root.join(git::DOT_GIT),
             common_dir: root.join(git::DOT_GIT),
             project: root.clone(),
             root,
+        }
+    }
+}
+impl Repo {
+    pub fn new(root: PathBuf) -> Self {
+        Self::at(Location::standalone(root))
+    }
+    pub fn at(location: Location) -> Self {
+        let Location {
+            root,
+            git_dir,
+            common_dir,
+            project,
+        } = location;
+        Self {
+            root,
+            git_dir,
+            common_dir,
+            project,
             status: Mutex::new(Arc::default()),
             stale: Arc::new(AtomicBool::new(true)),
             history_stale: Arc::new(AtomicBool::new(false)),

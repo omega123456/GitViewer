@@ -236,12 +236,17 @@ fn sections(patch: &str) -> Vec<&str> {
         .collect()
 }
 
-fn split_header(section: &str) -> (&str, &str) {
-    section.split_at(
+struct Header<'a> {
+    header: &'a str,
+    body: &'a str,
+}
+fn split_header(section: &str) -> Header<'_> {
+    let (header, body) = section.split_at(
         section
             .find("\n@@")
             .map_or(section.len(), |offset| offset + 1),
-    )
+    );
+    Header { header, body }
 }
 
 fn noisy(section: &str) -> bool {
@@ -270,7 +275,7 @@ fn outlined(line: &str) -> bool {
 }
 
 fn stub(section: &str) -> String {
-    let (header, body) = split_header(section);
+    let Header { header, body } = split_header(section);
     let omitted = body.lines().filter(|line| changed(line)).count();
     format!("{header}… {omitted} changed lines omitted\n")
 }
@@ -301,7 +306,7 @@ fn clip(text: String, limit: usize) -> String {
 }
 
 fn shrink(section: &str, cap: usize) -> String {
-    let (header, body) = split_header(section);
+    let Header { header, body } = split_header(section);
     let lines: Vec<&str> = body.split_inclusive('\n').collect();
     let marker =
         |omitted: usize| format!("… {omitted} more changed lines omitted, outline follows\n");
@@ -339,30 +344,46 @@ fn shrink(section: &str, cap: usize) -> String {
     clip(text, cap)
 }
 
+struct Section {
+    text: String,
+    noise: bool,
+}
+impl Section {
+    fn of(section: &str) -> Self {
+        let noise = noisy(section);
+        if noise {
+            return Self {
+                text: stub(section),
+                noise,
+            };
+        }
+        Self {
+            text: section.to_string(),
+            noise,
+        }
+    }
+    fn fits(&self, cap: usize) -> bool {
+        self.noise || char_count(&self.text) <= cap
+    }
+}
 pub fn compact(patch: &str, budget: usize) -> String {
-    let sections: Vec<(String, bool)> = sections(patch)
-        .into_iter()
-        .map(|section| match noisy(section) {
-            true => (stub(section), true),
-            false => (section.to_string(), false),
-        })
-        .collect();
+    let sections: Vec<Section> = sections(patch).into_iter().map(Section::of).collect();
     let fixed: usize = sections
         .iter()
-        .filter(|(_, noise)| *noise)
-        .map(|(text, _)| char_count(text))
+        .filter(|section| section.noise)
+        .map(|section| char_count(&section.text))
         .sum();
     let sizes: Vec<usize> = sections
         .iter()
-        .filter(|(_, noise)| !noise)
-        .map(|(text, _)| char_count(text))
+        .filter(|section| !section.noise)
+        .map(|section| char_count(&section.text))
         .collect();
     let cap = share(&sizes, budget.saturating_sub(fixed));
     let text = sections
         .iter()
-        .map(|(text, noise)| match *noise || char_count(text) <= cap {
-            true => text.clone(),
-            false => shrink(text, cap),
+        .map(|section| match section.fits(cap) {
+            true => section.text.clone(),
+            false => shrink(&section.text, cap),
         })
         .collect();
     clip(text, budget)
@@ -472,21 +493,35 @@ fn exceeds_context(error: &OpenAIError) -> bool {
     CONTEXT_SIGNS.iter().any(|sign| text.contains(sign))
 }
 
-fn first_tag(text: &str, tags: &[&str]) -> Option<(usize, usize)> {
+struct TagSpan {
+    offset: usize,
+    length: usize,
+}
+impl TagSpan {
+    fn end(&self) -> usize {
+        self.offset + self.length
+    }
+}
+fn first_tag(text: &str, tags: &[&str]) -> Option<TagSpan> {
     tags.iter()
-        .filter_map(|tag| text.find(tag).map(|offset| (offset, tag.len())))
-        .min_by_key(|(offset, _)| *offset)
+        .filter_map(|tag| {
+            text.find(tag).map(|offset| TagSpan {
+                offset,
+                length: tag.len(),
+            })
+        })
+        .min_by_key(|span| span.offset)
 }
 
 pub fn strip_think_blocks(text: &str) -> String {
     let mut text = text.to_string();
-    while let Some((open_at, open_len)) = first_tag(&text, &THINK_OPEN) {
-        let after_open = open_at + open_len;
+    while let Some(open) = first_tag(&text, &THINK_OPEN) {
+        let after_open = open.end();
         match first_tag(&text[after_open..], &THINK_CLOSE) {
-            Some((close_at, close_len)) => {
-                text.replace_range(open_at..after_open + close_at + close_len, "");
+            Some(close) => {
+                text.replace_range(open.offset..after_open + close.end(), "");
             }
-            None => text.truncate(open_at),
+            None => text.truncate(open.offset),
         }
     }
     text
@@ -507,20 +542,22 @@ pub async fn configured_models(preferences: &Settings) -> Result<Vec<String>> {
 pub async fn generate(preferences: &Settings, registry: &Registry, repo: &str) -> Result<Draft> {
     let endpoint = Endpoint::configured(&preferences.ai)?;
     let material = material(&registry.get(repo).await?.root).await?;
-    draft(
-        &endpoint,
-        &preferences.ai.model,
-        &preferences.ai.prompt,
-        material,
-    )
-    .await
+    let instructions = Instructions {
+        model: &preferences.ai.model,
+        template: &preferences.ai.prompt,
+    };
+    draft(&endpoint, instructions, material).await
+}
+pub struct Instructions<'a> {
+    pub model: &'a str,
+    pub template: &'a str,
 }
 pub async fn draft(
     endpoint: &Endpoint,
-    model: &str,
-    template: &str,
+    instructions: Instructions<'_>,
     material: Material,
 ) -> Result<Draft> {
+    let Instructions { model, template } = instructions;
     if model.trim().is_empty() {
         return Err(Error::refused("No model is configured"));
     }

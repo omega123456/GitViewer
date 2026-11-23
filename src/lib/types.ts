@@ -72,7 +72,9 @@ export interface Opened {
   crlf: boolean;
 }
 export type Written = { saved: string } | { conflict: Opened | null };
-export type Lines = [number, number] | null;
+export type LineTotals = [number, number];
+export type Lines = LineTotals | null;
+export type MarkRange = [number, number];
 export interface LineStats {
   staged: Record<string, Lines>;
   unstaged: Record<string, Lines>;
@@ -148,7 +150,7 @@ export interface DiffLine {
   old: number | null;
   new: number | null;
   noNewline: boolean;
-  marks: [number, number][];
+  marks: MarkRange[];
 }
 export interface Hunk {
   header: string;

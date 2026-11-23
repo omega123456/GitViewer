@@ -46,6 +46,7 @@ export interface PaletteSources {
   statuses: Record<string, Status | undefined>;
   matches: FuzzyMatch<string>[];
   entries: Map<string, Entry>;
+  tabLimit: number;
 }
 export interface HintSources {
   ignored: boolean;
@@ -140,11 +141,16 @@ function repositoryGroups(sources: PaletteSources): Group[] {
     },
   ];
 }
-function openFile(repo: string, path: string, entry: Entry | undefined) {
+function openFile(
+  sources: PaletteSources,
+  path: string,
+  entry: Entry | undefined,
+) {
+  const { repo, tabLimit } = sources;
   useLayout.getState().update(repo, { mode: 'working' });
   useSelection
     .getState()
-    .select(repo, { path: path, source: sourceFor(entry) });
+    .select(repo, { path: path, source: sourceFor(entry) }, tabLimit);
 }
 function fileRow(
   { item: path, positions }: FuzzyMatch<string>,
@@ -157,7 +163,7 @@ function fileRow(
     label: <FileLabel path={path} positions={positions} />,
     title: path,
     trailing: <StatusBadge status={entryStatus(entry)} />,
-    run: () => openFile(sources.repo, path, entry),
+    run: () => openFile(sources, path, entry),
   };
 }
 function fileGroups(sources: PaletteSources): Group[] {

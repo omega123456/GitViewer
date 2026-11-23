@@ -73,8 +73,8 @@ fn porcelain_handles_all_records_and_odd_paths() {
     let bytes=b"# branch.oid abc\0# branch.head main\0# branch.upstream origin/main\0# branch.ab +2 -3\x001 MM N... 100644 100644 100644 a b folder/file name.txt\x002 RM N... 100644 100644 100644 a b R100 new\0old\0? new\nfile\0u UU N... 100644 100644 100644 100644 a b c conflict\0";
     let s = status::parse(bytes).unwrap();
     assert_eq!(s.branch, "main");
-    assert_eq!(s.ahead, Some(2));
-    assert_eq!(s.behind, Some(3));
+    assert_eq!(s.divergence.ahead, Some(2));
+    assert_eq!(s.divergence.behind, Some(3));
     assert_eq!(s.entries[0].path(), "folder/file name.txt");
     assert_eq!(s.entries[0].index(), "M");
     assert_eq!(s.entries[1].original_path(), Some("old"));

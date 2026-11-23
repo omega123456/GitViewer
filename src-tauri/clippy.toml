@@ -1,2 +1,3 @@
 allowed-idents-below-min-chars = []
 cognitive-complexity-threshold = 15
+too-many-arguments-threshold = 3

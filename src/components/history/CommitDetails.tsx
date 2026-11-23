@@ -1,6 +1,11 @@
 import { format, fromUnixTime } from 'date-fns';
 import { useBackend } from '../../lib/query';
 import { ErrorRetry } from '../states/Errors';
+interface Fact {
+  term: string;
+  value: string;
+  style: string;
+}
 export function CommitDetails({
   repo,
   revision,
@@ -15,10 +20,14 @@ export function CommitDetails({
     );
   if (!detail.data) return null;
   const { subject, author, timestamp, hash, body } = detail.data;
-  const facts = [
-    ['Author', author, ''],
-    ['Date', format(fromUnixTime(timestamp), 'd MMM yyyy, HH:mm'), ''],
-    ['Commit', hash, 'font-mono break-all'],
+  const facts: Fact[] = [
+    { term: 'Author', value: author, style: '' },
+    {
+      term: 'Date',
+      value: format(fromUnixTime(timestamp), 'd MMM yyyy, HH:mm'),
+      style: '',
+    },
+    { term: 'Commit', value: hash, style: 'font-mono break-all' },
   ];
   return (
     <section
@@ -27,7 +36,7 @@ export function CommitDetails({
     >
       <h3 className="text-sm font-semibold break-words">{subject}</h3>
       <dl className="flex flex-col gap-0.5 text-label">
-        {facts.map(([term, value, style]) => (
+        {facts.map(({ term, value, style }) => (
           <div key={term} className="flex gap-3">
             <dt className="w-12 shrink-0 text-muted dark:text-muted-dark">
               {term}

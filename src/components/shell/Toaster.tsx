@@ -13,8 +13,53 @@ import { useActiveView } from '../../stores/tabs';
 import { Button } from '../shared/Button';
 import { Details } from '../shared/Details';
 import { Spinner } from '../shared/Spinner';
-const ACTIONABLE_TOAST_DURATION_MS = 8000;
-const TOAST_DURATION_MS = 6000;
+import {
+  diffNotices,
+  toastDuration,
+  toastEntries,
+  type ToastEntry,
+} from './toast-notices';
+type ToastHandle = string | number;
+type ShownToasts = Map<number, ToastHandle>;
+function release(shown: ShownToasts, entry: ToastEntry) {
+  const { scope, id } = entry;
+  if (!shown.delete(id)) return;
+  if ('notice' in entry) useSuccesses.getState().dismiss(scope, id);
+  else useErrors.getState().dismiss(scope, id);
+}
+function publish(
+  shown: ShownToasts,
+  entry: ToastEntry,
+  handle?: ToastHandle,
+): ToastHandle {
+  const { scope, id } = entry;
+  const close = () => release(shown, entry);
+  return toast.custom(
+    (sonner) =>
+      'notice' in entry ? (
+        <SuccessCard scope={scope} initial={entry.notice} />
+      ) : (
+        <FailureCard
+          scope={scope}
+          initial={entry.failure}
+          remeasure={() => {
+            if (shown.get(id) === sonner) publish(shown, entry, sonner);
+          }}
+        />
+      ),
+    {
+      id: handle,
+      duration: toastDuration(entry),
+      onAutoClose: close,
+      onDismiss: close,
+    },
+  );
+}
+function dismissShown(shown: ShownToasts, id: number) {
+  const handle = shown.get(id);
+  shown.delete(id);
+  toast.dismiss(handle);
+}
 const tones = {
   success: {
     card: 'border-success/22 bg-success-ground dark:border-success-dark/22 dark:bg-success-ground-dark',
@@ -216,71 +261,18 @@ export function Toaster() {
   const app = useErrors((state) => state.scopes[appScope] ?? none);
   const tab = useErrors((state) => state.scopes[active] ?? none);
   const done = useSuccesses((state) => state.scopes[active] ?? quiet);
-  const shown = useRef(new Map<number, string | number>());
+  const shown = useRef<ShownToasts>(new Map());
   useEffect(() => {
-    const entries = [
-      ...app.map((failure) => ({
-        scope: appScope,
-        id: failure.id,
-        failure: failure,
-      })),
-      ...tab.map((failure) => ({
-        scope: active,
-        id: failure.id,
-        failure: failure,
-      })),
-      ...done.map((notice) => ({
-        scope: active,
-        id: notice.id,
-        notice: notice,
-      })),
-    ].sort((left, right) => left.id - right.id);
-    const current = new Set(entries.map((entry) => entry.id));
-    for (const [id, handle] of shown.current)
-      if (!current.has(id)) {
-        shown.current.delete(id);
-        toast.dismiss(handle);
-      }
-    for (const entry of entries) {
-      if (shown.current.has(entry.id)) continue;
-      const { scope, id } = entry;
-      const release = () => {
-        if (!shown.current.delete(id)) return;
-        if ('notice' in entry) useSuccesses.getState().dismiss(scope, id);
-        else useErrors.getState().dismiss(scope, id);
-      };
-      const publish = (handle?: string | number): string | number =>
-        toast.custom(
-          (sonner) =>
-            'notice' in entry ? (
-              <SuccessCard scope={scope} initial={entry.notice} />
-            ) : (
-              <FailureCard
-                scope={scope}
-                initial={entry.failure}
-                remeasure={() => {
-                  if (shown.current.get(id) === sonner) publish(sonner);
-                }}
-              />
-            ),
-          {
-            id: handle,
-            duration:
-              'notice' in entry
-                ? entry.notice.pending
-                  ? Infinity
-                  : entry.notice.restore ||
-                      entry.notice.unapply ||
-                      entry.notice.show
-                    ? ACTIONABLE_TOAST_DURATION_MS
-                    : TOAST_DURATION_MS
-                : Infinity,
-            onAutoClose: release,
-            onDismiss: release,
-          },
-        );
-      shown.current.set(id, publish());
-    }
+    const entries = toastEntries({
+      active: active,
+      app: app,
+      tab: tab,
+      done: done,
+    });
+    const changes = diffNotices(shown.current.keys(), entries);
+    for (const id of changes.removed) dismissShown(shown.current, id);
+    for (const entry of changes.added)
+      shown.current.set(entry.id, publish(shown.current, entry));
   }, [active, app, tab, done]);
   useEffect(() => {
     const handles = shown.current;

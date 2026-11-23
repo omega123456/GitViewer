@@ -1,7 +1,7 @@
-use super::{Availability, Backend, Progress, Release, Summary, Task};
+use super::{Availability, Backend, Configuration, Progress, Release, Summary, Task};
 use crate::{
     error::{Error, Result},
-    settings::{self, Settings},
+    settings,
 };
 use tauri_plugin_updater::UpdaterExt;
 
@@ -53,11 +53,14 @@ fn failure(error: tauri_plugin_updater::Error) -> Error {
     Error::new("update", error.to_string())
 }
 
-type Configuration = (Availability, Option<Box<dyn Backend>>, Settings);
 pub fn configure<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Configuration> {
     let settings = settings::read(&settings::settings_path(app)?);
     if cfg!(debug_assertions) {
-        return Ok((Availability::Development, None, settings));
+        return Ok(Configuration {
+            availability: Availability::Development,
+            backend: None,
+            settings,
+        });
     }
     let config = &app.config().plugins.0;
     let configured = config.get("updater").is_some_and(|value| {
@@ -67,7 +70,11 @@ pub fn configure<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Configu
                 .is_some_and(|endpoints| !endpoints.is_empty())
     });
     if !configured {
-        return Ok((Availability::Unconfigured, None, settings));
+        return Ok(Configuration {
+            availability: Availability::Unconfigured,
+            backend: None,
+            settings,
+        });
     }
     app.plugin(tauri_plugin_updater::Builder::new().build())?;
     let updater = app
@@ -79,9 +86,9 @@ pub fn configure<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Configu
         )
         .build()
         .map_err(failure)?;
-    Ok((
-        Availability::Enabled,
-        Some(Box::new(Native(updater))),
+    Ok(Configuration {
+        availability: Availability::Enabled,
+        backend: Some(Box::new(Native(updater))),
         settings,
-    ))
+    })
 }

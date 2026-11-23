@@ -23,12 +23,20 @@ export function queryKey<K extends keyof Commands>(
 ) {
   return ['repo' in args ? args.repo : 'app', command, args];
 }
-export function useBackend<K extends keyof Commands>(
+export interface BackendSeed<K extends keyof Commands> {
+  data: Commands[K]['result'];
+  updatedAt: number;
+}
+export interface BackendGate<K extends keyof Commands> {
+  enabled: boolean;
+  initial?: BackendSeed<K>;
+}
+export function useSeededBackend<K extends keyof Commands>(
   command: K,
   args: Commands[K]['args'],
-  enabled = true,
-  initial?: { data: Commands[K]['result']; updatedAt: number },
+  gate: BackendGate<K>,
 ) {
+  const { enabled, initial } = gate;
   return useQuery({
     queryKey: queryKey(command, args),
     queryFn: () => invoke(command, args),
@@ -36,6 +44,13 @@ export function useBackend<K extends keyof Commands>(
     initialData: initial?.data,
     initialDataUpdatedAt: initial?.updatedAt,
   });
+}
+export function useBackend<K extends keyof Commands>(
+  command: K,
+  args: Commands[K]['args'],
+  enabled = true,
+) {
+  return useSeededBackend(command, args, { enabled: enabled });
 }
 export function freshStatus(repo: string) {
   return client.fetchQuery({
@@ -133,12 +148,11 @@ export async function attempt<K extends keyof Commands>(
   const finish = track(scope, command, args);
   try {
     const result = await invoke(command, args);
-    const success = describeSuccess(
-      command,
-      Object.fromEntries(Object.entries(args)),
-      result,
-      before,
-    );
+    const success = describeSuccess(command, {
+      args: Object.fromEntries(Object.entries(args)),
+      result: result,
+      before: before,
+    });
     if (success) useSuccesses.getState().announce(scope, success);
     return result;
   } finally {

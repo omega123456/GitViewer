@@ -1,68 +1,62 @@
 import { create } from 'zustand';
-import { client, queryKey } from '../lib/query';
-import type { Selection, SettingsResponse } from '../lib/types';
-import { approveDiscard, drop, isProtected, useEditor } from './editor';
+import type { Selection } from '../lib/types';
+import { approveDiscard, current, drop, dropRepo, isProtected } from './editor';
 import { tabLayout, type SidebarMode } from './layout';
 import { stepIndex } from '../lib/list';
-export type Group = 'staged' | 'unstaged';
-export type Stack = Group | 'commit' | 'compare';
-export interface FileTab {
-  selection: Selection;
-  used: number;
+import {
+  closedTab,
+  editingElsewhere,
+  findTab,
+  forgotten,
+  keptEditing,
+  opened,
+  placedTab,
+  repoSelection,
+  tabKey,
+  viewingAll,
+  withHistoryPath,
+  type FileTab,
+  type SelectionState,
+  type Stack,
+} from './selection/transitions';
+export type { FileTab, Group, Stack } from './selection/transitions';
+export { tabKey } from './selection/transitions';
+export interface TabStep {
+  mode: SidebarMode;
+  direction: number;
+  limit: number;
 }
-type Tabs = Record<SidebarMode, Record<string, FileTab[] | undefined>>;
-interface Selections {
-  working: Record<string, Selection | undefined>;
-  history: Record<string, Selection | undefined>;
-  compare: Record<string, Selection | undefined>;
-  all: Record<string, Stack | undefined>;
-  paths: Record<string, string>;
-  tabs: Tabs;
-  select: (id: string, selection: Selection) => void;
+interface Selections extends SelectionState {
+  select: (id: string, selection: Selection, limit: number) => void;
   viewAll: (id: string, stack: Stack) => void;
   setPath: (id: string, path: string) => void;
   closeTab: (id: string, mode: SidebarMode, key: string) => Promise<void>;
-  cycleTab: (id: string, mode: SidebarMode, direction: number) => void;
+  cycleTab: (id: string, step: TabStep) => void;
   forget: (id: string) => void;
 }
-const modes: SidebarMode[] = ['working', 'history', 'compare'];
+interface TabRequest {
+  id: string;
+  mode: SidebarMode;
+  selection: Selection;
+  limit: number;
+}
 const noTabs: FileTab[] = [];
-const DEFAULT_MAX_FILE_TABS = 8;
 let clock = 0;
-export function tabKey(selection: Selection) {
-  return `${selection.source}:${selection.revision ?? ''}:${selection.base ?? ''}:${selection.path}`;
-}
-function tabLimit() {
-  return (
-    client.getQueryData<SettingsResponse>(queryKey('settings_get', {}))
-      ?.maxFileTabs ?? DEFAULT_MAX_FILE_TABS
-  );
-}
-function overview(mode: SidebarMode, selection: Selection): Stack | undefined {
-  if (selection.path) return undefined;
-  return mode === 'compare' ? 'compare' : 'commit';
-}
-function editingElsewhere(id: string, path: string, except?: FileTab) {
-  const { tabs } = useSelection.getState();
-  return modes.some((mode) =>
-    (tabs[mode][id] ?? []).some(
-      (tab) =>
-        tab !== except && tab.selection.editing && tab.selection.path === path,
-    ),
-  );
+function repoOf(id: string) {
+  return repoSelection(useSelection.getState(), id);
 }
 function release(id: string, path: string) {
-  if (!editingElsewhere(id, path)) drop(id, path);
+  if (!editingElsewhere(repoOf(id), path)) drop({ repo: id, path: path });
 }
-function oldestClean(id: string, tabs: FileTab[], opened: FileTab) {
+function isClosable(id: string, tab: FileTab) {
+  const editing = Boolean(tab.selection.editing);
+  return !(editing && isProtected({ repo: id, path: tab.selection.path }));
+}
+function oldestClean(request: TabRequest, tabs: FileTab[], kept: FileTab) {
   return tabs
-    .filter(
-      (tab) =>
-        tab !== opened &&
-        !(tab.selection.editing && isProtected(id, tab.selection.path)),
-    )
+    .filter((tab) => tab !== kept && isClosable(request.id, tab))
     .sort((left, right) => left.used - right.used)
-    .slice(0, Math.max(0, tabs.length - tabLimit()));
+    .slice(0, Math.max(0, tabs.length - request.limit));
 }
 const pendingLeave = new Map<string, () => void>();
 function guarded(id: string, leaving: string | undefined, apply: () => void) {
@@ -71,11 +65,12 @@ function guarded(id: string, leaving: string | undefined, apply: () => void) {
     apply();
     release(id, leaving);
   };
-  if (!useEditor.getState().buffers[id]?.[leaving]?.dirty) return leave();
+  const file = { repo: id, path: leaving };
+  if (!current(file)?.dirty) return leave();
   const asking = pendingLeave.has(id);
   pendingLeave.set(id, leave);
   if (asking) return;
-  void approveDiscard(id, leaving)
+  void approveDiscard(file)
     .catch(() => false)
     .then((approved) => {
       const latest = pendingLeave.get(id);
@@ -83,159 +78,108 @@ function guarded(id: string, leaving: string | undefined, apply: () => void) {
       if (approved) latest?.();
     });
 }
-function commitStack(state: Selections, id: string): Partial<Selections> {
-  const mode = tabLayout(id).mode;
-  const current = state[mode][id];
-  if (!current) return {};
-  return {
-    [mode]: { ...state[mode], [id]: { ...current, path: '' } },
-  };
+function openTab(request: TabRequest) {
+  const { id, mode, selection } = request;
+  const repo = repoOf(id);
+  const existing = findTab(repo, mode, tabKey(selection));
+  const fresh = { selection: selection, used: ++clock };
+  const tabs = placedTab(repo.tabs[mode] ?? [], {
+    opened: fresh,
+    existing: existing,
+  });
+  const isNewFile = Boolean(selection.path) && !existing;
+  const closing = isNewFile ? oldestClean(request, tabs, fresh) : [];
+  const kept = tabs.filter((tab) => !closing.includes(tab));
+  useSelection.setState((state) =>
+    opened(state, { id: id, mode: mode, selection: selection, tabs: kept }),
+  );
+  for (const tab of closing) release(id, tab.selection.path);
 }
-export const useSelection = create<Selections>((set, get) => ({
-  working: {},
-  history: {},
-  compare: {},
-  all: {},
-  paths: {},
-  tabs: { working: {}, history: {}, compare: {} },
-  select: (id, requested) => {
-    const mode = tabLayout(id).mode;
-    const key = tabKey(requested);
-    const find = () =>
-      (get().tabs[mode][id] ?? []).find((tab) => tabKey(tab.selection) === key);
-    const current = find();
-    const previouslyEditing = current?.selection.editing;
-    const selection =
-      previouslyEditing && requested.editing === undefined
-        ? { ...requested, editing: true }
-        : requested;
-    const leaving =
-      previouslyEditing &&
-      !selection.editing &&
-      !editingElsewhere(id, requested.path, current)
-        ? requested.path
-        : undefined;
-    guarded(id, leaving, () => {
-      const list = get().tabs[mode][id] ?? [];
-      const existing = find();
-      const opened = { selection: selection, used: ++clock };
-      const next = !selection.path
-        ? list
-        : existing
-          ? list.map((tab) => (tab === existing ? opened : tab))
-          : [...list, opened];
-      const closing =
-        selection.path && !existing ? oldestClean(id, next, opened) : [];
-      set((state) => ({
-        [mode]: { ...state[mode], [id]: selection },
-        all: { ...state.all, [id]: overview(mode, selection) },
-        tabs: {
-          ...state.tabs,
-          [mode]: {
-            ...state.tabs[mode],
-            [id]: next.filter((tab) => !closing.includes(tab)),
-          },
-        },
-      }));
-      for (const tab of closing) release(id, tab.selection.path);
-    });
-  },
+function leavingPath(id: string, selection: Selection, current?: FileTab) {
+  const stopsEditing =
+    Boolean(current?.selection.editing) && !selection.editing;
+  const editedElsewhere = editingElsewhere(repoOf(id), selection.path, current);
+  return stopsEditing && !editedElsewhere ? selection.path : undefined;
+}
+function selectFile(id: string, requested: Selection, limit: number) {
+  const mode = tabLayout(id).mode;
+  const current = findTab(repoOf(id), mode, tabKey(requested));
+  const selection = keptEditing(requested, current);
+  const leaving = leavingPath(id, selection, current);
+  guarded(id, leaving, () =>
+    openTab({ id: id, mode: mode, selection: selection, limit: limit }),
+  );
+}
+async function closeFileTab(id: string, mode: SidebarMode, key: string) {
+  const tab = findTab(repoOf(id), mode, key);
+  if (!tab) return;
+  const { path, editing } = tab.selection;
+  const asksFirst =
+    Boolean(editing) && !editingElsewhere(repoOf(id), path, tab);
+  if (asksFirst && !(await approveDiscard({ repo: id, path: path }))) return;
+  useSelection.setState((state) =>
+    closedTab(state, { id: id, mode: mode, tab: tab }),
+  );
+  release(id, path);
+}
+function cycleFileTab(id: string, step: TabStep) {
+  const tabs = fileTabsOf(id, step.mode);
+  const active = selectionOf(id, step.mode);
+  const activeKey = active?.path ? tabKey(active) : undefined;
+  const index = tabs.findIndex((tab) => tabKey(tab.selection) === activeKey);
+  const next = tabs[stepIndex(index, step.direction, tabs.length)];
+  if (next) selectFile(id, next.selection, step.limit);
+}
+export const useSelection = create<Selections>((set) => ({
+  repos: {},
+  select: selectFile,
   viewAll: (id, stack) =>
-    set((state) => ({
-      ...(stack === 'commit'
-        ? commitStack(state, id)
-        : stack === 'compare'
-          ? { compare: { ...state.compare, [id]: undefined } }
-          : { working: { ...state.working, [id]: undefined } }),
-      all: { ...state.all, [id]: stack },
-    })),
-  setPath: (id, path) =>
-    set((state) => ({ paths: { ...state.paths, [id]: path } })),
-  closeTab: async (id, mode, key) => {
-    const tab = get().tabs[mode][id]?.find(
-      (tab) => tabKey(tab.selection) === key,
-    );
-    if (!tab) return;
-    const { path, editing } = tab.selection;
-    if (
-      editing &&
-      !editingElsewhere(id, path, tab) &&
-      !(await approveDiscard(id, path))
-    )
-      return;
-    set((state) => {
-      const rest = (state.tabs[mode][id] ?? []).filter(
-        (open) => tabKey(open.selection) !== key,
-      );
-      const active = state[mode][id];
-      const tabs = {
-        ...state.tabs,
-        [mode]: { ...state.tabs[mode], [id]: rest },
-      };
-      if (!active?.path || tabKey(active) !== key) return { tabs };
-      const recent = [...rest].sort((left, right) => right.used - left.used)[0];
-      const selection = recent?.selection ?? {
-        path: '',
-        source: tab.selection.source,
-        revision: tab.selection.revision,
-        base: tab.selection.base,
-      };
-      return {
-        tabs: tabs,
-        [mode]: { ...state[mode], [id]: selection },
-        all: { ...state.all, [id]: overview(mode, selection) },
-      };
-    });
-    release(id, path);
-  },
-  cycleTab: (id, mode, direction) => {
-    const tabs = get().tabs[mode][id] ?? [];
-    const active = get()[mode][id];
-    const index = tabs.findIndex(
-      (tab) => active?.path && tabKey(tab.selection) === tabKey(active),
-    );
-    const next = tabs[stepIndex(index, direction, tabs.length)];
-    if (next) get().select(id, next.selection);
-  },
+    set((state) =>
+      viewingAll(state, { id: id, mode: tabLayout(id).mode, stack: stack }),
+    ),
+  setPath: (id, path) => set((state) => withHistoryPath(state, id, path)),
+  closeTab: closeFileTab,
+  cycleTab: cycleFileTab,
   forget: (id) => {
-    drop(id);
-    set((state) => ({
-      working: { ...state.working, [id]: undefined },
-      history: { ...state.history, [id]: undefined },
-      compare: { ...state.compare, [id]: undefined },
-      all: { ...state.all, [id]: undefined },
-      paths: { ...state.paths, [id]: '' },
-      tabs: {
-        working: { ...state.tabs.working, [id]: undefined },
-        history: { ...state.tabs.history, [id]: undefined },
-        compare: { ...state.tabs.compare, [id]: undefined },
-      },
-    }));
+    dropRepo(id);
+    set((state) => forgotten(state, id));
   },
 }));
+export function selectionOf(id: string, mode: SidebarMode) {
+  return repoOf(id).current[mode];
+}
+export function allChangesOf(id: string) {
+  return repoOf(id).all;
+}
+export function historyPathOf(id: string) {
+  return repoOf(id).path;
+}
+export function fileTabsOf(id: string, mode: SidebarMode) {
+  return repoOf(id).tabs[mode] ?? noTabs;
+}
 export function useCurrentSelection(id: string, mode: SidebarMode) {
-  return useSelection((state) => state[mode][id]);
+  return useSelection((state) => state.repos[id]?.current[mode]);
 }
 export function useWorkingSelection(id: string) {
-  return useSelection((state) => state.working[id]);
+  return useCurrentSelection(id, 'working');
 }
 export function useAllChanges(id: string) {
-  return useSelection((state) => state.all[id]);
+  return useSelection((state) => state.repos[id]?.all);
 }
 export function useHistoryPath(id: string) {
-  return useSelection((state) => state.paths[id] ?? '');
+  return useSelection((state) => state.repos[id]?.path ?? '');
 }
 export function useFileTabs(id: string, mode: SidebarMode) {
-  return useSelection((state) => state.tabs[mode][id] ?? noTabs);
+  return useSelection((state) => state.repos[id]?.tabs[mode] ?? noTabs);
 }
 export function useActiveTabKey(id: string, mode: SidebarMode) {
   return useSelection((state) => {
-    const active = state[mode][id];
+    const active = state.repos[id]?.current[mode];
     return active?.path ? tabKey(active) : '';
   });
 }
-export function stopEditing(id: string) {
-  const store = useSelection.getState();
-  const selection = store[tabLayout(id).mode][id];
-  if (selection?.editing) store.select(id, { ...selection, editing: false });
+export function stopEditing(id: string, limit: number) {
+  const selection = selectionOf(id, tabLayout(id).mode);
+  if (selection?.editing)
+    selectFile(id, { ...selection, editing: false }, limit);
 }

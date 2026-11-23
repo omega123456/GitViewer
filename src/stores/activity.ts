@@ -1,19 +1,15 @@
 import { create } from 'zustand';
 import type { Commands } from '../lib/types';
-export interface Progress {
-  phase: string;
-  percent?: number;
-}
-export interface Activity extends Partial<Progress> {
-  id: number;
-  command: keyof Commands;
-  args: Record<string, unknown>;
-  visible: boolean;
-  held: boolean;
-  done: boolean;
-}
-interface ActivityStore {
-  scopes: Record<string, Activity[]>;
+import {
+  edited,
+  progressed,
+  started,
+  type Activity,
+  type ActivityState,
+  type Progress,
+} from './activity/transitions';
+export type { Activity, Progress } from './activity/transitions';
+interface ActivityStore extends ActivityState {
   progress: (scope: string, progress: Progress) => void;
 }
 const revealDelay = 300;
@@ -22,26 +18,12 @@ let sequence = 0;
 export const useActivity = create<ActivityStore>((set) => ({
   scopes: {},
   progress: (scope, progress) =>
-    set((state) => ({
-      scopes: {
-        ...state.scopes,
-        [scope]: (state.scopes[scope] ?? []).map((entry) =>
-          entry.command === 'sync' && !entry.done
-            ? { ...entry, ...progress }
-            : entry,
-        ),
-      },
-    })),
+    set((state) => progressed(state, { scope: scope, progress: progress })),
 }));
 function edit(scope: string, id: number, patch: Partial<Activity>) {
-  useActivity.setState((state) => ({
-    scopes: {
-      ...state.scopes,
-      [scope]: (state.scopes[scope] ?? [])
-        .map((entry) => (entry.id === id ? { ...entry, ...patch } : entry))
-        .filter((entry) => !entry.done || (entry.visible && entry.held)),
-    },
-  }));
+  useActivity.setState((state) =>
+    edited(state, { scope: scope, id: id, patch: patch }),
+  );
 }
 export function track<K extends keyof Commands>(
   scope: string,
@@ -49,22 +31,17 @@ export function track<K extends keyof Commands>(
   args: Commands[K]['args'],
 ) {
   const id = ++sequence;
-  useActivity.setState((state) => ({
-    scopes: {
-      ...state.scopes,
-      [scope]: [
-        ...(state.scopes[scope] ?? []),
-        {
-          id: id,
-          command: command,
-          args: Object.fromEntries(Object.entries(args)),
-          visible: false,
-          held: false,
-          done: false,
-        },
-      ],
-    },
-  }));
+  const activity: Activity = {
+    id: id,
+    command: command,
+    args: Object.fromEntries(Object.entries(args)),
+    visible: false,
+    held: false,
+    done: false,
+  };
+  useActivity.setState((state) =>
+    started(state, { scope: scope, activity: activity }),
+  );
   const reveal = setTimeout(() => {
     edit(scope, id, { visible: true, held: true });
     setTimeout(() => edit(scope, id, { held: false }), minimumHold);

@@ -1,5 +1,6 @@
 import { TextInput } from '../shared/TextInput';
 import { useEffect, useRef, useState } from 'react';
+import { useFormState } from '../../lib/form-state';
 import { flushSync } from 'react-dom';
 import { DropdownMenu, Popover } from 'radix-ui';
 import {
@@ -139,23 +140,24 @@ function Marker({
     );
   return null;
 }
-function WorktreeMenu({
-  worktree,
-  view,
-  project,
-  main,
-  changes,
-  disabled,
-  onPick,
-}: {
-  worktree: Worktree;
+interface WorktreeMenuContext {
   view: string;
   project: Tab;
   main?: Worktree;
+  onPick: () => void;
+}
+function WorktreeMenu({
+  worktree,
+  context,
+  changes,
+  disabled,
+}: {
+  worktree: Worktree;
+  context: WorktreeMenuContext;
   changes: number;
   disabled: boolean;
-  onPick: () => void;
 }) {
+  const { view, project, main, onPick } = context;
   const [open, setOpen] = useState(false);
   const target = main?.id ?? '';
   const summary = useBackend(
@@ -267,6 +269,12 @@ async function pullOnCheckout(repo: string) {
   const status = await freshStatus(repo);
   if (status.upstream) await pull(repo);
 }
+interface BranchForm {
+  creating: boolean;
+  name: string;
+  base: string;
+}
+const closedBranchForm: BranchForm = { creating: false, name: '', base: '' };
 export function BranchPopover({
   repo,
   status,
@@ -313,15 +321,15 @@ export function BranchPopover({
   const switching = branchCommands.some((command) => runs(activity, command));
   const checking = runs(activity, 'branch_gone');
   const [filter, setFilter] = useState('');
-  const [creating, setCreating] = useState(false);
+  const branchForm = useFormState(closedBranchForm);
+  const { creating, name, base } = branchForm.form;
+  const setCreating = (next: boolean) => branchForm.update({ creating: next });
   const [creatingWorktree, setCreatingWorktree] = useState(false);
   const main = worktrees.find((worktree) => worktree.main && !worktree.bare);
   const changesIn = (id: string) => statuses[id]?.entries.length ?? 0;
   const present = worktrees.filter(
     (worktree) => !worktree.main && !worktree.missing && !worktree.bare,
   );
-  const [name, setName] = useState('');
-  const [base, setBase] = useState('');
   const [mode, setMode] = useState<CreateMode>('switch');
   const query = useBackend('branches', { repo }, open || creating);
   const all = query.data ?? [];
@@ -627,12 +635,14 @@ export function BranchPopover({
                         (worktree.missing && !worktree.main)) ? (
                         <WorktreeMenu
                           worktree={worktree}
-                          view={repo}
-                          project={project}
-                          main={main}
+                          context={{
+                            view: repo,
+                            project: project,
+                            main: main,
+                            onPick: () => setOpen(false),
+                          }}
                           changes={changesIn(worktree.id)}
                           disabled={Boolean(busy)}
-                          onPick={() => setOpen(false)}
                         />
                       ) : (
                         <span aria-hidden className="w-7 shrink-0" />
@@ -714,11 +724,11 @@ export function BranchPopover({
                             title={`Merge into ${status.branch}`}
                             onSelect={() => {
                               setOpen(false);
-                              void mergeBranch(
-                                repo,
-                                branch.name,
-                                status.branch,
-                              );
+                              void mergeBranch({
+                                repo: repo,
+                                name: branch.name,
+                                current: status.branch,
+                              });
                             }}
                           >
                             <GitMerge className="size-3 shrink-0" />
@@ -849,11 +859,7 @@ export function BranchPopover({
                   base: chosenBase,
                   checkout: false,
                 }),
-              finish: () => {
-                setCreating(false);
-                setName('');
-                setBase('');
-              },
+              finish: branchForm.reset,
               switchTo: () => checkout(repo, name),
             });
           }}
@@ -864,13 +870,13 @@ export function BranchPopover({
             label="Name"
             value={name}
             problem={problem}
-            onChange={setName}
+            onChange={(next) => branchForm.update({ name: next })}
           />
           <BaseBranchSelect
             label="Based on"
             value={chosenBase}
             refs={refs}
-            onChange={setBase}
+            onChange={(next) => branchForm.update({ base: next })}
           />
         </form>
       </Modal>

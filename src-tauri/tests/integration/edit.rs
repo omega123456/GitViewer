@@ -50,8 +50,10 @@ async fn writes_keep_the_file_shape_and_detect_conflicts() {
         edit::write(
             &repo,
             "windows.txt",
-            "one\ntwo\nthree\n",
-            Some(&opened.version),
+            edit::Save {
+                content: "one\ntwo\nthree\n",
+                expected: Some(&opened.version),
+            },
         )
         .unwrap(),
     );
@@ -65,7 +67,15 @@ async fn writes_keep_the_file_shape_and_detect_conflicts() {
     );
     std::fs::write(&path, "changed elsewhere\r\n").unwrap();
     assert_eq!(
-        edit::write(&repo, "windows.txt", "mine\n", Some(&version)).unwrap(),
+        edit::write(
+            &repo,
+            "windows.txt",
+            edit::Save {
+                content: "mine\n",
+                expected: Some(&version)
+            }
+        )
+        .unwrap(),
         Written::Conflict(Some(Opened {
             text: "changed elsewhere\n".into(),
             version: edit::read(&repo, "windows.txt").unwrap().unwrap().version,
@@ -75,16 +85,50 @@ async fn writes_keep_the_file_shape_and_detect_conflicts() {
     );
     std::fs::remove_file(&path).unwrap();
     assert_eq!(
-        edit::write(&repo, "windows.txt", "mine\n", Some(&version)).unwrap(),
+        edit::write(
+            &repo,
+            "windows.txt",
+            edit::Save {
+                content: "mine\n",
+                expected: Some(&version)
+            }
+        )
+        .unwrap(),
         Written::Conflict(None)
     );
-    saved(edit::write(&repo, "windows.txt", "mine\n", None).unwrap());
+    saved(
+        edit::write(
+            &repo,
+            "windows.txt",
+            edit::Save {
+                content: "mine\n",
+                expected: None,
+            },
+        )
+        .unwrap(),
+    );
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "mine\n");
     assert!(matches!(
-        edit::write(&repo, "windows.txt", "again\n", None).unwrap(),
+        edit::write(
+            &repo,
+            "windows.txt",
+            edit::Save {
+                content: "again\n",
+                expected: None
+            }
+        )
+        .unwrap(),
         Written::Conflict(Some(_))
     ));
-    assert!(edit::write(&repo, "../outside.txt", "x", None).is_err());
+    assert!(edit::write(
+        &repo,
+        "../outside.txt",
+        edit::Save {
+            content: "x",
+            expected: None
+        }
+    )
+    .is_err());
 }
 
 #[tokio::test]

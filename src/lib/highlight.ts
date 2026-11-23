@@ -1,4 +1,5 @@
 import type { Reply, Request, Token } from './highlight.worker';
+import type { MarkRange } from './types';
 export type { Token };
 export type Receive = (start: number, lines: Token[][], done: boolean) => void;
 let worker: Worker | undefined;
@@ -33,22 +34,23 @@ function connect() {
   worker = created;
   return created;
 }
-export function tokenize(
-  lines: string[],
-  path: string,
-  dark: boolean,
-  receive: Receive,
-) {
+export interface TokenizeJob {
+  lines: string[];
+  path: string;
+  dark: boolean;
+}
+export function tokenize(job: TokenizeJob, receive: Receive) {
+  const { lines, path, dark } = job;
   const id = ++next;
   pending.set(id, { lines, receive });
-  const job: Request = {
+  const request: Request = {
     type: 'job',
     id: id,
     path: path,
     dark: dark,
     lines: lines,
   };
-  connect().postMessage(job);
+  connect().postMessage(request);
   return () => {
     const cancel: Request = { type: 'cancel', id: id };
     if (pending.delete(id)) worker?.postMessage(cancel);
@@ -57,7 +59,8 @@ export function tokenize(
 export function highlight(content: string, path: string, dark: boolean) {
   return new Promise<Token[][]>((resolve) => {
     const result: Token[][] = [];
-    tokenize(content.split('\n'), path, dark, (start, lines, done) => {
+    const job = { lines: content.split('\n'), path: path, dark: dark };
+    tokenize(job, (start, lines, done) => {
       lines.forEach((line, index) => {
         result[start + index] = line;
       });
@@ -70,7 +73,7 @@ type MarkFlag = 'changed' | 'found' | 'current';
 export type MarkedToken<T> = T & Partial<Record<MarkFlag, boolean>>;
 export function markedTokens<T extends { content: string }>(
   tokens: T[],
-  marks: [number, number][],
+  marks: MarkRange[],
   flag: MarkFlag = 'changed',
 ) {
   const result: MarkedToken<T>[] = [];

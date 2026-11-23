@@ -38,7 +38,10 @@ export function useDiffFile({
   const hunkAction = useCallback(
     (hunk: number, action: string) => {
       if (!data) return;
-      void runHunkAction(repo, selection, data, hunk, action);
+      void runHunkAction(
+        { repo: repo, selection: selection, data: data },
+        { hunk: hunk, action: action },
+      );
     },
     [repo, selection, data],
   );

@@ -27,12 +27,14 @@ import {
   WrapText,
 } from 'lucide-react';
 import { useActions } from '../../lib/actions';
-import { useBackend } from '../../lib/query';
+import { useBackend, useSeededBackend } from '../../lib/query';
 import { splitPath } from '../../lib/paths';
 import { useDiffView } from '../../stores/diff-view';
 import { save, useDirty } from '../../stores/editor';
 import { useLayout } from '../../stores/layout';
 import { useSelection } from '../../stores/selection';
+import { useOpenFile } from '../../lib/open-file';
+import { withViewMode, type ViewMode } from './view-mode';
 import type { Selection, Settings } from '../../lib/types';
 import { Button } from '../shared/Button';
 import type { VirtualListHandle } from '../shared/VirtualList';
@@ -113,7 +115,7 @@ function SelectedDiff({
   const { directory, name } = splitPath(selection.path);
   const markdown = isMarkdown(selection.path);
   const rendered = markdown && Boolean(selection.rendered);
-  const query = useBackend(
+  const query = useSeededBackend(
     'diff',
     {
       repo: repo,
@@ -124,8 +126,11 @@ function SelectedDiff({
       context: rendered ? FULL_FILE_CONTEXT_LINES : DIFF_CONTEXT_LINES,
       overrideLimit: overrideLimit,
     },
-    !selection.blame,
-    !overrideLimit && !rendered ? cachedEntry(repo, selection) : undefined,
+    {
+      enabled: !selection.blame,
+      initial:
+        !overrideLimit && !rendered ? cachedEntry(repo, selection) : undefined,
+    },
   );
   const [wrap, setWrap] = useState(false);
   const toggleWrap = useCallback(() => setWrap((value) => !value), []);
@@ -133,7 +138,8 @@ function SelectedDiff({
   const [currentHunk, setCurrentHunk] = useState(0);
   const surface = useRef<DiffSurfaceHandle>(null);
   const data = query.data;
-  const expansion = useExpansion(repo, selection, data);
+  const target = { repo: repo, selection: selection, data: data };
+  const expansion = useExpansion(target);
   const { mode, split, rows, counts, hunkAction } = useDiffFile({
     repo: repo,
     selection: selection,
@@ -143,7 +149,7 @@ function SelectedDiff({
   });
   const editable = canEdit(selection.source, entry?.worktree, data);
   const editing = Boolean(selection.editing) && editable;
-  const tokens = useTokens(repo, selection, data, !editing);
+  const tokens = useTokens(target, !editing);
   const blame = useBackend(
     'blame',
     { repo: repo, path: selection.path },
@@ -165,7 +171,9 @@ function SelectedDiff({
       ? blameList.current?.scrollToIndex(index, 'center')
       : surface.current?.scrollToRow(rowOfSide(index), 'center'),
   );
-  const dirty = useDirty(repo, selection.path);
+  const file = { repo: repo, path: selection.path };
+  const dirty = useDirty(file);
+  const openFile = useOpenFile(repo);
   const preview = useMemo(() => {
     if (!data || !rendered) return { text: '', deleted: false };
     if (data.content !== null) return { text: data.content, deleted: false };
@@ -177,27 +185,11 @@ function SelectedDiff({
       deleted: deleted,
     };
   }, [data, rendered]);
-  const toggleRendered = () =>
-    useSelection.getState().select(repo, {
-      ...selection,
-      rendered: !selection.rendered,
-      blame: false,
-      editing: false,
-    });
-  const toggleBlame = () =>
-    useSelection.getState().select(repo, {
-      ...selection,
-      blame: !selection.blame,
-      rendered: false,
-      editing: false,
-    });
-  const toggleEdit = () =>
-    useSelection.getState().select(repo, {
-      ...selection,
-      editing: !editing,
-      blame: false,
-      rendered: false,
-    });
+  const toggle = (mode: ViewMode, enabled: boolean) =>
+    openFile(withViewMode(selection, mode, enabled));
+  const toggleRendered = () => toggle('rendered', !selection.rendered);
+  const toggleBlame = () => toggle('blame', !selection.blame);
+  const toggleEdit = () => toggle('editing', !editing);
   const move = (direction: number) => {
     const indices = rows.flatMap((row, index) =>
       row.hunk !== undefined ? [index] : [],
@@ -273,7 +265,7 @@ function SelectedDiff({
       icon: <Save className="size-3.5" />,
       label: 'Save file',
       key: 'Mod+s',
-      run: () => save(repo, selection.path),
+      run: () => save(file),
       disabled: !editing || !dirty,
     },
     {
@@ -487,15 +479,14 @@ function SelectedDiff({
           <DiffSurface
             ref={surface}
             rows={rows}
-            hunks={data.hunks}
-            patches={data.patches}
-            split={split}
-            wrap={wrap}
-            whitespace={whitespace}
+            diff={data}
+            display={{ split: split, wrap: wrap, whitespace: whitespace }}
             tokens={tokens}
-            source={selection.source}
-            disabled={disabled}
-            hunkAction={(hunk, action) => void hunkAction(hunk, action)}
+            controls={{
+              source: selection.source,
+              disabled: disabled,
+              act: (hunk, action) => void hunkAction(hunk, action),
+            }}
             expansion={expansion}
             found={find.found}
           />

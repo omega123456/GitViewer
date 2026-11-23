@@ -1,4 +1,4 @@
-use super::workflows::{base, command, fixture, record};
+use super::workflows::{base, command, fixture, record, Recorded};
 use gitviewer_lib::{diff::quote, error::Error, fs, git, media};
 use std::path::Path;
 
@@ -97,7 +97,16 @@ async fn git_plumbing_helpers_report_outcomes() {
         .await
         .trim()
         .to_owned();
-    record(&dir, &repo, "file.txt", "one\ntwo\nfour\n", "Second").await;
+    record(
+        &dir,
+        &repo,
+        Recorded {
+            path: "file.txt",
+            body: "one\ntwo\nfour\n",
+            message: "Second",
+        },
+    )
+    .await;
     assert!(git::is_ancestor(root, &first, git::HEAD).await.unwrap());
     assert!(!git::is_ancestor(root, git::HEAD, &first).await.unwrap());
     assert!(git::ref_exists(root, &git::local_branch("main"))
@@ -111,7 +120,16 @@ async fn git_plumbing_helpers_report_outcomes() {
         None
     );
     command(root, &["checkout", "-b", "side", &first]).await;
-    record(&dir, &repo, "file.txt", "one\ntwo\nsix\n", "Side").await;
+    record(
+        &dir,
+        &repo,
+        Recorded {
+            path: "file.txt",
+            body: "one\ntwo\nsix\n",
+            message: "Side",
+        },
+    )
+    .await;
     let conflicts = git::merge_conflicts(root, "main", "side")
         .await
         .unwrap()

@@ -1,38 +1,28 @@
 import { create } from 'zustand';
-import { withEntry, withoutAll } from '../lib/record';
-export type CommitMode = 'commit' | 'commitPush';
-export interface Tab {
-  id: string;
-  name: string;
-  view: string;
-  members: string[];
-}
-interface Tabs {
-  tabs: Tab[];
-  active: string;
-  recent: string[];
-  messages: Record<string, string>;
-  modes: Record<string, CommitMode>;
+import { withEntry } from '../lib/record';
+import {
+  activated,
+  closed,
+  cycled,
+  joined,
+  departed,
+  opened,
+  shown,
+  type CommitMode,
+  type Tab,
+  type TabsState,
+} from './tabs/transitions';
+export type { CommitMode, Tab, TabsState } from './tabs/transitions';
+interface Tabs extends TabsState {
   open: (id: string, name: string, view?: string) => void;
   join: (id: string, name: string, member: string) => void;
   show: (id: string, view: string) => void;
   leave: (id: string, member: string) => void;
   close: (id: string) => void;
   activate: (id: string) => void;
+  cycle: (direction: number) => void;
   setMessage: (id: string, message: string) => void;
   setCommitMode: (id: string, commitMode: CommitMode) => void;
-}
-function joined(tabs: Tab[], id: string, name: string, member: string) {
-  const tab = tabs.find((candidate) => candidate.id === id);
-  if (!tab)
-    return [...tabs, { id: id, name: name, view: member, members: [member] }];
-  if (tab.members.includes(member)) return tabs;
-  return tabs.map((entry) =>
-    entry.id === id ? { ...entry, members: [...entry.members, member] } : entry,
-  );
-}
-function touched(recent: string[], id: string) {
-  return [id, ...recent.filter((entry) => entry !== id)];
 }
 export const useTabs = create<Tabs>((set) => ({
   tabs: [],
@@ -41,50 +31,17 @@ export const useTabs = create<Tabs>((set) => ({
   messages: {},
   modes: {},
   open: (id, name, view = id) =>
-    set((state) => ({
-      active: id,
-      recent: touched(state.recent, id),
-      tabs: joined(state.tabs, id, name, view).map((tab) =>
-        tab.id === id && tab.view !== view ? { ...tab, view } : tab,
-      ),
-    })),
+    set((state) => opened(state, { id: id, name: name, member: view })),
   join: (id, name, member) =>
-    set((state) => ({ tabs: joined(state.tabs, id, name, member) })),
-  show: (id, view) =>
     set((state) => ({
-      tabs: state.tabs.map((tab) => (tab.id === id ? { ...tab, view } : tab)),
+      tabs: joined(state.tabs, { id: id, name: name, member: member }),
     })),
+  show: (id, view) => set((state) => shown(state, id, view)),
   leave: (id, member) =>
-    set((state) => ({
-      tabs: state.tabs.map((tab) => {
-        if (tab.id !== id) return tab;
-        const members = tab.members.filter((existing) => existing !== member);
-        const view =
-          tab.view !== member
-            ? tab.view
-            : members.includes(id)
-              ? id
-              : members[0];
-        return { ...tab, members, view };
-      }),
-      messages: withoutAll(state.messages, [member]),
-    })),
-  close: (id) =>
-    set((state) => {
-      const members = state.tabs.find((tab) => tab.id === id)?.members ?? [];
-      return {
-        tabs: state.tabs.filter((tab) => tab.id !== id),
-        recent: state.recent.filter((entry) => entry !== id),
-        active:
-          state.active === id
-            ? (state.tabs.find((tab) => tab.id !== id)?.id ?? '')
-            : state.active,
-        messages: withoutAll(state.messages, members),
-        modes: withoutAll(state.modes, members),
-      };
-    }),
-  activate: (active) =>
-    set((state) => ({ active: active, recent: touched(state.recent, active) })),
+    set((state) => departed(state, { id: id, member: member })),
+  close: (id) => set((state) => closed(state, id)),
+  activate: (active) => set((state) => activated(state, active)),
+  cycle: (direction) => set((state) => cycled(state, direction)),
   setMessage: (id, message) =>
     set((state) => ({ messages: withEntry(state.messages, id, message) })),
   setCommitMode: (id, commitMode) =>

@@ -33,6 +33,64 @@ impl DiffSource {
         matches!(self, Self::Staged | Self::Unstaged)
     }
 }
+#[derive(Clone, Copy, Debug)]
+pub struct DiffRef<'a> {
+    pub path: &'a str,
+    pub source: DiffSource,
+    pub revision: &'a str,
+    pub base: &'a str,
+}
+impl<'a> DiffRef<'a> {
+    pub fn working(path: &'a str, source: DiffSource) -> Self {
+        Self {
+            path,
+            source,
+            revision: "",
+            base: "",
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Side {
+    Old,
+    New,
+}
+impl Side {
+    pub fn of(old: bool) -> Self {
+        if old {
+            return Self::Old;
+        }
+        Self::New
+    }
+}
+#[derive(Clone, Copy, Debug)]
+pub struct ReadOptions {
+    pub context: u32,
+    pub override_limit: bool,
+}
+impl ReadOptions {
+    pub const DEFAULT: Self = Self {
+        context: DIFF_CONTEXT_LINES,
+        override_limit: false,
+    };
+    pub const UNLIMITED: Self = Self {
+        context: DIFF_CONTEXT_LINES,
+        override_limit: true,
+    };
+}
+#[derive(Clone, Copy, Debug)]
+pub struct Endpoints<'a> {
+    pub base: &'a str,
+    pub target: &'a str,
+}
+#[derive(Clone, Copy, Debug)]
+pub struct HunkRequest<'a> {
+    pub path: &'a str,
+    pub source: DiffSource,
+    pub hunk: usize,
+    pub expected: &'a str,
+    pub action: &'a str,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LineKind {
@@ -272,7 +330,11 @@ pub fn dimensions(bytes: &[u8]) -> Option<Dimensions> {
     }
     None
 }
-fn range(value: &str) -> Result<(u32, u32)> {
+struct LineRange {
+    start: u32,
+    count: u32,
+}
+fn range(value: &str) -> Result<LineRange> {
     let mut parts = value.get(1..).unwrap_or_default().split(',');
     let start = parts
         .next()
@@ -284,7 +346,7 @@ fn range(value: &str) -> Result<(u32, u32)> {
         .unwrap_or("1")
         .parse()
         .map_err(|_| Error::unexpected("Malformed diff count"))?;
-    Ok((start, count))
+    Ok(LineRange { start, count })
 }
 pub fn parse(text: &str, path: &str, source: DiffSource) -> Result<Diff> {
     let mut diff = Diff::empty(path, source);
@@ -296,16 +358,16 @@ pub fn parse(text: &str, path: &str, source: DiffSource) -> Result<Diff> {
             if parts.len() < HUNK_HEADER_PARTS {
                 return Err(Error::unexpected("Malformed hunk header"));
             }
-            let (old_start, old_count) = range(parts[1])?;
-            let (new_start, new_count) = range(parts[2])?;
-            old = old_start;
-            new = new_start;
+            let old_range = range(parts[1])?;
+            let new_range = range(parts[2])?;
+            old = old_range.start;
+            new = new_range.start;
             diff.hunks.push(Hunk {
                 header: value.into(),
-                old_start,
-                old_count,
-                new_start,
-                new_count,
+                old_start: old_range.start,
+                old_count: old_range.count,
+                new_start: new_range.start,
+                new_count: new_range.count,
                 lines: Vec::new(),
             });
         } else if let Some(hunk) = diff.hunks.last_mut() {
@@ -439,7 +501,11 @@ fn ranges(line: &str, tokens: &[&str], changed: &[bool]) -> Marks {
     marks
 }
 type Marks = Vec<[u32; 2]>;
-fn mark_pair(old: &str, new: &str) -> Option<(Marks, Marks)> {
+struct MarkPair {
+    old: Marks,
+    new: Marks,
+}
+fn mark_pair(old: &str, new: &str) -> Option<MarkPair> {
     let (old_trimmed, new_trimmed) = (old.trim(), new.trim());
     let (old_tokens, new_tokens) = (tokens(old_trimmed), tokens(new_trimmed));
     let mut old_changed = Vec::with_capacity(old_tokens.len());
@@ -468,129 +534,125 @@ fn mark_pair(old: &str, new: &str) -> Option<(Marks, Marks)> {
     if changed * FULL_PERCENT > EMPHASIS_LIMIT_PERCENT * longest {
         return None;
     }
-    Some((
-        ranges(old, &old_tokens, &old_changed),
-        ranges(new, &new_tokens, &new_changed),
-    ))
+    Some(MarkPair {
+        old: ranges(old, &old_tokens, &old_changed),
+        new: ranges(new, &new_tokens, &new_changed),
+    })
 }
-fn align(
-    removed: &[Line],
-    added: &[Line],
-    old: Range<usize>,
-    new: Range<usize>,
-    budget: &mut usize,
-    pairs: &mut Vec<(usize, usize)>,
-) {
-    let (rows, columns) = (old.len(), new.len());
-    if rows == 0 || columns == 0 {
-        return;
-    }
-    let scorable = |line: &Line| line.content.len() <= MARK_LINE_LIMIT;
-    let cost: usize = if rows * columns > ALIGN_CELLS {
-        usize::MAX
-    } else {
-        removed[old.clone()]
-            .iter()
-            .flat_map(|removed_line| {
-                added[new.clone()]
-                    .iter()
-                    .map(move |added_line| (removed_line, added_line))
-            })
-            .filter(|(removed_line, added_line)| scorable(removed_line) && scorable(added_line))
-            .map(|(removed_line, added_line)| removed_line.content.len() + added_line.content.len())
-            .sum()
-    };
-    if cost > *budget {
-        if rows == columns {
-            pairs.extend(old.zip(new));
+#[derive(Clone, Copy)]
+struct LinePair {
+    old: usize,
+    new: usize,
+}
+struct Aligner<'a> {
+    removed: &'a [Line],
+    added: &'a [Line],
+    budget: &'a mut usize,
+    pairs: Vec<LinePair>,
+}
+impl Aligner<'_> {
+    fn align(&mut self, old: Range<usize>, new: Range<usize>) {
+        let (rows, columns) = (old.len(), new.len());
+        if rows == 0 || columns == 0 {
+            return;
         }
-        return;
-    }
-    *budget -= cost;
-    let score: Vec<Vec<f32>> = removed[old.clone()]
-        .iter()
-        .map(|removed_line| {
-            added[new.clone()]
-                .iter()
-                .map(|added_line| {
-                    if scorable(removed_line) && scorable(added_line) {
-                        similarity(&removed_line.content, &added_line.content)
-                    } else {
-                        0.0
-                    }
-                })
-                .collect()
-        })
-        .collect();
-    let mut best = vec![vec![0.0f32; columns + 1]; rows + 1];
-    for row in (0..rows).rev() {
-        for column in (0..columns).rev() {
-            let skip = best[row + 1][column].max(best[row][column + 1]);
-            best[row][column] = if score[row][column] >= PAIR_THRESHOLD {
-                skip.max(best[row + 1][column + 1] + score[row][column])
-            } else {
-                skip
-            };
-        }
-    }
-    let (mut row, mut column) = (0, 0);
-    while row < rows && column < columns {
-        let skip = best[row + 1][column].max(best[row][column + 1]);
-        if score[row][column] >= PAIR_THRESHOLD
-            && best[row + 1][column + 1] + score[row][column] > skip
-        {
-            pairs.push((old.start + row, new.start + column));
-            row += 1;
-            column += 1;
-        } else if best[row + 1][column] >= best[row][column + 1] {
-            row += 1;
+        let scorable = |line: &Line| line.content.len() <= MARK_LINE_LIMIT;
+        let cost: usize = if rows * columns > ALIGN_CELLS {
+            usize::MAX
         } else {
-            column += 1;
+            self.removed[old.clone()]
+                .iter()
+                .flat_map(|removed_line| {
+                    self.added[new.clone()]
+                        .iter()
+                        .map(move |added_line| (removed_line, added_line))
+                })
+                .filter(|(removed_line, added_line)| scorable(removed_line) && scorable(added_line))
+                .map(|(removed_line, added_line)| {
+                    removed_line.content.len() + added_line.content.len()
+                })
+                .sum()
+        };
+        if cost > *self.budget {
+            if rows == columns {
+                self.pairs
+                    .extend(old.zip(new).map(|(old, new)| LinePair { old, new }));
+            }
+            return;
+        }
+        *self.budget -= cost;
+        let score: Vec<Vec<f32>> = self.removed[old.clone()]
+            .iter()
+            .map(|removed_line| {
+                self.added[new.clone()]
+                    .iter()
+                    .map(|added_line| {
+                        if scorable(removed_line) && scorable(added_line) {
+                            similarity(&removed_line.content, &added_line.content)
+                        } else {
+                            0.0
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+        let mut best = vec![vec![0.0f32; columns + 1]; rows + 1];
+        for row in (0..rows).rev() {
+            for column in (0..columns).rev() {
+                let skip = best[row + 1][column].max(best[row][column + 1]);
+                best[row][column] = if score[row][column] >= PAIR_THRESHOLD {
+                    skip.max(best[row + 1][column + 1] + score[row][column])
+                } else {
+                    skip
+                };
+            }
+        }
+        let (mut row, mut column) = (0, 0);
+        while row < rows && column < columns {
+            let skip = best[row + 1][column].max(best[row][column + 1]);
+            if score[row][column] >= PAIR_THRESHOLD
+                && best[row + 1][column + 1] + score[row][column] > skip
+            {
+                self.pairs.push(LinePair {
+                    old: old.start + row,
+                    new: new.start + column,
+                });
+                row += 1;
+                column += 1;
+            } else if best[row + 1][column] >= best[row][column + 1] {
+                row += 1;
+            } else {
+                column += 1;
+            }
         }
     }
 }
-fn pairs(removed: &[Line], added: &[Line], budget: &mut usize) -> Vec<(usize, usize)> {
-    let mut found = Vec::new();
+fn pairs(removed: &[Line], added: &[Line], budget: &mut usize) -> Vec<LinePair> {
+    let mut aligner = Aligner {
+        removed,
+        added,
+        budget,
+        pairs: Vec::new(),
+    };
     if removed.len() + added.len() > ANCHOR_LINES {
-        align(
-            removed,
-            added,
-            0..removed.len(),
-            0..added.len(),
-            budget,
-            &mut found,
-        );
-        return found;
+        aligner.align(0..removed.len(), 0..added.len());
+        return aligner.pairs;
     }
     let old: Vec<&str> = removed.iter().map(|line| line.content.trim()).collect();
     let new: Vec<&str> = added.iter().map(|line| line.content.trim()).collect();
-    let (mut old_at, mut new_at) = (0, 0);
-    for op in TextDiff::from_slices(&old, &new).ops() {
-        if op.tag() == DiffTag::Equal {
-            let (old_range, new_range) = (op.old_range(), op.new_range());
-            align(
-                removed,
-                added,
-                old_at..old_range.start,
-                new_at..new_range.start,
-                budget,
-                &mut found,
-            );
-            (old_at, new_at) = (old_range.end, new_range.end);
+    let (mut old_offset, mut new_offset) = (0, 0);
+    for operation in TextDiff::from_slices(&old, &new).ops() {
+        if operation.tag() == DiffTag::Equal {
+            let (old_range, new_range) = (operation.old_range(), operation.new_range());
+            aligner.align(old_offset..old_range.start, new_offset..new_range.start);
+            (old_offset, new_offset) = (old_range.end, new_range.end);
         }
     }
-    align(
-        removed,
-        added,
-        old_at..removed.len(),
-        new_at..added.len(),
-        budget,
-        &mut found,
-    );
-    found
+    aligner.align(old_offset..removed.len(), new_offset..added.len());
+    aligner.pairs
 }
-fn mark(lines: &mut [Line], old: usize, new: usize, budget: &mut usize) {
-    let (old_text, new_text) = (&lines[old].content, &lines[new].content);
+fn mark(lines: &mut [Line], pair: LinePair, budget: &mut usize) {
+    let (old_text, new_text) = (&lines[pair.old].content, &lines[pair.new].content);
     if old_text.len() > MARK_LINE_LIMIT || new_text.len() > MARK_LINE_LIMIT {
         return;
     }
@@ -600,9 +662,9 @@ fn mark(lines: &mut [Line], old: usize, new: usize, budget: &mut usize) {
         return;
     }
     *budget -= cost;
-    if let Some((old_marks, new_marks)) = mark_pair(old_text, new_text) {
-        lines[old].marks = old_marks;
-        lines[new].marks = new_marks;
+    if let Some(marks) = mark_pair(old_text, new_text) {
+        lines[pair.old].marks = marks.old;
+        lines[pair.new].marks = marks.new;
     }
 }
 fn mark_words(lines: &mut [Line], budget: &mut usize) {
@@ -620,8 +682,12 @@ fn mark_words(lines: &mut [Line], budget: &mut usize) {
         while position < lines.len() && lines[position].kind == LineKind::Add {
             position += 1;
         }
-        for (old, new) in pairs(&lines[start..added], &lines[added..position], budget) {
-            mark(lines, start + old, added + new, budget);
+        for pair in pairs(&lines[start..added], &lines[added..position], budget) {
+            let absolute = LinePair {
+                old: start + pair.old,
+                new: added + pair.new,
+            };
+            mark(lines, absolute, budget);
         }
     }
 }
@@ -652,7 +718,7 @@ pub struct Comparison {
     pub target: String,
     pub files: Vec<ChangedFile>,
 }
-async fn tree_diff(repo: &Repo, listing: &str, base: &str, target: &str) -> Result<Vec<String>> {
+async fn tree_diff(repo: &Repo, listing: &str, endpoints: Endpoints<'_>) -> Result<Vec<String>> {
     git::nul_list(
         &repo.root,
         &[
@@ -661,20 +727,19 @@ async fn tree_diff(repo: &Repo, listing: &str, base: &str, target: &str) -> Resu
             listing,
             "-r",
             "-z",
-            base,
-            target,
+            endpoints.base,
+            endpoints.target,
         ],
     )
     .await
 }
 pub async fn compare(
     repo: &Repo,
-    base: &str,
-    target: &str,
+    endpoints: Endpoints<'_>,
     merge_base: bool,
 ) -> Result<Comparison> {
-    let mut base = resolve(repo, base).await?;
-    let target = resolve(repo, target).await?;
+    let mut base = resolve(repo, endpoints.base).await?;
+    let target = resolve(repo, endpoints.target).await?;
     if merge_base {
         let common = git::run(&repo.root, &["merge-base", &base, &target], None).await?;
         if !common.succeeded() {
@@ -684,8 +749,12 @@ pub async fn compare(
         }
         base = common.text().trim().to_owned();
     }
-    let statuses = tree_diff(repo, "--name-status", &base, &target).await?;
-    let counts = tree_diff(repo, "--numstat", &base, &target).await?;
+    let resolved = Endpoints {
+        base: &base,
+        target: &target,
+    };
+    let statuses = tree_diff(repo, "--name-status", resolved).await?;
+    let counts = tree_diff(repo, "--numstat", resolved).await?;
     let files = statuses
         .chunks(NAME_STATUS_FIELDS)
         .zip(counts)
@@ -726,14 +795,14 @@ enum Blob {
     Object(String),
     Absent,
 }
-async fn location(
-    repo: &Repo,
-    path: &str,
-    source: DiffSource,
-    revision: &str,
-    base: &str,
-    old: bool,
-) -> Result<Blob> {
+async fn location(repo: &Repo, reference: DiffRef<'_>, side: Side) -> Result<Blob> {
+    let DiffRef {
+        path,
+        source,
+        revision,
+        base,
+    } = reference;
+    let old = side == Side::Old;
     let full = repo.path(path)?;
     let working = matches!(source, DiffSource::Unstaged | DiffSource::File);
     if working && !old {
@@ -805,29 +874,11 @@ async fn blob_bytes(repo: &Repo, blob: &Blob) -> Result<Vec<u8>> {
     }
 }
 
-pub async fn bytes(
-    repo: &Repo,
-    path: &str,
-    source: DiffSource,
-    revision: &str,
-    base: &str,
-    old: bool,
-) -> Result<Vec<u8>> {
-    blob_bytes(
-        repo,
-        &location(repo, path, source, revision, base, old).await?,
-    )
-    .await
+pub async fn bytes(repo: &Repo, reference: DiffRef<'_>, side: Side) -> Result<Vec<u8>> {
+    blob_bytes(repo, &location(repo, reference, side).await?).await
 }
-pub async fn size(
-    repo: &Repo,
-    path: &str,
-    source: DiffSource,
-    revision: &str,
-    base: &str,
-    old: bool,
-) -> Result<usize> {
-    match location(repo, path, source, revision, base, old).await? {
+pub async fn size(repo: &Repo, reference: DiffRef<'_>, side: Side) -> Result<usize> {
+    match location(repo, reference, side).await? {
         Blob::Absent => Ok(0),
         Blob::Object(spec) => object_size(repo, &spec).await,
         Blob::Working(path) => Ok(fs::size_if_present(&path)?),
@@ -847,18 +898,11 @@ pub fn size_limit(image: bool) -> usize {
         TEXT_SIZE_LIMIT
     }
 }
-pub async fn text(
-    repo: &Repo,
-    path: &str,
-    source: DiffSource,
-    revision: &str,
-    base: &str,
-    old: bool,
-) -> Result<Option<String>> {
-    if size(repo, path, source, revision, base, old).await? > size_limit(false) {
+pub async fn text(repo: &Repo, reference: DiffRef<'_>, side: Side) -> Result<Option<String>> {
+    if size(repo, reference, side).await? > size_limit(false) {
         return Ok(None);
     }
-    let bytes = bytes(repo, path, source, revision, base, old).await?;
+    let bytes = bytes(repo, reference, side).await?;
     if fs::is_binary(&bytes) {
         return Ok(None);
     }
@@ -937,15 +981,17 @@ async fn side_bytes(repo: &Repo, side: &Blob, size: usize) -> Result<Vec<u8>> {
         _ => blob_bytes(repo, side).await,
     }
 }
-pub async fn read(
-    repo: &Repo,
-    path: &str,
-    source: DiffSource,
-    revision: &str,
-    base: &str,
-    context: u32,
-    override_limit: bool,
-) -> Result<Diff> {
+pub async fn read(repo: &Repo, reference: DiffRef<'_>, options: ReadOptions) -> Result<Diff> {
+    let DiffRef {
+        path,
+        source,
+        revision,
+        base,
+    } = reference;
+    let ReadOptions {
+        context,
+        override_limit,
+    } = options;
     let full = repo.path(path)?;
     let image = is_image(path);
     let mut result = Diff {
@@ -1084,14 +1130,10 @@ pub fn add_patches(diff: &mut Diff) {
 }
 pub async fn read_patched(
     repo: &Repo,
-    path: &str,
-    source: DiffSource,
-    revision: &str,
-    base: &str,
-    context: u32,
-    override_limit: bool,
+    reference: DiffRef<'_>,
+    options: ReadOptions,
 ) -> Result<Diff> {
-    let mut diff = read(repo, path, source, revision, base, context, override_limit).await?;
+    let mut diff = read(repo, reference, options).await?;
     add_patches(&mut diff);
     Ok(diff)
 }
@@ -1119,14 +1161,14 @@ pub fn patch(path: &str, hunk: &Hunk) -> Result<String> {
     }
     Ok(patch)
 }
-pub async fn apply_hunk(
-    repo: &Repo,
-    path: &str,
-    source: DiffSource,
-    hunk: usize,
-    expected: &str,
-    action: &str,
-) -> Result<()> {
+pub async fn apply_hunk(repo: &Repo, request: HunkRequest<'_>) -> Result<()> {
+    let HunkRequest {
+        path,
+        source,
+        hunk,
+        expected,
+        action,
+    } = request;
     repo.writable().await?;
     if !matches!(
         (source, action),
@@ -1138,7 +1180,7 @@ pub async fn apply_hunk(
             "This action is not permitted for this diff source",
         ));
     }
-    let diff = read(repo, path, source, "", "", DIFF_CONTEXT_LINES, true).await?;
+    let diff = read(repo, DiffRef::working(path, source), ReadOptions::UNLIMITED).await?;
     let hunk = diff
         .hunks
         .get(hunk)

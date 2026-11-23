@@ -1,4 +1,4 @@
-import type { Lines } from '../../lib/types';
+import type { Lines, LineTotals } from '../../lib/types';
 import { pluralWord } from '../../lib/text';
 import { addedInk, removedInk } from './styles';
 const compact = new Intl.NumberFormat('en', { notation: 'compact' });
@@ -6,7 +6,7 @@ const exact = new Intl.NumberFormat('en');
 function short(value: number) {
   return compact.format(value).toLowerCase();
 }
-function describe([added, removed]: [number, number]) {
+function describe([added, removed]: LineTotals) {
   return `${exact.format(added)} ${pluralWord(added, 'line')} added, ${exact.format(removed)} removed`;
 }
 export function sumLines(

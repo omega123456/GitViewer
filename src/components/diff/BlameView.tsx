@@ -7,7 +7,6 @@ import {
   useLayoutField,
   blameWidthBounds,
 } from '../../stores/layout';
-import { useSelection } from '../../stores/selection';
 import type { Selection } from '../../lib/types';
 import { clickable, dynamic, focus, gutterCell } from '../shared/styles';
 import { VirtualList, type VirtualListHandle } from '../shared/VirtualList';
@@ -17,6 +16,7 @@ import { ResizeHandle } from '../shell/ResizeHandle';
 import { findClass, findTokens, type Found } from './find';
 import { shortHash } from '../../lib/git';
 import { boundsOf } from '../../lib/geometry';
+import { useOpenFile } from '../../lib/open-file';
 const MIN_CONTENT_WIDTH_BESIDE_BLAME = 320;
 export function BlameView({
   repo,
@@ -31,6 +31,7 @@ export function BlameView({
 }) {
   const query = useBackend('blame', { repo: repo, path: selection.path });
   const blameWidth = useLayoutField(repo, 'blameWidth');
+  const openFile = useOpenFile(repo);
   return query.error ? (
     <ErrorState
       title="Could not load blame"
@@ -61,7 +62,7 @@ export function BlameView({
                     title={line.hash}
                     onClick={() => {
                       useLayout.getState().update(repo, { mode: 'history' });
-                      useSelection.getState().select(repo, {
+                      openFile({
                         path: selection.path,
                         source: 'commit',
                         revision: line.hash,
@@ -106,9 +107,7 @@ export function BlameView({
         <ResizeHandle
           label="Resize blame annotations"
           orientation="horizontal"
-          min={blameWidthBounds.min}
-          max={blameWidthBounds.max}
-          step={blameWidthBounds.step}
+          bounds={blameWidthBounds}
           value={blameWidth}
           className="absolute inset-y-0 left-blame z-20 w-1 cursor-col-resize bg-line hover:bg-accent focus-visible:bg-accent dark:bg-line-dark"
           measure={(event) => {

@@ -4,15 +4,17 @@ use crate::{
     app::{
         emit_head_changed, emit_status_changed, open_in_system, show_edit_menu, write_clipboard,
     },
-    branch,
-    diff::{self, DiffSource},
-    edit,
+    branch::{self, NewBranch, ProgressTarget},
+    diff::{self, stack::StackRef, DiffRef, DiffSource, Endpoints, HunkRequest, ReadOptions, Side},
+    edit::{self, Save},
     error::{Error, Result},
     git, history, lifecycle, lines, logging,
     repo::{self, Registry, Repository},
-    session, settings, stash,
+    session, settings,
+    stash::{self, ApplyOptions},
     status::Status,
-    tree, updater, worktree,
+    tree, updater,
+    worktree::{self, AppliedTree, NewWorktree, Placement, Removal, WorktreePair},
 };
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{value::RawValue, Value};
@@ -41,6 +43,94 @@ fn context_lines(args: &Value) -> u32 {
         .map_or(diff::DIFF_CONTEXT_LINES, |context| {
             u32::try_from(context).unwrap_or(u32::MAX)
         })
+}
+fn save(args: &Value) -> Result<Save<'_>> {
+    Ok(Save {
+        content: string(args, "content")?,
+        expected: args.get("expected").and_then(Value::as_str),
+    })
+}
+fn apply_options(args: &Value) -> ApplyOptions {
+    ApplyOptions {
+        pop: flag(args, "pop"),
+        smart: flag(args, "smart"),
+    }
+}
+fn new_branch(args: &Value) -> Result<NewBranch<'_>> {
+    Ok(NewBranch {
+        name: string(args, "name")?,
+        base: string(args, "base")?,
+        checkout: flag(args, "checkout"),
+    })
+}
+fn placement(args: &Value) -> Result<Placement<'_>> {
+    Ok(Placement {
+        mode: string(args, "mode")?,
+        name: optional(args, "ref"),
+        path: optional(args, "path"),
+    })
+}
+fn new_worktree(args: &Value) -> Result<NewWorktree<'_>> {
+    Ok(NewWorktree {
+        path: optional(args, "path"),
+        mode: string(args, "mode")?,
+        branch: optional(args, "branch"),
+        base: optional(args, "base"),
+    })
+}
+fn removal(args: &Value) -> Result<Removal<'_>> {
+    Ok(Removal {
+        worktree: string(args, "worktree")?,
+        force: number(args, "force"),
+    })
+}
+fn worktree_pair(args: &Value) -> Result<WorktreePair<'_>> {
+    Ok(WorktreePair {
+        source: string(args, "source")?,
+        target: string(args, "target")?,
+    })
+}
+fn applied_tree(args: &Value) -> Result<AppliedTree<'_>> {
+    Ok(AppliedTree {
+        base: string(args, "base")?,
+        tree: string(args, "tree")?,
+    })
+}
+fn read_options(args: &Value) -> ReadOptions {
+    ReadOptions {
+        context: context_lines(args),
+        override_limit: flag(args, "overrideLimit"),
+    }
+}
+fn diff_ref(args: &Value) -> Result<DiffRef<'_>> {
+    Ok(DiffRef {
+        path: optional(args, "path"),
+        source: source(args)?,
+        revision: optional(args, "revision"),
+        base: optional(args, "base"),
+    })
+}
+fn stack_ref(args: &Value) -> Result<StackRef<'_>> {
+    Ok(StackRef {
+        source: source(args)?,
+        revision: optional(args, "revision"),
+        base: optional(args, "base"),
+    })
+}
+fn hunk_request(args: &Value) -> Result<HunkRequest<'_>> {
+    Ok(HunkRequest {
+        path: optional(args, "path"),
+        source: source(args)?,
+        hunk: index(args, "hunk"),
+        expected: string(args, "patch")?,
+        action: string(args, "action")?,
+    })
+}
+fn endpoints(args: &Value) -> Result<Endpoints<'_>> {
+    Ok(Endpoints {
+        base: string(args, "base")?,
+        target: string(args, "target")?,
+    })
 }
 fn decoded<T: DeserializeOwned>(args: &Value, key: &str) -> Result<T> {
     Ok(serde_json::from_value(
@@ -178,17 +268,25 @@ async fn in_repository<R: Runtime>(
     }
     let _write = repo.writes.lock().await;
     let snapshot = repo.snapshot().await?;
-    let previous = HeadIdentity::of(&snapshot);
+    let started = StartedMutation {
+        mutation,
+        previous: HeadIdentity::of(&snapshot),
+    };
     let outcome = repository_command(&call).await;
-    finish_mutation(&call, mutation, previous, outcome).await
+    finish_mutation(&call, started, outcome).await
+}
+
+struct StartedMutation {
+    mutation: Mutation,
+    previous: HeadIdentity,
 }
 
 async fn finish_mutation<R: Runtime>(
     call: &Call<'_, R>,
-    mutation: Mutation,
-    previous: HeadIdentity,
+    started: StartedMutation,
     outcome: Result<Box<RawValue>>,
 ) -> Result<Box<RawValue>> {
+    let StartedMutation { mutation, previous } = started;
     let refreshed = call.repo.refresh().await;
     let head_moved = refreshed
         .as_ref()
@@ -245,12 +343,7 @@ async fn working_tree_command<R: Runtime>(call: &Call<'_, R>) -> Result<Option<B
         "tree" => raw(&tree::list(repo, path).await?),
         "files" => raw(&tree::files(repo, flag(args, "ignored")).await?),
         "file_read" => raw(&edit::read(repo, path)?),
-        "file_write" => raw(&edit::write(
-            repo,
-            path,
-            string(args, "content")?,
-            args.get("expected").and_then(Value::as_str),
-        )?),
+        "file_write" => raw(&edit::write(repo, path, save(args)?)?),
         "files_action" => raw(&actions::files(
             repo,
             &decoded::<Vec<String>>(args, "paths")?,
@@ -271,40 +364,14 @@ async fn diff_command<R: Runtime>(call: &Call<'_, R>) -> Result<Option<Box<RawVa
         command,
         ..
     } = *call;
-    let path = optional(args, "path");
-    let revision = optional(args, "revision");
-    let base = optional(args, "base");
     let response = match command {
-        "diff" => raw(&diff::read_patched(
-            repo,
-            path,
-            source(args)?,
-            revision,
-            base,
-            context_lines(args),
-            flag(args, "overrideLimit"),
-        )
-        .await?),
-        "file_lines" => {
-            raw(&diff::text(repo, path, source(args)?, revision, base, flag(args, "old")).await?)
+        "diff" => raw(&diff::read_patched(repo, diff_ref(args)?, read_options(args)).await?),
+        "file_lines" => raw(&diff::text(repo, diff_ref(args)?, Side::of(flag(args, "old"))).await?),
+        "diff_stack" => raw(&diff::stack::read_patched(repo, stack_ref(args)?).await?),
+        "hunk_action" => raw(&diff::apply_hunk(repo, hunk_request(args)?).await?),
+        "compare_files" => {
+            raw(&diff::compare(repo, endpoints(args)?, flag(args, "mergeBase")).await?)
         }
-        "diff_stack" => raw(&diff::stack::read_patched(repo, source(args)?, revision, base).await?),
-        "hunk_action" => raw(&diff::apply_hunk(
-            repo,
-            path,
-            source(args)?,
-            index(args, "hunk"),
-            string(args, "patch")?,
-            string(args, "action")?,
-        )
-        .await?),
-        "compare_files" => raw(&diff::compare(
-            repo,
-            string(args, "base")?,
-            string(args, "target")?,
-            flag(args, "mergeBase"),
-        )
-        .await?),
         _ => return Ok(None),
     };
     response.map(Some)
@@ -344,20 +411,19 @@ async fn branch_command<R: Runtime>(call: &Call<'_, R>) -> Result<Option<Box<Raw
         "branches" => raw(&branch::list(repo).await?),
         "default_branch" => raw(&branch::default_branch(repo).await?),
         "branch_switch" => raw(&branch::switch(repo, string(args, "name")?).await?),
-        "branch_create" => raw(&branch::create_and_checkout(
-            repo,
-            string(args, "name")?,
-            string(args, "base")?,
-            flag(args, "checkout"),
-        )
-        .await?),
+        "branch_create" => raw(&branch::create_and_checkout(repo, new_branch(args)?).await?),
         "branch_delete" => raw(&branch::delete(repo, string(args, "name")?).await?),
         "branch_gone" => raw(&branch::gone(repo).await?),
         "branch_prune" => raw(&branch::prune(repo, decoded(args, "names")?).await?),
         "merge_preview" => raw(&branch::merge_preview(repo, string(args, "name")?).await?),
         "branch_merge" => raw(&branch::merge(repo, string(args, "name")?).await?),
         "merge_abort" => raw(&branch::abort(repo).await?),
-        "sync" => raw(&branch::sync_reporting(app, repo, id, string(args, "action")?).await?),
+        "sync" => {
+            raw(
+                &branch::sync_reporting(repo, string(args, "action")?, ProgressTarget { app, id })
+                    .await?,
+            )
+        }
         _ => return Ok(None),
     };
     response.map(Some)
@@ -371,50 +437,24 @@ async fn worktree_command<R: Runtime>(call: &Call<'_, R>) -> Result<Option<Box<R
         command,
         ..
     } = *call;
-    let path = optional(args, "path");
-    let base = optional(args, "base");
     let response = match command {
         "worktrees" => raw(&worktree::list(&repo.root).await?),
         "worktree_prune" => raw(&worktree::prune(&repo.root).await?),
-        "worktree_target" => {
-            raw(&worktree::target(repo, string(args, "mode")?, optional(args, "ref"), path).await?)
-        }
+        "worktree_target" => raw(&worktree::target(repo, placement(args)?).await?),
         "worktree_summary" => {
             raw(
                 &worktree::summary_against(repo, &app.state::<Registry>(), string(args, "target")?)
                     .await?,
             )
         }
-        "worktree_add" => raw(&worktree::add_to_project(
-            app,
-            repo,
-            path,
-            string(args, "mode")?,
-            optional(args, "branch"),
-            base,
-        )
-        .await?),
-        "worktree_remove" => raw(&worktree::remove_from_project(
-            app,
-            repo,
-            string(args, "worktree")?,
-            number(args, "force"),
-        )
-        .await?),
-        "worktree_apply" => raw(&worktree::apply_between(
-            app,
-            string(args, "source")?,
-            string(args, "target")?,
-            flag(args, "smart"),
-        )
-        .await?),
-        "worktree_unapply" => raw(&worktree::unapply_in(
-            app,
-            string(args, "target")?,
-            string(args, "base")?,
-            string(args, "tree")?,
-        )
-        .await?),
+        "worktree_add" => raw(&worktree::add_to_project(app, repo, new_worktree(args)?).await?),
+        "worktree_remove" => raw(&worktree::remove_from_project(app, repo, removal(args)?).await?),
+        "worktree_apply" => {
+            raw(&worktree::apply_between(app, worktree_pair(args)?, flag(args, "smart")).await?)
+        }
+        "worktree_unapply" => {
+            raw(&worktree::unapply_in(app, string(args, "target")?, applied_tree(args)?).await?)
+        }
         _ => return Ok(None),
     };
     response.map(Some)
@@ -430,13 +470,9 @@ async fn stash_command<R: Runtime>(call: &Call<'_, R>) -> Result<Option<Box<RawV
     let response = match command {
         "stashes" => raw(&stash::list(repo).await?),
         "stash_save" => raw(&stash::save(repo, optional(args, "message")).await?),
-        "stash_apply" => raw(&stash::apply(
-            repo,
-            string(args, "hash")?,
-            flag(args, "pop"),
-            flag(args, "smart"),
-        )
-        .await?),
+        "stash_apply" => {
+            raw(&stash::apply(repo, string(args, "hash")?, apply_options(args)).await?)
+        }
         "stash_drop" => raw(&stash::remove(repo, string(args, "hash")?).await?),
         "stash_restore" => {
             raw(&stash::store(repo, string(args, "hash")?, string(args, "message")?).await?)

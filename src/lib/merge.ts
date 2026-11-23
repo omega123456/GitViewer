@@ -9,6 +9,13 @@ export interface MergeFraming {
   lead: string;
 }
 
+export interface MergeRequest {
+  repo: string;
+  name: string;
+  current: string;
+  framing?: MergeFraming;
+}
+
 const branchMergeFraming: MergeFraming = { title: 'Merge branch', lead: '' };
 
 const CONFLICT_LIST: ListLayout = {
@@ -17,7 +24,8 @@ const CONFLICT_LIST: ListLayout = {
   overflowSeparator: '\n',
 };
 
-function question(preview: MergePreview, name: string, current: string) {
+function question(preview: MergePreview, request: MergeRequest) {
+  const { name, current } = request;
   const { changed, conflicts } = preview;
   if (preview.outcome !== 'conflict')
     return `Merge ${name} into ${current}? GitViewer checked the result: ${plural(changed, 'file changes', 'files change')} and nothing conflicts. This will ${preview.outcome === 'fastForward' ? `fast-forward ${current}.` : `create a merge commit on ${current}.`}`;
@@ -28,20 +36,13 @@ function question(preview: MergePreview, name: string, current: string) {
 function framedQuestion(
   framing: MergeFraming,
   preview: MergePreview,
-  name: string,
-  current: string,
+  request: MergeRequest,
 ) {
-  return [framing.lead, question(preview, name, current)]
-    .filter(Boolean)
-    .join(' ');
+  return [framing.lead, question(preview, request)].filter(Boolean).join(' ');
 }
 
-export async function mergeBranch(
-  repo: string,
-  name: string,
-  current: string,
-  framing = branchMergeFraming,
-) {
+export async function mergeBranch(request: MergeRequest) {
+  const { repo, name, current, framing = branchMergeFraming } = request;
   const preview = await perform('merge_preview', { repo, name });
   if (!preview) return;
   if (preview.outcome === 'upToDate') {
@@ -52,7 +53,7 @@ export async function mergeBranch(
   }
   const conflicting = preview.outcome === 'conflict';
   if (
-    await confirmAction(framedQuestion(framing, preview, name, current), {
+    await confirmAction(framedQuestion(framing, preview, request), {
       title: framing.title,
       kind: conflicting ? 'warning' : 'info',
       okLabel: conflicting ? 'Merge anyway' : 'Merge',

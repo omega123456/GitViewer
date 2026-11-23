@@ -19,12 +19,61 @@ pub struct Session {
     reader: tokio::io::BufReader<tokio::process::ChildStdout>,
     stderr: Option<tokio::task::JoinHandle<std::io::Result<Vec<u8>>>>,
     lanes: Vec<Lane>,
-    kept: Option<(String, Page)>,
+    cursor: Cursor,
+}
+struct KeptPage {
+    cursor: String,
+    page: Page,
+}
+#[derive(Default)]
+struct Cursor {
+    kept: Option<KeptPage>,
     next: String,
+}
+impl Cursor {
+    fn replay(&self, cursor: &str) -> Option<&Page> {
+        self.kept
+            .as_ref()
+            .filter(|kept| kept.cursor == cursor)
+            .map(|kept| &kept.page)
+    }
+    fn expects(&self, cursor: &str) -> bool {
+        self.next == cursor
+    }
+    fn after(cursor: &str, page: &Page) -> Self {
+        Self {
+            kept: Some(KeptPage {
+                cursor: cursor.into(),
+                page: page.clone(),
+            }),
+            next: page.cursor.clone().unwrap_or_default(),
+        }
+    }
+}
+fn parse_commit(fields: Vec<String>) -> Commit {
+    let mut fields = fields.into_iter();
+    let mut next = || fields.next().unwrap_or_default();
+    let hash = next().trim().into();
+    let parents = next().split_whitespace().map(String::from).collect();
+    let author = next();
+    let timestamp = next().parse().unwrap_or_default();
+    let refs = next();
+    let subject = next();
+    Commit {
+        hash,
+        parents,
+        author,
+        timestamp,
+        refs,
+        subject,
+        lane: 0,
+        color: 0,
+        entered: false,
+        segments: Vec::new(),
+    }
 }
 const PAGE_SIZE: usize = 100;
 const HISTORY_FIELDS: usize = 6;
-const BLAME_HEADER_FIELDS: usize = 3;
 const HISTORY_FORMAT: &str = "--format=%H%x00%P%x00%an%x00%at%x00%D%x00%s%x00";
 const DETAIL_FORMAT: &str = "--format=%H%x00%an%x00%at%x00%s%x00%b";
 const DETAIL_FIELDS: usize = 5;
@@ -41,16 +90,15 @@ impl Session {
             reader: tokio::io::BufReader::new(piped.stdout),
             stderr: Some(git::collect(piped.stderr)),
             lanes: Vec::new(),
-            kept: None,
-            next: String::new(),
+            cursor: Cursor::default(),
         })
     }
     async fn page(&mut self, cursor: &str) -> Result<Page> {
         use tokio::io::AsyncBufReadExt;
-        if let Some((_, page)) = self.kept.as_ref().filter(|(kept, _)| kept == cursor) {
+        if let Some(page) = self.cursor.replay(cursor) {
             return Ok(page.clone());
         }
-        if cursor != self.next {
+        if !self.cursor.expects(cursor) {
             return Err(Error::refused(
                 "History changed; reload from the first page",
             ));
@@ -74,18 +122,7 @@ impl Session {
             if eof {
                 break;
             }
-            commits.push(Commit {
-                hash: fields[0].trim().into(),
-                parents: fields[1].split_whitespace().map(String::from).collect(),
-                author: fields[2].clone(),
-                timestamp: fields[3].parse().unwrap_or_default(),
-                refs: fields[4].clone(),
-                subject: fields[5].clone(),
-                lane: 0,
-                color: 0,
-                entered: false,
-                segments: Vec::new(),
-            });
+            commits.push(parse_commit(fields));
         }
         if eof {
             let code = self.child.wait().await?;
@@ -105,12 +142,11 @@ impl Session {
         } else {
             commits.last().map(|commit| commit.hash.clone())
         };
-        self.next = next.clone().unwrap_or_default();
         let page = Page {
             commits,
             cursor: next,
         };
-        self.kept = Some((cursor.into(), page.clone()));
+        self.cursor = Cursor::after(cursor, &page);
         Ok(page)
     }
 }
@@ -239,41 +275,74 @@ pub async fn blame(repo: &Repo, path: &str) -> Result<Vec<Blame>> {
     }
     let mut result: Vec<Blame> = Vec::new();
     let text = output.accept(&[git::EXIT_SUCCESS])?.text();
-    let mut hash = String::new();
-    let mut author = String::new();
-    let mut timestamp = 0;
-    let mut subject = String::new();
-    let mut line = 0;
+    let mut header = BlameHeader::default();
     for value in text.lines() {
-        if let Some(content) = value.strip_prefix('\t') {
-            let block = result.last().is_none_or(|last| last.hash != hash);
-            result.push(Blame {
-                hash: hash.clone(),
-                author: author.clone(),
-                timestamp,
-                subject: subject.clone(),
-                line,
-                content: content.into(),
-                block,
-            });
-        } else if let Some(value) = value.strip_prefix("author ") {
-            author = value.into();
-        } else if let Some(value) = value.strip_prefix("author-time ") {
-            timestamp = value.parse().unwrap_or_default();
-        } else if let Some(value) = value.strip_prefix("summary ") {
-            subject = value.into();
-        } else {
-            let parts: Vec<&str> = value.split_whitespace().collect();
-            if parts.len() >= BLAME_HEADER_FIELDS
-                && parts[0].len() == git::FULL_HASH_LENGTH
-                && parts[0]
-                    .chars()
-                    .all(|character| character.is_ascii_hexdigit())
-            {
-                hash = parts[0].into();
-                line = parts[2].parse().unwrap_or_default();
-            }
-        }
+        let Some(content) = value.strip_prefix('\t') else {
+            header.read(value);
+            continue;
+        };
+        let block = result.last().is_none_or(|last| last.hash != header.hash);
+        result.push(header.entry(content, block));
     }
     Ok(result)
+}
+#[derive(Default)]
+struct BlameHeader {
+    hash: String,
+    author: String,
+    timestamp: i64,
+    subject: String,
+    line: usize,
+}
+struct CommitLine {
+    hash: String,
+    line: usize,
+}
+fn is_full_hash(value: &str) -> bool {
+    value.len() == git::FULL_HASH_LENGTH
+        && value.chars().all(|character| character.is_ascii_hexdigit())
+}
+fn parse_commit_line(value: &str) -> Option<CommitLine> {
+    let mut parts = value.split_whitespace();
+    let hash = parts.next()?;
+    let _original = parts.next()?;
+    let line = parts.next()?;
+    if !is_full_hash(hash) {
+        return None;
+    }
+    Some(CommitLine {
+        hash: hash.into(),
+        line: line.parse().unwrap_or_default(),
+    })
+}
+impl BlameHeader {
+    fn read(&mut self, value: &str) {
+        if let Some(author) = value.strip_prefix("author ") {
+            self.author = author.into();
+            return;
+        }
+        if let Some(time) = value.strip_prefix("author-time ") {
+            self.timestamp = time.parse().unwrap_or_default();
+            return;
+        }
+        if let Some(summary) = value.strip_prefix("summary ") {
+            self.subject = summary.into();
+            return;
+        }
+        if let Some(commit) = parse_commit_line(value) {
+            self.hash = commit.hash;
+            self.line = commit.line;
+        }
+    }
+    fn entry(&self, content: &str, block: bool) -> Blame {
+        Blame {
+            hash: self.hash.clone(),
+            author: self.author.clone(),
+            timestamp: self.timestamp,
+            subject: self.subject.clone(),
+            line: self.line,
+            content: content.into(),
+            block,
+        }
+    }
 }

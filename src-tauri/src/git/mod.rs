@@ -125,20 +125,15 @@ impl Output {
 }
 
 pub async fn run(root: &Path, arguments: &[&str], input: Option<&[u8]>) -> Result<Output> {
-    run_binary("git", root, arguments, input).await
+    execute(command("git", root, arguments), input).await
 }
 pub async fn run_indexed(root: &Path, index: &Path, arguments: &[&str]) -> Result<Output> {
     let mut command = command("git", root, arguments);
     command.env("GIT_INDEX_FILE", index);
     execute(command, None).await
 }
-pub async fn run_binary(
-    binary: &str,
-    root: &Path,
-    arguments: &[&str],
-    input: Option<&[u8]>,
-) -> Result<Output> {
-    execute(command(binary, root, arguments), input).await
+pub async fn run_binary(binary: &str, arguments: &[&str]) -> Result<Output> {
+    execute(command(binary, Path::new("."), arguments), None).await
 }
 pub struct Piped {
     pub child: Child,

@@ -32,6 +32,7 @@ import { CommitDetails } from './CommitDetails';
 import { LaneGraph, graphWidth, laneCount } from './LaneGraph';
 import { laneColours } from '../shared/lanes';
 import { shortHash } from '../../lib/git';
+import { useOpenFile } from '../../lib/open-file';
 export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
   const mode = useSidebarMode(repo);
   const path = useHistoryPath(repo);
@@ -45,6 +46,7 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
     getNextPageParam: (page) => page.cursor ?? undefined,
   });
   const selection = useCurrentSelection(repo, 'history');
+  const openFile = useOpenFile(repo);
   const files = useBackend(
     'commit_files',
     {
@@ -136,7 +138,7 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
               <button
                 className={`relative flex h-commit w-full items-center gap-2 rounded pr-2 text-left hover:bg-hover dark:hover:bg-hover-dark ${selection?.revision === commit.hash ? selectedRow : ''} ${clickable} ${focus}`}
                 onClick={() =>
-                  useSelection.getState().select(repo, {
+                  openFile({
                     path: path,
                     source: 'commit',
                     revision: commit.hash,
@@ -229,7 +231,7 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
               lines={files.data.lines}
               selectedPath={selection.path}
               onSelect={(path) =>
-                useSelection.getState().select(repo, {
+                openFile({
                   path: path,
                   source: selection.source,
                   revision: selection.revision,

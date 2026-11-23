@@ -1,6 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { markedTokens } from '../../lib/highlight';
-import type { DiffLine } from '../../lib/types';
+import type { DiffLine, MarkRange } from '../../lib/types';
 import type { Row } from './rows';
 import { stepIndex } from '../../lib/list';
 export interface Hit {
@@ -9,7 +9,7 @@ export interface Hit {
   end: number;
 }
 export interface Found {
-  marks: Map<number, [number, number][]>;
+  marks: Map<number, MarkRange[]>;
   current?: Hit;
 }
 export interface LineHit {
@@ -18,7 +18,7 @@ export interface LineHit {
   end: number;
 }
 export interface LineFound {
-  marks: Map<string, [number, number][]>;
+  marks: Map<string, MarkRange[]>;
   current?: LineHit;
 }
 export interface Located {
@@ -63,7 +63,7 @@ export function rowOfSide(index: number) {
 }
 export function foundInRows(rows: Row[], found?: LineFound): Found | undefined {
   if (!found) return undefined;
-  const marks = new Map<number, [number, number][]>();
+  const marks = new Map<number, MarkRange[]>();
   let current: Hit | undefined;
   rows.forEach((row, index) =>
     [row.left, row.right].forEach((line, side) => {
@@ -134,7 +134,7 @@ export function useFind(
   }, [hits, searched, query]);
   const found = useMemo((): Found | undefined => {
     if (!open) return undefined;
-    const marks = new Map<number, [number, number][]>();
+    const marks = new Map<number, MarkRange[]>();
     for (const hit of hits) {
       const line = marks.get(hit.index) ?? [];
       line.push([hit.start, hit.end]);

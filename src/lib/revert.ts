@@ -1,12 +1,14 @@
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { perform } from './query';
 
-export async function revertFiles(
-  repo: string,
-  paths: string[],
-  all = false,
-  folder?: string,
-) {
+export interface RevertRequest {
+  repo: string;
+  paths: string[];
+  all?: boolean;
+  folder?: string;
+}
+export async function revertFiles(request: RevertRequest) {
+  const { repo, paths, all = false, folder } = request;
   if (!paths.length) return;
   if (
     await confirm(
@@ -26,4 +28,16 @@ export async function revertFiles(
       paths: paths,
       action: 'revert',
     });
+}
+export async function discardFile(repo: string, path: string) {
+  const approved = await confirm(
+    `Discard changes to ${path}? These changes cannot be recovered by Git.`,
+    { title: 'Discard file', kind: 'warning' },
+  );
+  if (!approved) return;
+  await perform('files_action', {
+    repo: repo,
+    paths: [path],
+    action: 'discard',
+  });
 }

@@ -27,12 +27,14 @@ export function selectionStack(
     };
   return undefined;
 }
-export function viewStack(
-  repo: string,
-  stack: Stack,
-  commit?: Selection,
-  compared?: Comparison,
-): StackArgs | undefined {
+export interface StackView {
+  repo: string;
+  stack: Stack;
+  commit?: Selection;
+  compared?: Comparison;
+}
+export function viewStack(view: StackView): StackArgs | undefined {
+  const { repo, stack, commit, compared } = view;
   if (stack === 'commit') return commit && selectionStack(repo, commit);
   if (stack === 'compare')
     return (

@@ -11,7 +11,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { QueryProvider } from '../providers/QueryProvider';
 import { useTabs } from '../stores/tabs';
 import { useLayout } from '../stores/layout';
-import { useSelection } from '../stores/selection';
+import { useSelection, selectionOf } from '../stores/selection';
 import { useFilterStore } from '../stores/filter';
 import { useReveal } from '../stores/reveal';
 import { useDiffView } from '../stores/diff-view';
@@ -35,6 +35,7 @@ import {
   blameLines,
   rows,
 } from './workbench';
+import { DEFAULT_MAX_FILE_TABS } from '../lib/settings';
 vi.mock('../lib/fuzzy', { spy: true });
 describe('file context menu', () => {
   it('copies the name and full path and opens a changed file', async () => {
@@ -165,7 +166,11 @@ describe('file tab menu', () => {
     useFilterStore.getState().set(repository.id, 'app');
     useSelection
       .getState()
-      .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
+      .select(
+        repository.id,
+        { path: 'src/app.ts', source: 'unstaged' },
+        DEFAULT_MAX_FILE_TABS,
+      );
     mount();
     await user.click(await screen.findByRole('button', { name: /^Files/ }));
     const files = await screen.findByRole('tree', { name: 'All files' });
@@ -211,7 +216,11 @@ describe('file tab menu', () => {
     useFilterStore.getState().set(repository.id, 'app');
     useSelection
       .getState()
-      .select(repository.id, { path: 'docs/guide.md', source: 'file' });
+      .select(
+        repository.id,
+        { path: 'docs/guide.md', source: 'file' },
+        DEFAULT_MAX_FILE_TABS,
+      );
     mount();
     await revealTab(user, 'guide.md');
     expect(useLayout.getState().tabs[repository.id].filesOpen).toBe(true);
@@ -232,7 +241,11 @@ describe('file tab menu', () => {
     useFilterStore.getState().set(repository.id, 'gone');
     useSelection
       .getState()
-      .select(repository.id, { path: 'docs/gone.txt', source: 'file' });
+      .select(
+        repository.id,
+        { path: 'docs/gone.txt', source: 'file' },
+        DEFAULT_MAX_FILE_TABS,
+      );
     mount();
     await revealTab(user, 'gone.txt');
     expect(useFilterStore.getState().text[repository.id]).toBe('gone');
@@ -244,11 +257,15 @@ describe('file tab menu', () => {
     setup();
     const user = userEvent.setup();
     useLayout.getState().update(repository.id, { mode: 'history' });
-    useSelection.getState().select(repository.id, {
-      path: 'src/app.ts',
-      source: 'commit',
-      revision: commit.hash,
-    });
+    useSelection.getState().select(
+      repository.id,
+      {
+        path: 'src/app.ts',
+        source: 'commit',
+        revision: commit.hash,
+      },
+      DEFAULT_MAX_FILE_TABS,
+    );
     mount();
     const tree = await screen.findByRole('tree', { name: 'Commit files' });
     await user.click(
@@ -272,11 +289,15 @@ describe('file tab menu', () => {
       },
     ]);
     const user = userEvent.setup();
-    useSelection.getState().select(repository.id, {
-      path: 'src/app.ts',
-      source: 'stash',
-      revision: 'stash-hash',
-    });
+    useSelection.getState().select(
+      repository.id,
+      {
+        path: 'src/app.ts',
+        source: 'stash',
+        revision: 'stash-hash',
+      },
+      DEFAULT_MAX_FILE_TABS,
+    );
     mount();
     await screen.findByRole('button', { name: /Stashes/ });
     await revealTab(user, 'app.ts');
@@ -470,7 +491,11 @@ describe('diff interaction', () => {
     setup();
     useSelection
       .getState()
-      .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
+      .select(
+        repository.id,
+        { path: 'src/app.ts', source: 'unstaged' },
+        DEFAULT_MAX_FILE_TABS,
+      );
     const user = userEvent.setup();
     mount();
     await user.click(await screen.findByLabelText('Copy file path'));
@@ -487,7 +512,11 @@ describe('diff interaction', () => {
     });
     useSelection
       .getState()
-      .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
+      .select(
+        repository.id,
+        { path: 'src/app.ts', source: 'unstaged' },
+        DEFAULT_MAX_FILE_TABS,
+      );
     const user = userEvent.setup();
     mount();
     await user.click(await screen.findByLabelText('Copy file path'));
@@ -504,7 +533,11 @@ describe('diff interaction', () => {
     setup();
     useSelection
       .getState()
-      .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
+      .select(
+        repository.id,
+        { path: 'src/app.ts', source: 'unstaged' },
+        DEFAULT_MAX_FILE_TABS,
+      );
     mockCommand('hunk_action', () => null);
     mockCommand('system_open', () => null);
     mount();
@@ -626,7 +659,11 @@ describe('diff interaction', () => {
     setup();
     useSelection
       .getState()
-      .select(repository.id, { path: 'large.png', source: 'file' });
+      .select(
+        repository.id,
+        { path: 'large.png', source: 'file' },
+        DEFAULT_MAX_FILE_TABS,
+      );
     mockCommand('diff', () => ({
       ...diff,
       image: true,
@@ -753,7 +790,7 @@ describe('keyboard and pointer access', () => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
     );
     expect(useLayout.getState().tabs[repository.id]?.mode).toBe('working');
-    expect(useSelection.getState().working[repository.id]).toEqual({
+    expect(selectionOf(repository.id, 'working')).toEqual({
       path: 'src/app.ts',
       source: 'unstaged',
     });
@@ -893,7 +930,11 @@ describe('rendered Markdown', () => {
     );
     useSelection
       .getState()
-      .select(repository.id, { path: 'README.md', source: 'unstaged' });
+      .select(
+        repository.id,
+        { path: 'README.md', source: 'unstaged' },
+        DEFAULT_MAX_FILE_TABS,
+      );
     mount();
     expect(await screen.findByRole('tab', { name: 'split' })).toBeVisible();
     await action('rendered');
@@ -920,7 +961,11 @@ describe('rendered Markdown', () => {
     );
     useSelection
       .getState()
-      .select(repository.id, { path: 'README.md', source: 'unstaged' });
+      .select(
+        repository.id,
+        { path: 'README.md', source: 'unstaged' },
+        DEFAULT_MAX_FILE_TABS,
+      );
     mount();
     expect(
       await screen.findByRole('button', { name: /Rendered/ }),
@@ -934,7 +979,11 @@ describe('rendered Markdown', () => {
     mockCommand('blame', () => blameLines);
     useSelection
       .getState()
-      .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
+      .select(
+        repository.id,
+        { path: 'src/app.ts', source: 'unstaged' },
+        DEFAULT_MAX_FILE_TABS,
+      );
     mount();
     expect(await screen.findByRole('button', { name: /Blame/ })).toBeVisible();
     expect(screen.queryByRole('button', { name: /Rendered/ })).toBeNull();
@@ -942,21 +991,23 @@ describe('rendered Markdown', () => {
       markdownDiff([{ kind: 'add', content: '# Doc' }]),
     );
     await act(async () => {
-      useSelection.getState().select(repository.id, {
-        path: 'README.md',
-        source: 'unstaged',
-        blame: true,
-      });
+      useSelection.getState().select(
+        repository.id,
+        {
+          path: 'README.md',
+          source: 'unstaged',
+          blame: true,
+        },
+        DEFAULT_MAX_FILE_TABS,
+      );
     });
     await action('rendered');
-    const selected = useSelection.getState().working[repository.id];
+    const selected = selectionOf(repository.id, 'working');
     expect(selected?.rendered).toBe(true);
     expect(selected?.blame).toBe(false);
     expect(await screen.findByRole('button', { name: /Source/ })).toBeVisible();
     await action('blame');
-    expect(useSelection.getState().working[repository.id]?.rendered).toBe(
-      false,
-    );
+    expect(selectionOf(repository.id, 'working')?.rendered).toBe(false);
   });
 });
 describe('find in file', () => {
@@ -975,7 +1026,11 @@ describe('find in file', () => {
     mockCommand('diff', needles);
     useSelection
       .getState()
-      .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
+      .select(
+        repository.id,
+        { path: 'src/app.ts', source: 'unstaged' },
+        DEFAULT_MAX_FILE_TABS,
+      );
     const user = userEvent.setup();
     mount();
     const surface = await screen.findByRole('region', { name: 'Diff content' });

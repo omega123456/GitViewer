@@ -136,7 +136,13 @@ async fn label(repo: &Repo, mode: &str, name: &str) -> Result<String> {
     };
     Ok(branch.replace('/', "-"))
 }
-pub async fn target(repo: &Repo, mode: &str, name: &str, path: &str) -> Result<Target> {
+pub struct Placement<'a> {
+    pub mode: &'a str,
+    pub name: &'a str,
+    pub path: &'a str,
+}
+pub async fn target(repo: &Repo, placement: Placement<'_>) -> Result<Target> {
+    let Placement { mode, name, path } = placement;
     let label = label(repo, mode, name).await?;
     if !path.is_empty() {
         return Ok(Target {
@@ -160,7 +166,19 @@ pub async fn target(repo: &Repo, mode: &str, name: &str, path: &str) -> Result<T
         label,
     })
 }
-pub async fn add(repo: &Repo, path: &str, mode: &str, branch: &str, base: &str) -> Result<String> {
+pub struct NewWorktree<'a> {
+    pub path: &'a str,
+    pub mode: &'a str,
+    pub branch: &'a str,
+    pub base: &'a str,
+}
+pub async fn add(repo: &Repo, worktree: NewWorktree<'_>) -> Result<String> {
+    let NewWorktree {
+        path,
+        mode,
+        branch,
+        base,
+    } = worktree;
     if !Path::new(path).is_absolute() {
         return Err(Error::refused("Choose an absolute folder for the worktree"));
     }
@@ -217,11 +235,15 @@ pub async fn summary(source: &Repo, target: &str) -> Result<Summary> {
         submodules: source.root.join(".gitmodules").exists(),
     })
 }
-pub async fn remove(repo: &Repo, worktree: &str, force: u64) -> Result<()> {
+pub struct Removal<'a> {
+    pub worktree: &'a str,
+    pub force: u64,
+}
+pub async fn remove(repo: &Repo, removal: Removal<'_>) -> Result<()> {
     let mut arguments = vec!["worktree", "remove"];
-    let repeats = usize::try_from(force.min(MAX_FORCE)).unwrap_or_default();
+    let repeats = usize::try_from(removal.force.min(MAX_FORCE)).unwrap_or_default();
     arguments.extend(std::iter::repeat_n("--force", repeats));
-    arguments.push(worktree);
+    arguments.push(removal.worktree);
     git::run(&repo.root, &arguments, None)
         .await?
         .accept(&[git::EXIT_SUCCESS])?;
@@ -421,9 +443,14 @@ pub async fn apply(source: &Repo, target: &Repo, smart: bool) -> Result<Applied>
     }
     Ok(applied)
 }
-pub async fn unapply(target: &Repo, base: &str, tree: &str) -> Result<()> {
+#[derive(Clone, Copy, Debug)]
+pub struct AppliedTree<'a> {
+    pub base: &'a str,
+    pub tree: &'a str,
+}
+pub async fn unapply(target: &Repo, applied: AppliedTree<'_>) -> Result<()> {
     target.writable().await?;
-    let patch = patch(&target.root, base, tree).await?;
+    let patch = patch(&target.root, applied.base, applied.tree).await?;
     if !patched_cleanly(&target.root, &["-R"], &patch).await? {
         return Err(Error::refused(
             "Main changed since the apply. Undo it by hand.",
@@ -437,22 +464,18 @@ fn emit_project_changed<R: Runtime>(app: &AppHandle<R>, repo: &Repo) -> Result<(
 pub async fn add_to_project<R: Runtime>(
     app: &AppHandle<R>,
     repo: &Repo,
-    path: &str,
-    mode: &str,
-    branch: &str,
-    base: &str,
+    worktree: NewWorktree<'_>,
 ) -> Result<String> {
-    let created = add(repo, path, mode, branch, base).await?;
+    let created = add(repo, worktree).await?;
     emit_project_changed(app, repo)?;
     Ok(created)
 }
 pub async fn remove_from_project<R: Runtime>(
     app: &AppHandle<R>,
     repo: &Repo,
-    worktree: &str,
-    force: u64,
+    removal: Removal<'_>,
 ) -> Result<()> {
-    remove(repo, worktree, force).await?;
+    remove(repo, removal).await?;
     emit_project_changed(app, repo)
 }
 pub async fn summary_against(
@@ -468,16 +491,24 @@ async fn apply_locked(source: &Repo, target: &Repo, smart: bool) -> Result<Appli
     let _source = source.writes.lock().await;
     apply(source, target, smart).await
 }
-async fn unapply_locked(target: &Repo, base: &str, tree: &str) -> Result<()> {
+async fn unapply_locked(target: &Repo, applied: AppliedTree<'_>) -> Result<()> {
     let _target = target.writes.lock().await;
-    unapply(target, base, tree).await
+    unapply(target, applied).await
+}
+#[derive(Clone, Copy, Debug)]
+pub struct WorktreePair<'a> {
+    pub source: &'a str,
+    pub target: &'a str,
 }
 pub async fn apply_between<R: Runtime>(
     app: &AppHandle<R>,
-    source_id: &str,
-    target_id: &str,
+    pair: WorktreePair<'_>,
     smart: bool,
 ) -> Result<Applied> {
+    let WorktreePair {
+        source: source_id,
+        target: target_id,
+    } = pair;
     let registry = app.state::<Registry>();
     let target = registry.get(target_id).await?;
     let source = registry.get(source_id).await?;
@@ -492,11 +523,10 @@ pub async fn apply_between<R: Runtime>(
 pub async fn unapply_in<R: Runtime>(
     app: &AppHandle<R>,
     target_id: &str,
-    base: &str,
-    tree: &str,
+    applied: AppliedTree<'_>,
 ) -> Result<()> {
     let target = app.state::<Registry>().get(target_id).await?;
-    let unapplied = unapply_locked(&target, base, tree).await;
+    let unapplied = unapply_locked(&target, applied).await;
     target.refresh().await?;
     emit_status_changed(app, target_id)?;
     unapplied

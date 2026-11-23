@@ -55,6 +55,20 @@ pub enum Phase {
     Error,
 }
 
+#[derive(Clone, Copy, Debug, Default, Serialize)]
+pub struct DownloadProgress {
+    pub downloaded: u64,
+    pub total: Option<u64>,
+}
+impl DownloadProgress {
+    fn received(self, chunk: usize, total: Option<u64>) -> Self {
+        Self {
+            downloaded: self.downloaded + u64::try_from(chunk).unwrap_or(u64::MAX),
+            total,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
@@ -63,16 +77,90 @@ pub struct Snapshot {
     pub available: Option<Summary>,
     pub last_checked: Option<String>,
     pub phase: Phase,
-    pub downloaded: u64,
-    pub total: Option<u64>,
+    #[serde(flatten)]
+    pub progress: DownloadProgress,
     pub error: Option<String>,
     pub can_quit_without_updating: bool,
 }
+impl Snapshot {
+    fn new(current_version: String, availability: Availability) -> Self {
+        Self {
+            current_version,
+            availability,
+            available: None,
+            last_checked: None,
+            phase: Phase::Idle,
+            progress: DownloadProgress::default(),
+            error: None,
+            can_quit_without_updating: false,
+        }
+    }
+    fn enter(&mut self, phase: Phase) {
+        self.phase = phase;
+        self.error = None;
+    }
+    fn failed(&mut self, message: String) {
+        self.phase = Phase::Error;
+        self.error = Some(message);
+    }
+    fn downloading(&mut self) {
+        self.enter(Phase::Downloading);
+        self.progress = DownloadProgress::default();
+    }
+    fn received(&mut self, chunk: usize, total: Option<u64>) {
+        self.progress = self.progress.received(chunk, total);
+    }
+    fn downloaded(&mut self) {
+        self.phase = Phase::Ready;
+    }
+    fn checked(&mut self, available: Option<Summary>, ready: bool) {
+        self.last_checked = Some(chrono::Utc::now().to_rfc3339());
+        self.phase = checked_phase(available.is_some(), ready);
+        self.available = available;
+    }
+    fn close_cancelled(&mut self) {
+        if self.phase == Phase::Saving {
+            self.phase = Phase::Ready;
+        }
+    }
+    fn installing(&mut self) {
+        self.phase = Phase::Installing;
+    }
+    fn install_failed(&mut self) {
+        self.can_quit_without_updating = true;
+    }
+}
+fn checked_phase(available: bool, ready: bool) -> Phase {
+    if ready {
+        return Phase::Ready;
+    }
+    if available {
+        return Phase::Available;
+    }
+    Phase::Idle
+}
 
-#[derive(Default)]
-struct Pending {
-    release: Option<Box<dyn Release>>,
+struct PendingRelease {
+    release: Box<dyn Release>,
     bytes: Option<Vec<u8>>,
+}
+impl PendingRelease {
+    fn new(release: Box<dyn Release>) -> Self {
+        Self {
+            release,
+            bytes: None,
+        }
+    }
+    fn is_downloaded(&self) -> bool {
+        self.bytes.is_some()
+    }
+}
+type Pending = Option<PendingRelease>;
+
+pub struct Configuration {
+    pub availability: Availability,
+    pub backend: Option<Box<dyn Backend>>,
+    pub settings: Settings,
 }
 
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -96,26 +184,19 @@ pub struct Service {
 impl Service {
     pub fn new(
         version: String,
-        availability: Availability,
-        settings: Settings,
-        backend: Option<Box<dyn Backend>>,
+        configuration: Configuration,
         changed: impl Fn() + Send + Sync + 'static,
     ) -> Self {
+        let Configuration {
+            availability,
+            backend,
+            settings,
+        } = configuration;
         Self {
-            snapshot: Mutex::new(Snapshot {
-                current_version: version,
-                availability,
-                available: None,
-                last_checked: None,
-                phase: Phase::Idle,
-                downloaded: 0,
-                total: None,
-                error: None,
-                can_quit_without_updating: false,
-            }),
+            snapshot: Mutex::new(Snapshot::new(version, availability)),
             settings: Mutex::new(settings),
             intent: Mutex::new(Intent::Quit),
-            pending: AsyncMutex::new(Pending::default()),
+            pending: AsyncMutex::new(None),
             backend,
             changed: Box::new(changed),
             wake: Notify::new(),
@@ -138,37 +219,26 @@ impl Service {
         }
     }
     fn fail(&self, error: Error) -> Error {
-        self.change(|state| {
-            state.phase = Phase::Error;
-            state.error = Some(error.message.clone());
-        });
+        self.change(|state| state.failed(error.message.clone()));
         error
     }
     async fn download(&self, pending: &mut Pending) -> Result<()> {
-        if pending.bytes.is_some() {
+        let pending = pending
+            .as_mut()
+            .ok_or_else(|| Error::refused("No update is available"))?;
+        if pending.is_downloaded() {
             return Ok(());
         }
-        let release = pending
+        self.change(Snapshot::downloading);
+        let bytes = pending
             .release
-            .as_ref()
-            .ok_or_else(|| Error::refused("No update is available"))?;
-        self.change(|state| {
-            state.phase = Phase::Downloading;
-            state.downloaded = 0;
-            state.total = None;
-            state.error = None;
-        });
-        let bytes = release
             .download(Box::new(|chunk, total| {
-                self.change(|state| {
-                    state.downloaded += u64::try_from(chunk).unwrap_or(u64::MAX);
-                    state.total = total;
-                })
+                self.change(|state| state.received(chunk, total))
             }))
             .await
             .map_err(|error| self.fail(error))?;
         pending.bytes = Some(bytes);
-        self.change(|state| state.phase = Phase::Ready);
+        self.change(Snapshot::downloaded);
         Ok(())
     }
     pub async fn check(&self) -> Result<()> {
@@ -185,33 +255,19 @@ impl Service {
         if *lock_recovering(&self.intent) != Intent::Quit {
             return Ok(());
         }
-        self.change(|state| {
-            state.phase = Phase::Checking;
-            state.error = None;
-        });
+        self.change(|state| state.enter(Phase::Checking));
         let release = backend.check().await.map_err(|error| self.fail(error))?;
-        let unchanged = release
+        let available = release.as_ref().map(|item| item.summary());
+        let unchanged = available
             .as_ref()
-            .zip(pending.release.as_ref())
-            .is_some_and(|(next, previous)| next.summary() == previous.summary());
+            .zip(pending.as_ref())
+            .is_some_and(|(next, previous)| *next == previous.release.summary());
         if !unchanged {
-            pending.bytes = None;
+            *pending = release.map(PendingRelease::new);
         }
-        self.change(|state| {
-            state.last_checked = Some(chrono::Utc::now().to_rfc3339());
-            state.available = release.as_ref().map(|item| item.summary());
-            state.phase = if pending.bytes.is_some() {
-                Phase::Ready
-            } else if release.is_some() {
-                Phase::Available
-            } else {
-                Phase::Idle
-            };
-        });
-        if !unchanged {
-            pending.release = release;
-        }
-        if pending.release.is_some() && lock_recovering(&self.settings).install_update_on_quit {
+        let ready = pending.as_ref().is_some_and(PendingRelease::is_downloaded);
+        self.change(|state| state.checked(available, ready));
+        if pending.is_some() && lock_recovering(&self.settings).install_update_on_quit {
             self.download(&mut pending).await?;
         }
         Ok(())
@@ -229,10 +285,7 @@ impl Service {
         }
         self.download(&mut pending).await?;
         *lock_recovering(&self.intent) = Intent::Restart;
-        self.change(|state| {
-            state.phase = Phase::Saving;
-            state.error = None;
-        });
+        self.change(|state| state.enter(Phase::Saving));
         Ok(())
     }
     pub fn skip_install(&self) -> Result<()> {
@@ -244,11 +297,7 @@ impl Service {
     }
     pub fn cancel_close(&self) {
         *lock_recovering(&self.intent) = Intent::Quit;
-        self.change(|state| {
-            if state.phase == Phase::Saving {
-                state.phase = Phase::Ready;
-            }
-        });
+        self.change(Snapshot::close_cancelled);
     }
     pub fn finish_close(&self) -> Result<bool> {
         let intent = *lock_recovering(&self.intent);
@@ -260,16 +309,20 @@ impl Service {
         let Ok(pending) = self.pending.try_lock() else {
             return Ok(false);
         };
-        if let (Some(release), Some(bytes)) = (&pending.release, &pending.bytes) {
-            self.change(|state| state.phase = Phase::Installing);
-            if let Err(error) = release.install(bytes, restart) {
-                *lock_recovering(&self.intent) = Intent::Quit;
-                self.change(|state| state.can_quit_without_updating = true);
-                return Err(self.fail(error));
-            }
-            return Ok(restart);
+        let Some(PendingRelease {
+            release,
+            bytes: Some(bytes),
+        }) = &*pending
+        else {
+            return Ok(false);
+        };
+        self.change(Snapshot::installing);
+        if let Err(error) = release.install(bytes, restart) {
+            *lock_recovering(&self.intent) = Intent::Quit;
+            self.change(Snapshot::install_failed);
+            return Err(self.fail(error));
         }
-        Ok(false)
+        Ok(restart)
     }
     pub async fn run(self: Arc<Self>) {
         if self.get().availability != Availability::Enabled {
@@ -282,8 +335,9 @@ impl Service {
                 }
             } else if lock_recovering(&self.settings).install_update_on_quit {
                 if let Ok(mut pending) = self.pending.try_lock() {
-                    if pending.release.is_some()
-                        && pending.bytes.is_none()
+                    if pending
+                        .as_ref()
+                        .is_some_and(|pending| !pending.is_downloaded())
                         && *lock_recovering(&self.intent) == Intent::Quit
                     {
                         if let Err(error) = self.download(&mut pending).await {
@@ -337,15 +391,17 @@ pub fn quit_without_installing<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> 
 pub fn setup<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<()> {
     use tauri::{Emitter, Manager};
     #[cfg(not(feature = "test-utils"))]
-    let (availability, backend, settings) = native::configure(app)?;
+    let configuration = native::configure(app)?;
     #[cfg(feature = "test-utils")]
-    let (availability, backend, settings) = (Availability::Development, None, Settings::default());
+    let configuration = Configuration {
+        availability: Availability::Development,
+        backend: None,
+        settings: Settings::default(),
+    };
     let handle = app.clone();
     let service = Arc::new(Service::new(
         app.package_info().version.to_string(),
-        availability,
-        settings,
-        backend,
+        configuration,
         move || {
             let _ = handle.emit("update://changed", ());
         },

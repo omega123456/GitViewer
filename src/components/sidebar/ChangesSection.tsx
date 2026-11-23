@@ -49,6 +49,7 @@ export const ChangesSection = memo(function ChangesSection({
     };
   }, [status, lines]);
   const paths = (entries: Entry[]) => entries.map((entry) => entry.path);
+  const context = { repo: repo, status: status, disabled: disabled };
   return (
     <div className="flex min-h-changes-floor flex-1 flex-col">
       {status.entries.length === 0 ? (
@@ -63,27 +64,27 @@ export const ChangesSection = memo(function ChangesSection({
         <>
           {conflicts.length > 0 && (
             <ChangesTree
-              repo={repo}
-              status={status}
-              source="conflicts"
-              disabled={disabled}
-              fill={false}
-              title="Conflicts"
-              count={conflicts.length}
+              context={context}
+              group={{
+                source: 'conflicts',
+                title: 'Conflicts',
+                count: conflicts.length,
+                fill: false,
+              }}
+              lines={{}}
               actions={null}
             />
           )}
           {staged.length > 0 && (
             <ChangesTree
-              repo={repo}
-              status={status}
-              source="staged"
-              disabled={disabled}
-              fill={unstaged.length === 0}
-              title="Staged changes"
-              count={staged.length}
-              lines={lines?.staged}
-              total={totals.staged}
+              context={context}
+              group={{
+                source: 'staged',
+                title: 'Staged changes',
+                count: staged.length,
+                fill: unstaged.length === 0,
+              }}
+              lines={{ files: lines?.staged, total: totals.staged }}
               actions={
                 <>
                   <ViewAllButton
@@ -114,7 +115,13 @@ export const ChangesSection = memo(function ChangesSection({
                     disabled={disabled}
                     aria-label="Discard all staged changes"
                     title="Discard all staged changes"
-                    onClick={() => void revertFiles(repo, paths(staged), true)}
+                    onClick={() =>
+                      void revertFiles({
+                        repo: repo,
+                        paths: paths(staged),
+                        all: true,
+                      })
+                    }
                   >
                     <Trash2 className="size-4" />
                   </Button>
@@ -124,15 +131,14 @@ export const ChangesSection = memo(function ChangesSection({
           )}
           {unstaged.length > 0 && (
             <ChangesTree
-              repo={repo}
-              status={status}
-              source="unstaged"
-              disabled={disabled}
-              fill
-              title="Changes"
-              count={unstaged.length}
-              lines={lines?.unstaged}
-              total={totals.unstaged}
+              context={context}
+              group={{
+                source: 'unstaged',
+                title: 'Changes',
+                count: unstaged.length,
+                fill: true,
+              }}
+              lines={{ files: lines?.unstaged, total: totals.unstaged }}
               actions={
                 <>
                   <ViewAllButton
@@ -164,7 +170,11 @@ export const ChangesSection = memo(function ChangesSection({
                     aria-label="Discard all changes"
                     title="Discard all changes"
                     onClick={() =>
-                      void revertFiles(repo, paths(unstaged), true)
+                      void revertFiles({
+                        repo: repo,
+                        paths: paths(unstaged),
+                        all: true,
+                      })
                     }
                   >
                     <Trash2 className="size-4" />

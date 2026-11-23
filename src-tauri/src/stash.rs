@@ -20,21 +20,20 @@ const STASH_FORMAT: &str = "--format=%H%x00%gd%x00%at%x00%gs";
 const STASH_FIELDS: usize = 4;
 pub async fn list(repo: &Repo) -> Result<Vec<Stash>> {
     let text = git::text(&repo.root, &["stash", "list", STASH_FORMAT]).await?;
-    Ok(text
-        .lines()
-        .filter_map(|line| {
-            let fields: Vec<&str> = line.splitn(STASH_FIELDS, git::NUL).collect();
-            if fields.len() != STASH_FIELDS {
-                return None;
-            }
-            Some(Stash {
-                hash: fields[0].into(),
-                selector: fields[1].into(),
-                timestamp: fields[2].parse().unwrap_or_default(),
-                message: fields[3].into(),
-            })
-        })
-        .collect())
+    Ok(text.lines().filter_map(parse_stash).collect())
+}
+fn parse_stash(line: &str) -> Option<Stash> {
+    let mut fields = line.splitn(STASH_FIELDS, git::NUL);
+    let hash = fields.next()?;
+    let selector = fields.next()?;
+    let timestamp = fields.next()?;
+    let message = fields.next()?;
+    Some(Stash {
+        hash: hash.into(),
+        selector: selector.into(),
+        timestamp: timestamp.parse().unwrap_or_default(),
+        message: message.into(),
+    })
 }
 pub async fn save(repo: &Repo, message: &str) -> Result<String> {
     if repo.writable().await?.entries.is_empty() {
@@ -181,7 +180,13 @@ pub(crate) async fn restore(repo: &Repo, hash: &str) -> Result<()> {
         .accept(&[git::EXIT_SUCCESS])?;
     Ok(())
 }
-pub async fn apply(repo: &Repo, hash: &str, pop: bool, smart: bool) -> Result<()> {
+#[derive(Clone, Copy, Debug)]
+pub struct ApplyOptions {
+    pub pop: bool,
+    pub smart: bool,
+}
+pub async fn apply(repo: &Repo, hash: &str, options: ApplyOptions) -> Result<()> {
+    let ApplyOptions { pop, smart } = options;
     let status = repo.writable().await?;
     if !list(repo).await?.iter().any(|stash| stash.hash == hash) {
         return Err(Error::refused("Stash no longer exists"));

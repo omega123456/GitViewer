@@ -2,15 +2,13 @@ import { RevisionTree } from '../sidebar/RevisionTree';
 import { revisionTree } from '../sidebar/reveal';
 import { memo, useEffect, useState } from 'react';
 import { elapsedTime } from '../../lib/time';
-import { confirm } from '@tauri-apps/plugin-dialog';
 import { Archive, Copy, CopyMinus, Trash2 } from 'lucide-react';
 import { useActions } from '../../lib/actions';
-import { attempt, perform, useBackend } from '../../lib/query';
-import { normalizeError } from '../../lib/ipc';
+import { useBackend } from '../../lib/query';
+import { applyStash, dropStash } from '../../lib/stash';
+import { useOpenFile } from '../../lib/open-file';
 import type { Action } from '../../lib/keyboard';
 import { runs, useCurrentActivity } from '../../stores/activity';
-import { ask } from '../../stores/decision';
-import { useErrors } from '../../stores/errors';
 import {
   useLayout,
   useLayoutField,
@@ -18,7 +16,7 @@ import {
   stashFilesHeightBounds,
 } from '../../stores/layout';
 import { useReveal } from '../../stores/reveal';
-import { useSelection, useWorkingSelection } from '../../stores/selection';
+import { useWorkingSelection } from '../../stores/selection';
 import { Button } from '../shared/Button';
 import { ViewAllButton } from '../shared/ViewAllButton';
 import { Decision } from '../shared/Decision';
@@ -66,59 +64,14 @@ export const StashSection = memo(function StashSection({
     { repo: repo, revision: selected, source: 'stash' },
     Boolean(selected),
   );
+  const openFile = useOpenFile(repo);
   const show = (path: string, revision: string) => {
     useLayout.getState().update(repo, { mode: 'working' });
-    useSelection
-      .getState()
-      .select(repo, { path: path, source: 'stash', revision: revision });
+    openFile({ path: path, source: 'stash', revision: revision });
   };
-  const apply = async (hash: string, pop: boolean) => {
-    if (
-      !(await confirm(
-        pop
-          ? 'Apply and remove this stash?'
-          : 'Apply this stash and keep it on the stack?',
-        { title: pop ? 'Pop stash' : 'Apply stash' },
-      ))
-    )
-      return;
-    try {
-      await attempt('stash_apply', {
-        repo: repo,
-        hash: hash,
-        pop: pop,
-        smart: false,
-      });
-      useErrors.getState().resolve(repo, 'stash_apply');
-    } catch (error) {
-      const failure = normalizeError(error);
-      if (failure.category !== 'smart_apply')
-        useErrors.getState().report(repo, failure, { command: 'stash_apply' });
-      else if (
-        await ask(repo, {
-          slot: 'stash',
-          title: 'Combine with your changes?',
-          body: 'Your working tree has changes. GitViewer can apply the stash on top of them when they touch different files.',
-          confirm: pop ? 'Pop and combine' : 'Apply and combine',
-        })
-      )
-        await perform('stash_apply', {
-          repo: repo,
-          hash: hash,
-          pop: pop,
-          smart: true,
-        });
-    }
-  };
-  const drop = async (hash: string) => {
-    if (
-      await confirm('Permanently drop this stash?', {
-        title: 'Drop stash',
-        kind: 'warning',
-      })
-    )
-      await perform('stash_drop', { repo, hash });
-  };
+  const apply = (hash: string, pop: boolean) =>
+    applyStash({ repo: repo, hash: hash, pop: pop });
+  const drop = (hash: string) => dropStash(repo, hash);
   const actions: Action[] = [
     {
       id: 'apply-stash',

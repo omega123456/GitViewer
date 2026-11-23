@@ -49,39 +49,47 @@ export interface DiffSurfaceHandle {
   scrollToRow: (index: number, align?: 'start' | 'center') => void;
   focus: () => void;
 }
+export interface DiffContent {
+  hunks: Hunk[];
+  patches: string[];
+}
+export interface DisplayOptions {
+  split: boolean;
+  wrap: boolean;
+  whitespace: boolean;
+}
+export interface HunkControls {
+  source: Source;
+  disabled: boolean;
+  act: (hunk: number, action: string) => void;
+}
+export interface Embedding {
+  scroller: RefObject<HTMLDivElement | null>;
+  margin: number;
+}
 export function DiffSurface({
   ref,
   rows,
-  hunks,
-  patches,
-  split,
-  wrap,
-  whitespace,
+  diff: { hunks, patches },
+  display: { split, wrap, whitespace },
   tokens,
-  source,
-  disabled,
-  hunkAction,
+  controls: { source, disabled, act: hunkAction },
   expansion,
-  scroller,
-  scrollMargin = 0,
+  embedding,
   found,
 }: {
   ref?: Ref<DiffSurfaceHandle>;
   rows: Row[];
-  hunks: Hunk[];
-  patches: string[];
-  split: boolean;
-  wrap: boolean;
-  whitespace: boolean;
+  diff: DiffContent;
+  display: DisplayOptions;
   tokens: Tokens;
-  source: Source;
-  disabled: boolean;
-  hunkAction: (hunk: number, action: string) => void;
+  controls: HunkControls;
   expansion: Expansion;
-  scroller?: RefObject<HTMLDivElement | null>;
-  scrollMargin?: number;
+  embedding?: Embedding;
   found?: Found;
 }) {
+  const scroller = embedding?.scroller;
+  const scrollMargin = embedding?.margin ?? 0;
   const primary = useRef<HTMLDivElement>(null);
   const secondary = useRef<HTMLDivElement>(null);
   const columns = split && !wrap;

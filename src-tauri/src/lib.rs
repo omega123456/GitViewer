@@ -1,4 +1,9 @@
-#![deny(clippy::min_ident_chars, clippy::as_conversions)]
+#![deny(
+    clippy::min_ident_chars,
+    clippy::as_conversions,
+    clippy::too_many_arguments,
+    clippy::type_complexity
+)]
 
 use tauri::Manager;
 
@@ -73,11 +78,11 @@ pub fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
             tauri::async_runtime::spawn(async move {
                 let response = blob::serve(&app, request.uri().to_string()).await;
                 let response = match response {
-                    Ok((bytes, mime)) => tauri::http::Response::builder()
-                        .header("Content-Type", mime)
+                    Ok(blob) => tauri::http::Response::builder()
+                        .header("Content-Type", blob.mime)
                         .header("Access-Control-Allow-Origin", "*")
                         .header("Cache-Control", "no-store")
-                        .body(bytes),
+                        .body(blob.bytes),
                     Err(error) => tauri::http::Response::builder()
                         .status(tauri::http::StatusCode::BAD_REQUEST)
                         .body(error.message.into_bytes()),
