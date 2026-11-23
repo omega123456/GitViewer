@@ -1,12 +1,6 @@
 use crate::{error::Result, lock::lock_recovering};
 use serde::{Deserialize, Serialize};
-use std::{
-    path::PathBuf,
-    sync::{
-        atomic::{AtomicU8, Ordering},
-        Mutex,
-    },
-};
+use std::{path::PathBuf, sync::Mutex};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -37,11 +31,20 @@ pub struct Geometry {
     pub maximized: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum CloseState {
+    #[default]
+    Open,
+    Requested,
+    Claimed,
+    Allowed,
+}
+
 #[derive(Default)]
 pub struct Store {
     state: Mutex<Session>,
     path: Option<PathBuf>,
-    closing: AtomicU8,
+    closing: Mutex<CloseState>,
     unsaved: Mutex<Vec<String>>,
 }
 
@@ -62,7 +65,7 @@ impl Store {
         Self {
             state: Mutex::new(state),
             path: Some(path),
-            closing: AtomicU8::new(0),
+            closing: Mutex::default(),
             unsaved: Mutex::default(),
         }
     }
@@ -81,26 +84,29 @@ impl Store {
         lock_recovering(&self.state).window = Some(geometry);
     }
 
+    fn advance_close(&self, from: CloseState, to: CloseState) -> bool {
+        let mut closing = lock_recovering(&self.closing);
+        if *closing != from {
+            return false;
+        }
+        *closing = to;
+        true
+    }
+
     pub fn begin_close(&self) -> bool {
-        self.closing
-            .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
-            .is_ok()
+        self.advance_close(CloseState::Open, CloseState::Requested)
     }
 
     pub fn claim_close(&self) -> bool {
-        self.closing
-            .compare_exchange(1, 3, Ordering::SeqCst, Ordering::SeqCst)
-            .is_ok()
+        self.advance_close(CloseState::Requested, CloseState::Claimed)
     }
 
     pub fn allow_close(&self) -> bool {
-        self.closing
-            .compare_exchange(3, 2, Ordering::SeqCst, Ordering::SeqCst)
-            .is_ok()
+        self.advance_close(CloseState::Claimed, CloseState::Allowed)
     }
 
     pub fn close_allowed(&self) -> bool {
-        self.closing.load(Ordering::SeqCst) == 2
+        *lock_recovering(&self.closing) == CloseState::Allowed
     }
 
     pub fn unsaved(&self, paths: Vec<String>) {
@@ -112,7 +118,7 @@ impl Store {
     }
 
     pub fn cancel_close(&self) {
-        self.closing.store(0, Ordering::SeqCst);
+        *lock_recovering(&self.closing) = CloseState::Open;
     }
 
     pub fn save(&self) -> Result<()> {

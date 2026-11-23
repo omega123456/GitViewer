@@ -1,7 +1,7 @@
 use crate::{
     error::{Error, Result},
     lock::lock_recovering,
-    settings::Settings,
+    settings::{Settings, UpdateInterval},
 };
 use serde::Serialize;
 use std::{
@@ -304,14 +304,34 @@ impl Service {
 }
 
 pub fn interval(value: &str) -> Option<std::time::Duration> {
-    let duration = match value {
-        "1h" => chrono::Duration::hours(1),
-        "5h" => chrono::Duration::hours(5),
-        "1d" => chrono::Duration::days(1),
-        "7d" => chrono::Duration::days(7),
-        _ => return None,
-    };
-    duration.to_std().ok()
+    UpdateInterval::parse(value)
+        .ok()
+        .and_then(UpdateInterval::duration)
+}
+
+fn service<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Arc<Service> {
+    use tauri::Manager;
+    app.state::<Arc<Service>>().inner().clone()
+}
+pub fn snapshot<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Snapshot {
+    service(app).get()
+}
+pub async fn check_now<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Snapshot> {
+    let service = service(app);
+    service.check().await?;
+    Ok(service.get())
+}
+pub async fn install_on_close<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Snapshot> {
+    let service = service(app);
+    service.prepare_install().await?;
+    crate::lifecycle::request_close(app);
+    Ok(service.get())
+}
+pub fn quit_without_installing<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Snapshot> {
+    let service = service(app);
+    service.skip_install()?;
+    crate::lifecycle::request_close(app);
+    Ok(service.get())
 }
 
 pub fn setup<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<()> {

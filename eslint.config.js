@@ -63,8 +63,25 @@ export default tseslint.config(
             'TSAsExpression:not([typeAnnotation.typeName.name="const"]), TSTypeAssertion',
           message: 'Get the value in the right shape at its source.',
         },
+        {
+          selector: 'SwitchStatement',
+          message: 'Branch on a key through a lookup table.',
+        },
       ],
       'object-shorthand': ['error', 'consistent'],
+    },
+  },
+  {
+    files: [
+      'src/*.{ts,tsx}',
+      'src/lib/**/*.{ts,tsx}',
+      'src/stores/**/*.{ts,tsx}',
+      'src/providers/**/*.{ts,tsx}',
+      'src/components/image/**/*.{ts,tsx}',
+      'src/components/states/**/*.{ts,tsx}',
+    ],
+    rules: {
+      complexity: ['error', 10],
     },
   },
   {

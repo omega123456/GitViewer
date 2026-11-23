@@ -21,27 +21,26 @@ import { anchorOf, useTabs, type Tab } from '../../stores/tabs';
 import { Button } from '../shared/Button';
 import { Spinner } from '../shared/Spinner';
 import { dirtyDot, errorDot, tabBar } from '../shared/styles';
-import { tabSteps } from '../shared/ViewSwitch';
+import { focusTab } from '../shared/ViewSwitch';
+import { handleKeyByTable, tabKeyHandlers } from '../../lib/keyboard';
 const strip =
   'size-8 rounded text-muted hover:bg-tab-hover hover:text-ink dark:text-muted-dark dark:hover:bg-tab-hover-dark dark:hover:text-ink-dark';
 export function RepoTabStrip() {
   const tabs = useTabs((state) => state.tabs);
   const active = useTabs((state) => state.active);
   const keydown = (event: KeyboardEvent<HTMLDivElement>) => {
-    const step = tabSteps[event.key];
-    if (!step) return;
-    event.preventDefault();
-    const index = step(
-      Math.max(
-        tabs.findIndex((tab) => tab.id === active),
-        0,
-      ),
-      tabs.length,
+    const list = event.currentTarget;
+    const current = Math.max(
+      tabs.findIndex((tab) => tab.id === active),
+      0,
     );
-    useTabs.getState().activate(tabs[index].id);
-    const cells =
-      event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]');
-    cells[index]?.focus();
+    handleKeyByTable(
+      event,
+      tabKeyHandlers(current, tabs.length, (index) => {
+        useTabs.getState().activate(tabs[index].id);
+        focusTab(list, index);
+      }),
+    );
   };
   return (
     <div

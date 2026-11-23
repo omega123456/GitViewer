@@ -25,33 +25,48 @@ impl Error {
         Self::unexpected(error.to_string())
     }
     pub fn git(message: String) -> Self {
-        let lower = message.to_lowercase();
-        let category = if [
+        Self::new(git_category(&message), message)
+    }
+}
+struct Classification {
+    category: &'static str,
+    keywords: &'static [&'static str],
+}
+const GIT_CLASSIFICATIONS: [Classification; 2] = [
+    Classification {
+        category: "authentication",
+        keywords: &[
             "authentication",
             "permission denied",
             "could not read username",
             "credential",
-        ]
-        .iter()
-        .any(|keyword| lower.contains(keyword))
-        {
-            "authentication"
-        } else if [
+        ],
+    },
+    Classification {
+        category: "network",
+        keywords: &[
             "could not resolve",
             "unable to access",
             "network",
             "connection",
             "timed out",
-        ]
+        ],
+    },
+];
+const UNCLASSIFIED_GIT_CATEGORY: &str = "refused";
+fn git_category(message: &str) -> &'static str {
+    let lower = message.to_lowercase();
+    GIT_CLASSIFICATIONS
         .iter()
-        .any(|keyword| lower.contains(keyword))
-        {
-            "network"
-        } else {
-            "refused"
-        };
-        Self::new(category, message)
-    }
+        .find(|classification| {
+            classification
+                .keywords
+                .iter()
+                .any(|keyword| lower.contains(keyword))
+        })
+        .map_or(UNCLASSIFIED_GIT_CATEGORY, |classification| {
+            classification.category
+        })
 }
 impl From<std::io::Error> for Error {
     fn from(error: std::io::Error) -> Self {

@@ -22,6 +22,29 @@ import { findClass, findTokens, sideIndex, type Found } from './find';
 import { isInside } from '../../lib/browser';
 const DIFF_OVERSCAN = 20;
 const PREFIX_CHARACTERS = 2;
+interface LineStyle {
+  background: string;
+  prefix: string;
+  changed: string;
+}
+const contextStyle: LineStyle = { background: '', prefix: '  ', changed: '' };
+const lineStyles: Partial<Record<string, LineStyle>> = {
+  add: {
+    background: 'bg-add dark:bg-add-dark',
+    prefix: '+ ',
+    changed: 'bg-add-word dark:bg-add-word-dark',
+  },
+  remove: {
+    background: 'bg-remove dark:bg-remove-dark',
+    prefix: '− ',
+    changed: 'bg-remove-word dark:bg-remove-word-dark',
+  },
+  context: contextStyle,
+};
+function styleOf(line: DiffLine | undefined) {
+  if (!line) return contextStyle;
+  return lineStyles[line.kind] ?? contextStyle;
+}
 export interface DiffSurfaceHandle {
   scrollToRow: (index: number, align?: 'start' | 'center') => void;
   focus: () => void;
@@ -111,7 +134,7 @@ export function DiffSurface({
   );
   const cell = (line: DiffLine | undefined, old: boolean, index: number) => (
     <div
-      className={`flex min-w-0 flex-1 overflow-hidden ${line?.kind === 'add' ? 'bg-add dark:bg-add-dark' : line?.kind === 'remove' ? 'bg-remove dark:bg-remove-dark' : ''}`}
+      className={`flex min-w-0 flex-1 overflow-hidden ${styleOf(line).background}`}
     >
       <span className={`select-none ${gutterCell}`}>
         {old ? line?.old : (line?.new ?? line?.old)}
@@ -119,9 +142,7 @@ export function DiffSurface({
       <code
         className={`min-w-0 flex-1 pr-4 pl-2 select-text ${wrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'}`}
       >
-        <span className="select-none">
-          {line?.kind === 'add' ? '+ ' : line?.kind === 'remove' ? '− ' : '  '}
-        </span>
+        <span className="select-none">{styleOf(line).prefix}</span>
         {findTokens(
           markedTokens(
             tokens[
@@ -134,7 +155,7 @@ export function DiffSurface({
         ).map((token, position) => (
           <span
             key={position}
-            className={`text-syntax ${findClass(token) || (token.changed ? (line?.kind === 'add' ? 'bg-add-word dark:bg-add-word-dark' : 'bg-remove-word dark:bg-remove-word-dark') : '')}`}
+            className={`text-syntax ${findClass(token) || (token.changed ? styleOf(line).changed : '')}`}
             style={dynamic({ '--syntax-color': token.color ?? 'inherit' })}
           >
             {whitespace

@@ -202,6 +202,20 @@ async function readReleaseNotes(readline) {
   }
 }
 
+async function enteredVersion(readline) {
+  const entered = (
+    await readline.question('New version (MAJOR.MINOR.PATCH): ')
+  ).trim();
+  return parseSemver(entered) ? entered : null;
+}
+
+const BUMP_CHOICES = new Map([
+  ['1', (currentVersion) => bumpSemver(currentVersion, 'major')],
+  ['2', (currentVersion) => bumpSemver(currentVersion, 'minor')],
+  ['3', (currentVersion) => bumpSemver(currentVersion, 'patch')],
+  ['4', (_currentVersion, readline) => enteredVersion(readline)],
+]);
+
 async function main() {
   if (!gitRemoteExists('origin')) {
     throw new Error(
@@ -260,21 +274,11 @@ async function main() {
     console.log('');
 
     const choice = (await readline.question('Choice [1-4]: ')).trim();
-    let nextVersion = null;
-    if (choice === '1') {
-      nextVersion = bumpSemver(currentVersion, 'major');
-    } else if (choice === '2') {
-      nextVersion = bumpSemver(currentVersion, 'minor');
-    } else if (choice === '3') {
-      nextVersion = bumpSemver(currentVersion, 'patch');
-    } else if (choice === '4') {
-      const entered = (
-        await readline.question('New version (MAJOR.MINOR.PATCH): ')
-      ).trim();
-      nextVersion = parseSemver(entered) ? entered : null;
-    } else {
+    const chooseVersion = BUMP_CHOICES.get(choice);
+    if (!chooseVersion) {
       throw new Error('Enter 1, 2, 3, or 4.');
     }
+    const nextVersion = await chooseVersion(currentVersion, readline);
 
     if (!nextVersion || nextVersion === currentVersion) {
       throw new Error(

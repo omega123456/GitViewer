@@ -1,6 +1,19 @@
-import { useLayout, useTabLayout } from '../../stores/layout';
+import { useLayout, useTabLayout, type SidebarMode } from '../../stores/layout';
 import { ViewSwitch } from '../shared/ViewSwitch';
 import { openCompare } from './CompareSection';
+type SidebarOption = 'working tree' | 'history' | 'compare';
+const options: SidebarOption[] = ['working tree', 'history', 'compare'];
+const optionOfMode: Record<SidebarMode, SidebarOption> = {
+  working: 'working tree',
+  history: 'history',
+  compare: 'compare',
+};
+const openOption: Record<SidebarOption, (repo: string) => void> = {
+  'working tree': (repo) =>
+    useLayout.getState().update(repo, { mode: 'working' }),
+  history: (repo) => useLayout.getState().update(repo, { mode: 'history' }),
+  compare: (repo) => openCompare(repo),
+};
 export function SidebarModeToggle({ repo }: { repo: string }) {
   const { mode } = useTabLayout(repo);
   return (
@@ -8,15 +21,9 @@ export function SidebarModeToggle({ repo }: { repo: string }) {
       <ViewSwitch
         stretch
         label="Sidebar mode"
-        value={mode === 'working' ? 'working tree' : mode}
-        options={['working tree', 'history', 'compare']}
-        onChange={(value) => {
-          if (value === 'compare') openCompare(repo);
-          else
-            useLayout
-              .getState()
-              .update(repo, { mode: value === 'history' ? value : 'working' });
-        }}
+        value={optionOfMode[mode]}
+        options={options}
+        onChange={(option) => openOption[option](repo)}
       />
     </div>
   );

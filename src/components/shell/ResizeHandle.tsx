@@ -1,6 +1,12 @@
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { boundsOf, percentOf } from '../../lib/geometry';
 import type { ResizeBounds } from '../../stores/layout';
+import { handleKeyByTable } from '../../lib/keyboard';
+type Orientation = 'horizontal' | 'vertical';
+const arrowKeys: Record<Orientation, { back: string; forward: string }> = {
+  horizontal: { back: 'ArrowLeft', forward: 'ArrowRight' },
+  vertical: { back: 'ArrowUp', forward: 'ArrowDown' },
+};
 export function percentBelow(event: ReactPointerEvent<HTMLDivElement>) {
   const handle = event.currentTarget;
   const pane = boundsOf(handle.nextElementSibling);
@@ -19,7 +25,7 @@ export function ResizeHandle({
   onChange,
 }: {
   label: string;
-  orientation: 'horizontal' | 'vertical';
+  orientation: Orientation;
   min: number;
   max: number;
   step: number;
@@ -29,10 +35,7 @@ export function ResizeHandle({
   onChange: (value: number) => void;
 }) {
   const clamp = (next: number) => Math.min(max, Math.max(min, next));
-  const [back, forward] =
-    orientation === 'horizontal'
-      ? ['ArrowLeft', 'ArrowRight']
-      : ['ArrowUp', 'ArrowDown'];
+  const { back, forward } = arrowKeys[orientation];
   return (
     <div
       role="slider"
@@ -43,10 +46,12 @@ export function ResizeHandle({
       aria-orientation={orientation}
       aria-valuenow={Math.round(value)}
       className={className}
-      onKeyDown={(event) => {
-        if (event.key === back || event.key === forward)
-          onChange(clamp(value + (event.key === forward ? step : -step)));
-      }}
+      onKeyDown={(event) =>
+        handleKeyByTable(event, {
+          [back]: () => onChange(clamp(value - step)),
+          [forward]: () => onChange(clamp(value + step)),
+        })
+      }
       onPointerDown={(event) => {
         event.preventDefault();
         event.currentTarget.focus();

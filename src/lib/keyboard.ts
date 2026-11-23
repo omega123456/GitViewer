@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { platform } from '@tauri-apps/plugin-os';
 import { isEditableTarget } from './browser';
+import { stepIndex } from './list';
 export interface Action {
   id: string;
   label: string;
@@ -61,4 +62,28 @@ export function shortcutLabel(key: string) {
           : (glyphs[part] ?? part),
     )
     .join('+');
+}
+
+export type KeyHandlers = Partial<Record<string, () => void>>;
+interface KeyPress {
+  key: string;
+  preventDefault: () => void;
+}
+export function handleKeyByTable(event: KeyPress, table: KeyHandlers) {
+  const handler = table[event.key];
+  if (!handler) return;
+  event.preventDefault();
+  handler();
+}
+export function tabKeyHandlers(
+  current: number,
+  count: number,
+  select: (index: number) => void,
+): KeyHandlers {
+  return {
+    ArrowRight: () => select(stepIndex(current, 1, count)),
+    ArrowLeft: () => select(stepIndex(current, -1, count)),
+    Home: () => select(0),
+    End: () => select(count - 1),
+  };
 }

@@ -1,4 +1,7 @@
-use super::{dimensions, object_sizes, parse, quote, resolve, size_limit, Diff, LINE_LIMIT};
+use super::{
+    add_patches, dimensions, object_sizes, parse, quote, resolve, size_limit, Diff, DiffSource,
+    LINE_LIMIT,
+};
 use crate::{
     error::{Error, Result},
     fs, git,
@@ -185,14 +188,12 @@ struct Record {
     new_size: usize,
 }
 impl Record {
-    fn entry(&self, source: &str) -> Diff {
+    fn entry(&self, source: DiffSource) -> Diff {
         Diff {
-            path: self.raw.path.clone(),
-            source: source.into(),
             image: is_image(&self.raw.path),
             old_size: self.old_size,
             new_size: self.new_size,
-            ..Diff::default()
+            ..Diff::empty(&self.raw.path, source)
         }
     }
 }
@@ -225,14 +226,14 @@ impl Section {
     }
 }
 
-struct Builder<'a> {
-    source: &'a str,
+struct Builder {
+    source: DiffSource,
     records: Vec<Record>,
     stack: Stack,
     images: Vec<usize>,
     used: usize,
 }
-impl Builder<'_> {
+impl Builder {
     fn finish(&mut self, index: usize, section: Section) -> Result<()> {
         let record = &self.records[index];
         match record.kind {
@@ -281,13 +282,11 @@ fn working_size(full: &Path) -> Option<usize> {
 fn working_bytes(full: &Path) -> Option<Vec<u8>> {
     fs::read_if_present(full).ok()
 }
-fn content(path: &str, source: &str, size: usize, bytes: Option<&[u8]>) -> (Diff, usize) {
+fn content(path: &str, source: DiffSource, size: usize, bytes: Option<&[u8]>) -> (Diff, usize) {
     let mut entry = Diff {
-        path: path.into(),
-        source: source.into(),
         image: is_image(path),
         new_size: size,
-        ..Diff::default()
+        ..Diff::empty(path, source)
     };
     match bytes {
         None => entry.too_large = true,
@@ -308,13 +307,23 @@ fn content(path: &str, source: &str, size: usize, bytes: Option<&[u8]>) -> (Diff
     (entry, 0)
 }
 
-pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Result<Stack> {
+pub async fn read_patched(
+    repo: &Repo,
+    source: DiffSource,
+    revision: &str,
+    base: &str,
+) -> Result<Stack> {
+    let mut stack = read(repo, source, revision, base).await?;
+    stack.files.values_mut().for_each(add_patches);
+    Ok(stack)
+}
+pub async fn read(repo: &Repo, source: DiffSource, revision: &str, base: &str) -> Result<Stack> {
     let mut range = Vec::new();
     let mut sha = String::new();
     match source {
-        "unstaged" => range.push("--no-renames".to_owned()),
-        "staged" => range.extend(["--find-renames".to_owned(), "--cached".to_owned()]),
-        "commit" | "stash" => {
+        DiffSource::Unstaged => range.push("--no-renames".to_owned()),
+        DiffSource::Staged => range.extend(["--find-renames".to_owned(), "--cached".to_owned()]),
+        DiffSource::Commit | DiffSource::Stash => {
             sha = resolve(repo, revision).await?;
             range.extend([
                 "--no-renames".to_owned(),
@@ -322,25 +331,25 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
                 sha.clone(),
             ]);
         }
-        "compare" => {
+        DiffSource::Compare => {
             let from = resolve(repo, base).await?;
             let to = resolve(repo, revision).await?;
             range.extend(["--no-renames".to_owned(), from, to]);
         }
-        _ => return Err(Error::refused("Unknown diff source")),
+        DiffSource::File => return Err(Error::refused("Unknown diff source")),
     }
-    let untracked = if source == "stash" {
+    let untracked = if source == DiffSource::Stash {
         listing(repo, &sha).await?
     } else {
         Vec::new()
     };
     let hidden: HashSet<&str> = untracked.iter().map(|(path, ..)| path.as_str()).collect();
-    let status = if matches!(source, "staged" | "unstaged") {
+    let status = if source.is_uncommitted() {
         repo.snapshot().await?
     } else {
         Default::default()
     };
-    let mut arguments = vec![if source == "unstaged" {
+    let mut arguments = vec![if source == DiffSource::Unstaged {
         "diff-files"
     } else {
         "diff"
@@ -348,7 +357,7 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
     pinned(&mut arguments);
     arguments.extend(range.iter().map(String::as_str));
     let (mut stream, raws) = match open(repo, &arguments).await {
-        Err(_) if matches!(source, "commit" | "stash") => {
+        Err(_) if source.is_revision() => {
             let mut root = vec!["show", "--root", git::EMPTY_FORMAT, "--no-renames"];
             pinned(&mut root);
             root.push(&sha);
@@ -374,7 +383,7 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
                 &quote::quote_path(quote::OLD_PREFIX, old_path),
                 &quote::quote_path(quote::NEW_PREFIX, &raw.path),
             );
-            let paired = source != "staged" || {
+            let paired = source != DiffSource::Staged || {
                 let original = originals.get(raw.path.as_str()).copied().flatten();
                 if matches!(raw.status, 'R' | 'C') {
                     original == Some(raw.old_path.as_str())
@@ -421,7 +430,7 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
         .filter(|record| record.kind != Kind::Omit)
     {
         record.old_size = size(&record.raw.old_oid);
-        let new = if source == "unstaged" {
+        let new = if source == DiffSource::Unstaged {
             record.full.as_deref().and_then(working_size)
         } else {
             Some(size(&record.raw.new_oid))
@@ -507,7 +516,7 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
         stack.files.insert(entry.path.clone(), entry);
         true
     };
-    if source == "unstaged" {
+    if source == DiffSource::Unstaged {
         for entry in &status.entries {
             let Entry::Untracked { path, .. } = entry else {
                 continue;
@@ -532,7 +541,7 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
                     None => continue,
                 }
             };
-            let (entry, cost) = content(path, "file", size, bytes.as_deref());
+            let (entry, cost) = content(path, DiffSource::File, size, bytes.as_deref());
             if !add(&mut stack, entry, cost) {
                 break;
             }
@@ -560,7 +569,7 @@ pub async fn read(repo: &Repo, source: &str, revision: &str, base: &str) -> Resu
                 },
                 _ => None,
             };
-            let (entry, cost) = content(path, "stash", *size, bytes.as_deref());
+            let (entry, cost) = content(path, DiffSource::Stash, *size, bytes.as_deref());
             if !add(&mut stack, entry, cost) {
                 break;
             }
@@ -572,7 +581,7 @@ fn batch(repo: &Repo, oids: &[&str]) -> Result<Stream> {
     let input: String = oids.iter().map(|oid| format!("{oid}\n")).collect();
     Stream::start(repo, &["cat-file", "--batch"], input.into_bytes())
 }
-async fn images(repo: &Repo, source: &str, builder: &mut Builder<'_>) -> Result<()> {
+async fn images(repo: &Repo, source: DiffSource, builder: &mut Builder) -> Result<()> {
     if builder.images.is_empty() {
         return Ok(());
     }
@@ -580,7 +589,7 @@ async fn images(repo: &Repo, source: &str, builder: &mut Builder<'_>) -> Result<
     for &index in &builder.images {
         let raw = &builder.records[index].raw;
         oids.push(&raw.old_oid);
-        if source != "unstaged" {
+        if source != DiffSource::Unstaged {
             oids.push(&raw.new_oid);
         }
     }
@@ -601,7 +610,7 @@ async fn images(repo: &Repo, source: &str, builder: &mut Builder<'_>) -> Result<
         let record = &builder.records[index];
         let mut entry = record.entry(source);
         entry.old_dimensions = measure(&record.raw.old_oid);
-        entry.new_dimensions = if source == "unstaged" {
+        entry.new_dimensions = if source == DiffSource::Unstaged {
             record
                 .full
                 .as_deref()

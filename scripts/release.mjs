@@ -163,6 +163,11 @@ export function assemble(directory, output, repository, tag) {
     platforms: platforms,
   });
 }
+function attachNotes(feedPath, releasePath) {
+  const feed = readJson(feedPath);
+  feed.notes = readJson(releasePath).body;
+  writeJson(feedPath, feed);
+}
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
@@ -170,17 +175,25 @@ if (
   const [command, ...args] = process.argv.slice(2);
   const repository = process.env.GITHUB_REPOSITORY;
   const tag = process.env.GITHUB_REF_NAME;
-  if (command === 'configure')
-    writeJson(
-      'release.config.json',
-      configuration('.', repository, process.env.TAURI_UPDATER_PUBLIC_KEY, tag),
-    );
-  else if (command === 'collect')
-    collect('.', args[0], args[1], args[2], repository, tag);
-  else if (command === 'assemble') assemble(args[0], args[1], repository, tag);
-  else if (command === 'notes') {
-    const feed = readJson(args[0]);
-    feed.notes = readJson(args[1]).body;
-    writeJson(args[0], feed);
-  } else throw new Error('Expected configure, collect, assemble, or notes');
+  const commands = new Map([
+    [
+      'configure',
+      () =>
+        writeJson(
+          'release.config.json',
+          configuration(
+            '.',
+            repository,
+            process.env.TAURI_UPDATER_PUBLIC_KEY,
+            tag,
+          ),
+        ),
+    ],
+    ['collect', () => collect('.', args[0], args[1], args[2], repository, tag)],
+    ['assemble', () => assemble(args[0], args[1], repository, tag)],
+    ['notes', () => attachNotes(args[0], args[1])],
+  ]);
+  const run = commands.get(command);
+  if (!run) throw new Error('Expected configure, collect, assemble, or notes');
+  run();
 }

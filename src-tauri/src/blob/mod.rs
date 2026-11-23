@@ -1,5 +1,5 @@
 use crate::{
-    diff,
+    diff::{self, DiffSource},
     error::{Error, Result},
     media::{is_image, mime},
     repo::Registry,
@@ -25,10 +25,11 @@ pub async fn serve<R: tauri::Runtime>(
     let get = |key: &str| parameters.get(key).map(String::as_str).unwrap_or_default();
     let repo = app.state::<Registry>().get(get("repo")).await?;
     let path = get("path");
+    let source = DiffSource::parse(get("source"))?;
     if diff::size(
         &repo,
         path,
-        get("source"),
+        source,
         get("revision"),
         get("base"),
         get("side") == "old",
@@ -45,7 +46,7 @@ pub async fn serve<R: tauri::Runtime>(
     let bytes = diff::bytes(
         &repo,
         path,
-        get("source"),
+        source,
         get("revision"),
         get("base"),
         get("side") == "old",

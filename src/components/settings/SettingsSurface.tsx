@@ -1,17 +1,27 @@
+import type { ComponentType } from 'react';
 import { Dialog } from 'radix-ui';
 import { Settings as SettingsIcon, X } from 'lucide-react';
 import type { SettingsResponse } from '../../lib/types';
 import { usePalette } from '../../stores/palette';
-import { useSettingsNav } from '../../stores/settings-nav';
+import { useSettingsNav, type SettingsPane } from '../../stores/settings-nav';
 import { Button } from '../shared/Button';
 import { Modal } from '../shared/Modal';
 import { AiSection } from './AiSection';
 import { GeneralSection } from './GeneralSection';
 import { SettingsNav, panes } from './SettingsNav';
 import { UpdatesSection } from './UpdatesSection';
+const paneSections: Record<
+  SettingsPane,
+  ComponentType<{ settings: SettingsResponse }>
+> = {
+  general: GeneralSection,
+  ai: AiSection,
+  updates: UpdatesSection,
+};
 export function SettingsSurface({ settings }: { settings: SettingsResponse }) {
   const open = usePalette((state) => state.settings);
   const pane = useSettingsNav((state) => state.pane);
+  const PaneSection = paneSections[pane];
   return (
     <Modal
       hideChrome
@@ -46,9 +56,7 @@ export function SettingsSurface({ settings }: { settings: SettingsResponse }) {
               <h2 className="mb-3.5 font-display text-title font-semibold">
                 {panes.find((entry) => entry.id === pane)?.label}
               </h2>
-              {pane === 'general' && <GeneralSection settings={settings} />}
-              {pane === 'ai' && <AiSection settings={settings} />}
-              {pane === 'updates' && <UpdatesSection settings={settings} />}
+              <PaneSection settings={settings} />
             </div>
           </div>
         </div>

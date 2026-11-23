@@ -11,3 +11,5 @@ mod persistence;
 mod updater;
 
 mod worktree;
+
+mod variants;

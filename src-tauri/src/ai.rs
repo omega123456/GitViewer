@@ -1,26 +1,23 @@
 use crate::{
     error::{Error, Result},
     git,
-    settings::{Ai, DEFAULT_PROMPT},
+    lock::lock_recovering,
+    repo::Registry,
+    settings::{Ai, Settings, DEFAULT_PROMPT},
 };
 use async_openai::{config::OpenAIConfig, error::OpenAIError, Client};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{
-    path::Path,
-    sync::atomic::{AtomicUsize, Ordering},
-    time::Duration,
-};
+use std::{path::Path, sync::Mutex, time::Duration};
 
 pub const DIFF_BUDGET: usize = 175_000;
 pub const MESSAGE_CAP: usize = 4000;
 pub const TIMEOUT: Duration = Duration::from_secs(120);
 
-const LAST_REASONING_TIER: usize = 3;
 const THINK_OPEN: [&str; 3] = ["<think>", "<thinking>", "<reasoning>"];
 const THINK_CLOSE: [&str; 3] = ["</think>", "</thinking>", "</reasoning>"];
-static REASONING_TIER: AtomicUsize = AtomicUsize::new(0);
+static REASONING_TIER: Mutex<ReasoningTier> = Mutex::new(ReasoningTier::EveryOffSwitch);
 const NOISE: [&str; 8] = [
     ".lock",
     "lock.yaml",
@@ -391,35 +388,62 @@ pub fn prompt(template: &str, material: &Material) -> String {
     format!("{template}\n\n{introduction}\n\n{}", material.text)
 }
 
-fn reasoning_off_fields(tier: usize) -> Value {
-    match tier {
-        0 => json!({
-            "reasoning_effort": "none",
-            "reasoning": {"enabled": false, "exclude": true},
-            "thinking": {"type": "disabled", "budget_tokens": 0},
-            "enable_thinking": false,
-            "think": false,
-            "thinking_budget": 0,
-            "reasoning_budget": 0,
-            "thinking_budget_tokens": 0,
-            "chat_template_kwargs": {"enable_thinking": false, "thinking": false, "reasoning": false},
-            "google": {"thinking_config": {"thinking_budget": 0, "include_thoughts": false}},
-        }),
-        1 => json!({"reasoning_effort": "none"}),
-        2 => json!({"reasoning_effort": "low"}),
-        _ => json!({}),
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReasoningTier {
+    EveryOffSwitch,
+    NoEffort,
+    LowEffort,
+    NoFields,
+}
+impl ReasoningTier {
+    fn off_fields(self) -> Value {
+        match self {
+            Self::EveryOffSwitch => json!({
+                "reasoning_effort": "none",
+                "reasoning": {"enabled": false, "exclude": true},
+                "thinking": {"type": "disabled", "budget_tokens": 0},
+                "enable_thinking": false,
+                "think": false,
+                "thinking_budget": 0,
+                "reasoning_budget": 0,
+                "thinking_budget_tokens": 0,
+                "chat_template_kwargs": {"enable_thinking": false, "thinking": false, "reasoning": false},
+                "google": {"thinking_config": {"thinking_budget": 0, "include_thoughts": false}},
+            }),
+            Self::NoEffort => json!({"reasoning_effort": "none"}),
+            Self::LowEffort => json!({"reasoning_effort": "low"}),
+            Self::NoFields => json!({}),
+        }
+    }
+    fn step_down(self) -> Option<Self> {
+        match self {
+            Self::EveryOffSwitch => Some(Self::NoEffort),
+            Self::NoEffort => Some(Self::LowEffort),
+            Self::LowEffort => Some(Self::NoFields),
+            Self::NoFields => None,
+        }
     }
 }
+fn tier_after_rejection(tier: ReasoningTier, error: OpenAIError) -> Result<ReasoningTier> {
+    if !rejects_the_body(&error) {
+        return Err(Error::from(error));
+    }
+    tier.step_down().ok_or_else(|| Error::from(error))
+}
+fn current_tier() -> ReasoningTier {
+    *lock_recovering(&REASONING_TIER)
+}
+fn remember_tier(tier: ReasoningTier) {
+    *lock_recovering(&REASONING_TIER) = tier;
+}
 
-fn request_body(model: &str, prompt: &str, tier: usize) -> Value {
+fn request_body(model: &str, prompt: &str, tier: ReasoningTier) -> Value {
     let mut body = json!({
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "stream": false,
     });
-    if let (Some(body), Some(fields)) =
-        (body.as_object_mut(), reasoning_off_fields(tier).as_object())
-    {
+    if let (Some(body), Some(fields)) = (body.as_object_mut(), tier.off_fields().as_object()) {
         body.extend(fields.clone());
     }
     body
@@ -477,6 +501,20 @@ fn trim(text: &str) -> Result<String> {
     Ok(text.chars().take(MESSAGE_CAP).collect())
 }
 
+pub async fn configured_models(preferences: &Settings) -> Result<Vec<String>> {
+    models(&Endpoint::configured(&preferences.ai)?).await
+}
+pub async fn generate(preferences: &Settings, registry: &Registry, repo: &str) -> Result<Draft> {
+    let endpoint = Endpoint::configured(&preferences.ai)?;
+    let material = material(&registry.get(repo).await?.root).await?;
+    draft(
+        &endpoint,
+        &preferences.ai.model,
+        &preferences.ai.prompt,
+        material,
+    )
+    .await
+}
 pub async fn draft(
     endpoint: &Endpoint,
     model: &str,
@@ -489,7 +527,7 @@ pub async fn draft(
     let client = client(endpoint)?;
     let prompt = prompt(template, &material);
     let completion: Completion = loop {
-        let tier = REASONING_TIER.load(Ordering::SeqCst);
+        let tier = current_tier();
         match client
             .chat()
             .create_byot(request_body(model.trim(), &prompt, tier))
@@ -501,10 +539,7 @@ pub async fn draft(
                     "The changes are too large for this model's context",
                 ));
             }
-            Err(error) if rejects_the_body(&error) && tier < LAST_REASONING_TIER => {
-                REASONING_TIER.store(tier + 1, Ordering::SeqCst);
-            }
-            Err(error) => return Err(Error::from(error)),
+            Err(error) => remember_tier(tier_after_rejection(tier, error)?),
         }
     };
     let text = completion

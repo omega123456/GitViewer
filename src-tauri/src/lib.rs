@@ -2,32 +2,59 @@
 
 use tauri::Manager;
 
+#[deny(clippy::cognitive_complexity)]
 pub mod actions;
+#[deny(clippy::cognitive_complexity)]
 pub mod ai;
+#[deny(clippy::cognitive_complexity)]
 pub mod app;
+#[deny(clippy::cognitive_complexity)]
 pub mod blob;
+#[deny(clippy::cognitive_complexity)]
 pub mod branch;
 pub mod diff;
+#[deny(clippy::cognitive_complexity)]
 pub mod edit;
+#[deny(clippy::cognitive_complexity)]
 pub mod error;
+#[deny(clippy::cognitive_complexity)]
 pub mod fs;
+#[deny(clippy::cognitive_complexity)]
 pub mod git;
+#[deny(clippy::cognitive_complexity)]
 pub mod graph;
+#[deny(clippy::cognitive_complexity)]
 pub mod history;
+#[deny(clippy::cognitive_complexity)]
 pub mod ipc;
+#[deny(clippy::cognitive_complexity)]
 pub mod lifecycle;
+#[deny(clippy::cognitive_complexity)]
 pub mod lines;
+#[deny(clippy::cognitive_complexity)]
 pub mod lock;
+#[deny(clippy::cognitive_complexity)]
 pub mod logging;
+#[deny(clippy::cognitive_complexity)]
 pub mod media;
+#[deny(clippy::cognitive_complexity)]
 pub mod repo;
+#[deny(clippy::cognitive_complexity)]
 pub mod session;
+#[deny(clippy::cognitive_complexity)]
 pub mod settings;
+#[deny(clippy::cognitive_complexity)]
 pub mod stash;
+#[deny(clippy::cognitive_complexity)]
 pub mod status;
+#[deny(clippy::cognitive_complexity)]
 pub mod tree;
 pub mod updater;
+#[deny(clippy::cognitive_complexity)]
+pub mod variant;
+#[deny(clippy::cognitive_complexity)]
 pub mod watch;
+#[deny(clippy::cognitive_complexity)]
 pub mod worktree;
 
 pub fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {

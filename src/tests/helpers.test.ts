@@ -20,6 +20,8 @@ import {
 } from '../lib/branch-name';
 import { isEditableTarget } from '../lib/browser';
 import { splitPath } from '../lib/paths';
+import { handleKeyByTable, tabKeyHandlers } from '../lib/keyboard';
+import { emptyHints } from '../components/shell/palette-groups';
 import { confirmAction } from '../lib/dialog';
 import { saveSettings } from '../lib/settings';
 import { createNoticeStore, nextNotice } from '../stores/notices';
@@ -174,6 +176,37 @@ describe('browser and path helpers', () => {
       directory: '',
       name: 'README.md',
     });
+  });
+});
+
+describe('key tables', () => {
+  const press = (key: string) => ({ key: key, preventDefault: vi.fn() });
+  it('runs the handler for a listed key and prevents its default', () => {
+    const enter = vi.fn();
+    const listed = press('Enter');
+    handleKeyByTable(listed, { Enter: enter });
+    expect(enter).toHaveBeenCalledOnce();
+    expect(listed.preventDefault).toHaveBeenCalledOnce();
+    const unlisted = press('Escape');
+    handleKeyByTable(unlisted, { Enter: enter, Escape: undefined });
+    expect(enter).toHaveBeenCalledOnce();
+    expect(unlisted.preventDefault).not.toHaveBeenCalled();
+  });
+  it('steps tab selection with wrap-around and jumps to either end', () => {
+    const selected: number[] = [];
+    const handlers = tabKeyHandlers(2, 3, (index) => selected.push(index));
+    for (const key of ['ArrowRight', 'ArrowLeft', 'Home', 'End'])
+      handleKeyByTable(press(key), handlers);
+    expect(selected).toEqual([0, 1, 0, 2]);
+  });
+  it('hints at another palette mode only when its shortcut exists', () => {
+    const none = { ignored: true, openKey: undefined, fileKey: undefined };
+    expect(emptyHints.commands(none)).toBeNull();
+    expect(emptyHints.repositories(none)).toBeNull();
+    expect(emptyHints.files(none)).toBeNull();
+    expect(emptyHints.files({ ...none, ignored: false })).toBe(
+      'Include ignored files to widen the search',
+    );
   });
 });
 

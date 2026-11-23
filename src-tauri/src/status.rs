@@ -94,6 +94,86 @@ const ORDINARY_FIELDS: usize = 9;
 const RENAMED_FIELDS: usize = 10;
 const UNMERGED_FIELDS: usize = 11;
 const STATE_CODES: usize = 2;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RecordKind {
+    Untracked,
+    Ordinary,
+    Renamed,
+    Unmerged,
+}
+impl RecordKind {
+    fn of(record: &str) -> Result<Self> {
+        match record.as_bytes()[0] {
+            b'?' => Ok(Self::Untracked),
+            b'1' => Ok(Self::Ordinary),
+            b'2' => Ok(Self::Renamed),
+            b'u' => Ok(Self::Unmerged),
+            _ => Err(Error::unexpected(format!(
+                "Unknown status record: {record}"
+            ))),
+        }
+    }
+}
+fn record_fields(record: &str, count: usize) -> Result<Vec<&str>> {
+    let parts: Vec<&str> = record.splitn(count, ' ').collect();
+    if parts.len() != count || parts[1].len() != STATE_CODES {
+        return Err(Error::unexpected("Malformed status record"));
+    }
+    Ok(parts)
+}
+fn path_field(parts: &[&str]) -> String {
+    parts[parts.len() - 1].into()
+}
+fn index_state(parts: &[&str]) -> String {
+    parts[1][..1].into()
+}
+fn worktree_state(parts: &[&str]) -> String {
+    parts[1][1..].into()
+}
+fn untracked_entry(record: &str) -> Entry {
+    Entry::Untracked {
+        path: record[UNTRACKED_PATH_START..].into(),
+        index: git::UNTRACKED.into(),
+        worktree: git::UNTRACKED.into(),
+    }
+}
+fn ordinary_entry(parts: &[&str]) -> Entry {
+    Entry::Ordinary {
+        path: path_field(parts),
+        index: index_state(parts),
+        worktree: worktree_state(parts),
+        index_hash: parts[7].into(),
+        index_mode: parts[4].into(),
+    }
+}
+fn renamed_entry(parts: &[&str], original_path: Option<&str>) -> Result<Entry> {
+    Ok(Entry::Renamed {
+        path: path_field(parts),
+        original_path: original_path
+            .ok_or_else(|| Error::unexpected("Missing rename source"))?
+            .into(),
+        score: parts[8].into(),
+        index: index_state(parts),
+        worktree: worktree_state(parts),
+        index_hash: parts[7].into(),
+        index_mode: parts[4].into(),
+    })
+}
+fn unmerged_entry(parts: &[&str]) -> Entry {
+    Entry::Unmerged {
+        path: path_field(parts),
+        stage: parts[1].into(),
+        modes: [
+            parts[3].into(),
+            parts[4].into(),
+            parts[5].into(),
+            parts[6].into(),
+        ],
+        hashes: [parts[7].into(), parts[8].into(), parts[9].into()],
+        index: "C".into(),
+        worktree: "C".into(),
+    }
+}
 pub fn parse(bytes: &[u8]) -> Result<Status> {
     let mut status = Status::default();
     let text = std::str::from_utf8(bytes)
@@ -121,69 +201,18 @@ pub fn parse(bytes: &[u8]) -> Result<Status> {
             }
             continue;
         }
-        let kind = record.as_bytes()[0];
-        if kind == b'?' {
-            status.entries.push(Entry::Untracked {
-                path: record[UNTRACKED_PATH_START..].into(),
-                index: git::UNTRACKED.into(),
-                worktree: git::UNTRACKED.into(),
-            });
-            continue;
-        }
-        let fields = match kind {
-            b'1' => ORDINARY_FIELDS,
-            b'2' => RENAMED_FIELDS,
-            b'u' => UNMERGED_FIELDS,
-            _ => {
-                return Err(Error::unexpected(format!(
-                    "Unknown status record: {record}"
-                )))
+        let entry = match RecordKind::of(record)? {
+            RecordKind::Untracked => untracked_entry(record),
+            RecordKind::Ordinary => ordinary_entry(&record_fields(record, ORDINARY_FIELDS)?),
+            RecordKind::Renamed => {
+                renamed_entry(&record_fields(record, RENAMED_FIELDS)?, records.next())?
+            }
+            RecordKind::Unmerged => {
+                status.conflicted = true;
+                unmerged_entry(&record_fields(record, UNMERGED_FIELDS)?)
             }
         };
-        let parts: Vec<&str> = record.splitn(fields, ' ').collect();
-        if parts.len() != fields || parts[1].len() != STATE_CODES {
-            return Err(Error::unexpected("Malformed status record"));
-        }
-        let path: String = parts[fields - 1].into();
-        let index: String = parts[1][..1].into();
-        let worktree: String = parts[1][1..].into();
-        status.entries.push(match kind {
-            b'1' => Entry::Ordinary {
-                path,
-                index,
-                worktree,
-                index_hash: parts[7].into(),
-                index_mode: parts[4].into(),
-            },
-            b'2' => Entry::Renamed {
-                path,
-                original_path: records
-                    .next()
-                    .ok_or_else(|| Error::unexpected("Missing rename source"))?
-                    .into(),
-                score: parts[8].into(),
-                index,
-                worktree,
-                index_hash: parts[7].into(),
-                index_mode: parts[4].into(),
-            },
-            _ => {
-                status.conflicted = true;
-                Entry::Unmerged {
-                    path,
-                    stage: parts[1].into(),
-                    modes: [
-                        parts[3].into(),
-                        parts[4].into(),
-                        parts[5].into(),
-                        parts[6].into(),
-                    ],
-                    hashes: [parts[7].into(), parts[8].into(), parts[9].into()],
-                    index: "C".into(),
-                    worktree: "C".into(),
-                }
-            }
-        });
+        status.entries.push(entry);
     }
     Ok(status)
 }

@@ -3,8 +3,27 @@ use crate::{
     error::{Error, Result},
     git,
     repo::Repo,
+    status::Status,
+    variant,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use tauri::{AppHandle, Emitter, Runtime};
+
+const SYNC_PROGRESS: &str = "sync://progress";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SyncAction {
+    Fetch,
+    Pull,
+    Push,
+}
+impl SyncAction {
+    pub fn parse(name: &str) -> Result<Self> {
+        variant::parse(name, "Unknown synchronization action")
+    }
+}
 
 #[derive(Debug, Serialize)]
 pub struct Branch {
@@ -246,64 +265,136 @@ async fn distance(repo: &Repo, from: Option<String>, to: Option<String>) -> Resu
     .await?;
     Ok(count.trim().parse().ok())
 }
-pub async fn sync<F: Fn(&str)>(repo: &Repo, action: &str, progress: F) -> Result<Option<u32>> {
-    let status = repo.writable().await?;
-    local_remotes_only(repo).await?;
-    if action != "fetch" && status.branch == git::DETACHED_LABEL {
+async fn moved(repo: &Repo, tracked: Option<&str>, before: Option<String>) -> Result<Option<u32>> {
+    let after = tip(repo, tracked).await;
+    distance(repo, before, after).await
+}
+fn require_branch(status: &Status) -> Result<()> {
+    if status.branch == git::DETACHED_LABEL {
         return Err(Error::refused("Detached HEAD has no upstream branch"));
     }
-    let tracked = match action {
-        "pull" => Some(git::HEAD.to_string()),
-        _ => status.upstream.clone(),
-    };
-    let before = tip(repo, tracked.as_deref()).await;
-    match action {
-        "fetch" => {
-            git::stream(&repo.root, &["fetch", "--all", "--progress"], &progress)
-                .await?
-                .accept(&[git::EXIT_SUCCESS])?;
-        }
-        "push" if status.upstream.is_none() => {
-            let remote = push_remote(repo).await?;
-            git::stream(
-                &repo.root,
-                &["push", "--progress", "--set-upstream", &remote, git::HEAD],
-                &progress,
-            )
-            .await?
-            .accept(&[git::EXIT_SUCCESS])?;
-        }
-        "push" => {
-            git::stream(&repo.root, &["push", "--progress"], &progress)
-                .await?
-                .accept(&[git::EXIT_SUCCESS])?;
-        }
-        "pull" => {
-            git::stream(&repo.root, &["fetch", "--progress"], &progress)
-                .await?
-                .accept(&[git::EXIT_SUCCESS])?;
-            let upstream_name = status
-                .upstream
-                .as_deref()
-                .ok_or_else(|| Error::refused("No upstream configured"))?;
-            let upstream = resolve(repo, upstream_name).await?;
-            if !git::is_ancestor(&repo.root, git::HEAD, &upstream).await? {
-                if git::is_ancestor(&repo.root, &upstream, git::HEAD).await? {
-                    return Ok(Some(0));
-                }
-                return Err(Error::new(
-                    "diverged",
-                    format!("{} and {upstream_name} have diverged", status.branch),
-                ));
-            }
-            git::run(&repo.root, &["merge", "--ff-only", &upstream], None)
-                .await?
-                .accept(&[git::EXIT_SUCCESS])?;
-        }
-        _ => return Err(Error::refused("Unknown synchronization action")),
+    Ok(())
+}
+async fn fetch<F: Fn(&str)>(repo: &Repo, status: &Status, progress: &F) -> Result<Option<u32>> {
+    let tracked = status.upstream.as_deref();
+    let before = tip(repo, tracked).await;
+    git::stream(&repo.root, &["fetch", "--all", "--progress"], progress)
+        .await?
+        .accept(&[git::EXIT_SUCCESS])?;
+    moved(repo, tracked, before).await
+}
+async fn publish<F: Fn(&str)>(repo: &Repo, progress: &F) -> Result<()> {
+    let remote = push_remote(repo).await?;
+    git::stream(
+        &repo.root,
+        &["push", "--progress", "--set-upstream", &remote, git::HEAD],
+        progress,
+    )
+    .await?
+    .accept(&[git::EXIT_SUCCESS])?;
+    Ok(())
+}
+async fn push<F: Fn(&str)>(repo: &Repo, status: &Status, progress: &F) -> Result<Option<u32>> {
+    require_branch(status)?;
+    let tracked = status.upstream.as_deref();
+    let before = tip(repo, tracked).await;
+    if tracked.is_none() {
+        publish(repo, progress).await?;
+        return moved(repo, tracked, before).await;
     }
-    let after = tip(repo, tracked.as_deref()).await;
-    distance(repo, before, after).await
+    git::stream(&repo.root, &["push", "--progress"], progress)
+        .await?
+        .accept(&[git::EXIT_SUCCESS])?;
+    moved(repo, tracked, before).await
+}
+fn diverged(status: &Status, upstream_name: &str) -> Error {
+    Error::new(
+        "diverged",
+        format!("{} and {upstream_name} have diverged", status.branch),
+    )
+}
+async fn pull<F: Fn(&str)>(repo: &Repo, status: &Status, progress: &F) -> Result<Option<u32>> {
+    require_branch(status)?;
+    let tracked = Some(git::HEAD);
+    let before = tip(repo, tracked).await;
+    git::stream(&repo.root, &["fetch", "--progress"], progress)
+        .await?
+        .accept(&[git::EXIT_SUCCESS])?;
+    let upstream_name = status
+        .upstream
+        .as_deref()
+        .ok_or_else(|| Error::refused("No upstream configured"))?;
+    let upstream = resolve(repo, upstream_name).await?;
+    let fast_forward = git::is_ancestor(&repo.root, git::HEAD, &upstream).await?;
+    let ahead = !fast_forward && git::is_ancestor(&repo.root, &upstream, git::HEAD).await?;
+    if ahead {
+        return Ok(Some(0));
+    }
+    if !fast_forward {
+        return Err(diverged(status, upstream_name));
+    }
+    git::run(&repo.root, &["merge", "--ff-only", &upstream], None)
+        .await?
+        .accept(&[git::EXIT_SUCCESS])?;
+    moved(repo, tracked, before).await
+}
+async fn parse_and_sync<F: Fn(&str)>(
+    repo: &Repo,
+    action: &str,
+    progress: F,
+) -> Result<Option<u32>> {
+    sync(repo, SyncAction::parse(action)?, progress).await
+}
+pub async fn sync_reporting<R: Runtime>(
+    app: &AppHandle<R>,
+    repo: &Repo,
+    id: &str,
+    action: &str,
+) -> Result<Option<u32>> {
+    let reporter = app.clone();
+    let reported = id.to_string();
+    let outcome = parse_and_sync(repo, action, move |line| {
+        let _ = reporter.emit(
+            SYNC_PROGRESS,
+            json!({"repo":reported,"message":line,"done":false}),
+        );
+    })
+    .await;
+    let message = match &outcome {
+        Ok(_) => format!("{action} complete"),
+        Err(error) => format!("{action} failed: {}", error.message),
+    };
+    app.emit(
+        SYNC_PROGRESS,
+        json!({"repo":id,"message":message,"done":true}),
+    )
+    .map_err(Error::from)?;
+    outcome
+}
+pub async fn create_and_checkout(
+    repo: &Repo,
+    name: &str,
+    base: &str,
+    checkout: bool,
+) -> Result<()> {
+    create(repo, name, base).await?;
+    if checkout {
+        switch(repo, name).await?;
+    }
+    Ok(())
+}
+pub async fn sync<F: Fn(&str)>(
+    repo: &Repo,
+    action: SyncAction,
+    progress: F,
+) -> Result<Option<u32>> {
+    let status = repo.writable().await?;
+    local_remotes_only(repo).await?;
+    match action {
+        SyncAction::Fetch => fetch(repo, &status, &progress).await,
+        SyncAction::Push => push(repo, &status, &progress).await,
+        SyncAction::Pull => pull(repo, &status, &progress).await,
+    }
 }
 async fn push_remote(repo: &Repo) -> Result<String> {
     let configured = git::run(&repo.root, &["config", "--get", "remote.pushDefault"], None)

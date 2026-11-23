@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { useImageViews, useTabImageView } from '../../stores/image-view';
 import { dynamic, focus } from '../shared/styles';
 import { boundsOf, FULL_PERCENT, percentOf } from '../../lib/geometry';
+import { handleKeyByTable } from '../../lib/keyboard';
 const MINIMUM_SWIPE_POSITION = 0.01;
 export function SwipeCompare({
   view,
@@ -41,12 +42,12 @@ export function SwipeCompare({
         aria-valuemin={0}
         aria-valuemax={FULL_PERCENT}
         aria-valuenow={Math.round(position)}
-        onKeyDown={(event) => {
-          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-            event.preventDefault();
-            move(position + (event.key === 'ArrowRight' ? 1 : -1));
-          }
-        }}
+        onKeyDown={(event) =>
+          handleKeyByTable(event, {
+            ArrowLeft: () => move(position - 1),
+            ArrowRight: () => move(position + 1),
+          })
+        }
         onPointerDown={(event) =>
           event.currentTarget.setPointerCapture(event.pointerId)
         }

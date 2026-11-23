@@ -1,7 +1,8 @@
 use crate::{
+    app::emit_status_changed,
     error::{Error, Result},
     fs, git,
-    repo::Repo,
+    repo::{Registry, Repo},
     stash,
     status::Entry,
 };
@@ -11,6 +12,7 @@ use std::{
     path::{Path, PathBuf},
     sync::atomic::{AtomicUsize, Ordering},
 };
+use tauri::{AppHandle, Manager, Runtime};
 
 const RECORD_SEPARATOR: &str = "\0\0";
 const MIN_OBJECT_ID_LENGTH: usize = 4;
@@ -428,4 +430,74 @@ pub async fn unapply(target: &Repo, base: &str, tree: &str) -> Result<()> {
         ));
     }
     Ok(())
+}
+fn emit_project_changed<R: Runtime>(app: &AppHandle<R>, repo: &Repo) -> Result<()> {
+    emit_status_changed(app, &repo.project.to_string_lossy())
+}
+pub async fn add_to_project<R: Runtime>(
+    app: &AppHandle<R>,
+    repo: &Repo,
+    path: &str,
+    mode: &str,
+    branch: &str,
+    base: &str,
+) -> Result<String> {
+    let created = add(repo, path, mode, branch, base).await?;
+    emit_project_changed(app, repo)?;
+    Ok(created)
+}
+pub async fn remove_from_project<R: Runtime>(
+    app: &AppHandle<R>,
+    repo: &Repo,
+    worktree: &str,
+    force: u64,
+) -> Result<()> {
+    remove(repo, worktree, force).await?;
+    emit_project_changed(app, repo)
+}
+pub async fn summary_against(
+    source: &Repo,
+    registry: &Registry,
+    target_id: &str,
+) -> Result<Summary> {
+    let target = registry.get(target_id).await?;
+    summary(source, &target.snapshot().await?.oid).await
+}
+async fn apply_locked(source: &Repo, target: &Repo, smart: bool) -> Result<Applied> {
+    let _target = target.writes.lock().await;
+    let _source = source.writes.lock().await;
+    apply(source, target, smart).await
+}
+async fn unapply_locked(target: &Repo, base: &str, tree: &str) -> Result<()> {
+    let _target = target.writes.lock().await;
+    unapply(target, base, tree).await
+}
+pub async fn apply_between<R: Runtime>(
+    app: &AppHandle<R>,
+    source_id: &str,
+    target_id: &str,
+    smart: bool,
+) -> Result<Applied> {
+    let registry = app.state::<Registry>();
+    let target = registry.get(target_id).await?;
+    let source = registry.get(source_id).await?;
+    if std::sync::Arc::ptr_eq(&source, &target) {
+        return Err(Error::refused("Choose a worktree other than main"));
+    }
+    let applied = apply_locked(&source, &target, smart).await;
+    target.refresh().await?;
+    emit_status_changed(app, target_id)?;
+    applied
+}
+pub async fn unapply_in<R: Runtime>(
+    app: &AppHandle<R>,
+    target_id: &str,
+    base: &str,
+    tree: &str,
+) -> Result<()> {
+    let target = app.state::<Registry>().get(target_id).await?;
+    let unapplied = unapply_locked(&target, base, tree).await;
+    target.refresh().await?;
+    emit_status_changed(app, target_id)?;
+    unapplied
 }

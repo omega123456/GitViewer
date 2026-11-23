@@ -79,15 +79,27 @@ function keySource(key: readonly unknown[]) {
     typeof args === 'object' && args !== null && 'source' in args;
   return hasSource ? String(args.source) : '';
 }
-function refreshes(name: string, key: readonly unknown[]) {
-  const command = keyCommand(key);
-  if (name === 'repo://files-changed') return listings.includes(command);
-  if (name === 'repo://head-changed') return true;
-  if (references.includes(command)) return false;
-  return !(
-    ['diff', 'diff_stack', 'file_lines'].includes(command) &&
-    immutable.includes(keySource(key))
-  );
+const diffCommands = ['diff', 'diff_stack', 'file_lines'];
+function isImmutableDiff(key: readonly unknown[]) {
+  const isDiff = diffCommands.includes(keyCommand(key));
+  return isDiff && immutable.includes(keySource(key));
+}
+function refreshesOnStatus(key: readonly unknown[]) {
+  if (references.includes(keyCommand(key))) return false;
+  return !isImmutableDiff(key);
+}
+type RepoEvent =
+  'repo://status-changed' | 'repo://head-changed' | 'repo://files-changed';
+const refreshRules: Record<RepoEvent, (key: readonly unknown[]) => boolean> = {
+  'repo://status-changed': refreshesOnStatus,
+  'repo://head-changed': () => true,
+  'repo://files-changed': (key) => listings.includes(keyCommand(key)),
+};
+function refreshRepository(name: RepoEvent, repo: string) {
+  void client.invalidateQueries({
+    queryKey: [repo],
+    predicate: (query) => refreshRules[name](query.queryKey),
+  });
 }
 function trimHistory(repo: string) {
   client.setQueriesData<InfiniteData<unknown>>(
@@ -168,27 +180,34 @@ export async function perform<K extends keyof Commands>(
     return undefined;
   }
 }
+function invalidateApp(...commands: (keyof Commands)[]) {
+  for (const command of commands)
+    void client.invalidateQueries({ queryKey: ['app', command] });
+}
+function reportProgress({ repo, message }: Events['sync://progress']) {
+  const progress = parseProgress(message);
+  if (progress) useActivity.getState().progress(repo, progress);
+}
+type EventHandlers = { [K in keyof Events]?: (payload: Events[K]) => void };
+const eventHandlers: EventHandlers = {
+  'update://changed': () => invalidateApp('update_get'),
+  'settings://changed': () => invalidateApp('settings_get', 'ai_models'),
+  'repo://closed': ({ repo }) => client.removeQueries({ queryKey: [repo] }),
+  'sync://progress': reportProgress,
+  'repo://status-changed': ({ repo }) =>
+    refreshRepository('repo://status-changed', repo),
+  'repo://head-changed': ({ repo }) => {
+    trimHistory(repo);
+    refreshRepository('repo://head-changed', repo);
+  },
+  'repo://files-changed': ({ repo }) =>
+    refreshRepository('repo://files-changed', repo),
+};
 export function handleEvent<K extends keyof Events>(
   name: K,
   payload: Events[K],
 ) {
-  if (name === 'update://changed') {
-    void client.invalidateQueries({ queryKey: ['app', 'update_get'] });
-  } else if (name === 'settings://changed') {
-    void client.invalidateQueries({ queryKey: ['app', 'settings_get'] });
-    void client.invalidateQueries({ queryKey: ['app', 'ai_models'] });
-  } else if (name === 'repo://closed' && payload && 'repo' in payload) {
-    client.removeQueries({ queryKey: [payload.repo] });
-  } else if (name === 'sync://progress' && payload && 'message' in payload) {
-    const progress = parseProgress(payload.message);
-    if (progress) useActivity.getState().progress(payload.repo, progress);
-  } else if (payload && 'repo' in payload) {
-    if (name === 'repo://head-changed') trimHistory(payload.repo);
-    void client.invalidateQueries({
-      queryKey: [payload.repo],
-      predicate: (query) => refreshes(name, query.queryKey),
-    });
-  }
+  eventHandlers[name]?.(payload);
 }
 export async function connectEvents() {
   const names: (keyof Events)[] = [

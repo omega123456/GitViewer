@@ -37,6 +37,19 @@ export function FullFileButton({
     </Button>
   );
 }
+type DisplayOption = 'whitespace' | 'wrap';
+const displayToggles: {
+  value: DisplayOption;
+  title: string;
+  icon: typeof Pilcrow;
+}[] = [
+  { value: 'whitespace', title: 'Hide whitespace', icon: Pilcrow },
+  { value: 'wrap', title: 'Word wrap', icon: WrapText },
+];
+interface DisplayToggle {
+  pressed: boolean;
+  toggle: () => void;
+}
 function Divider() {
   return (
     <span className="mx-1.5 h-5 w-px shrink-0 bg-line dark:bg-line-dark" />
@@ -61,9 +74,19 @@ export function DiffToolbar({
   toggleFull: () => void;
   move: (direction: number) => void;
 }) {
-  const pressed: string[] = [];
-  if (whitespace) pressed.push('whitespace');
-  if (wrap) pressed.push('wrap');
+  const display: Record<DisplayOption, DisplayToggle> = {
+    whitespace: { pressed: whitespace, toggle: toggleWhitespace },
+    wrap: { pressed: wrap, toggle: toggleWrap },
+  };
+  const pressed = displayToggles
+    .filter(({ value }) => display[value].pressed)
+    .map(({ value }) => value);
+  const applyPressed = (next: string[]) => {
+    for (const { value } of displayToggles) {
+      const option = display[value];
+      if (next.includes(value) !== option.pressed) option.toggle();
+    }
+  };
   return (
     <div className="flex h-9.5 shrink-0 items-center gap-1 border-b border-line bg-surface px-2.5 dark:border-line-dark dark:bg-surface-dark">
       <ViewSwitch
@@ -80,26 +103,19 @@ export function DiffToolbar({
         type="multiple"
         aria-label="Diff display"
         value={pressed}
-        onValueChange={(next) => {
-          if (next.includes('whitespace') !== whitespace) toggleWhitespace();
-          if (next.includes('wrap') !== wrap) toggleWrap();
-        }}
+        onValueChange={applyPressed}
         className="ml-auto inline-flex gap-1"
       >
-        <ToggleGroup.Item
-          value="whitespace"
-          title="Hide whitespace"
-          className={toggle(whitespace)}
-        >
-          <Pilcrow className="size-3.5" />
-        </ToggleGroup.Item>
-        <ToggleGroup.Item
-          value="wrap"
-          title="Word wrap"
-          className={toggle(wrap)}
-        >
-          <WrapText className="size-3.5" />
-        </ToggleGroup.Item>
+        {displayToggles.map(({ value, title, icon: Icon }) => (
+          <ToggleGroup.Item
+            key={value}
+            value={value}
+            title={title}
+            className={toggle(display[value].pressed)}
+          >
+            <Icon className="size-3.5" />
+          </ToggleGroup.Item>
+        ))}
       </ToggleGroup.Root>
       <Divider />
       <div className="flex items-center gap-1 text-muted dark:text-muted-dark">

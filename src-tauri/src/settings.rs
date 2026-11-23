@@ -2,6 +2,7 @@ use crate::{
     app::main_window,
     error::{Error, Result},
     lock::lock_recovering,
+    variant,
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -15,11 +16,41 @@ const MIN_FILE_TABS: u32 = 3;
 const MAX_FILE_TABS: u32 = 20;
 #[cfg(not(feature = "test-utils"))]
 const SETTINGS_FILE: &str = "settings.json";
+const SETTINGS_CHANGED: &str = "settings://changed";
 
 pub const DEFAULT_PROMPT: &str = "Write a concise commit message for this diff (under 220 characters total).\n\
 - Subject line: Imperative mood, under 72 characters, summarizing the core functional change.\n\
 - Body (when needed): 1–2 short sentences explaining *why* the change was made or how behavior changed.\n\
 - Rules: Describe functional impact and intent, not code mechanics. Do not name specific classes/functions or mention routine test updates.";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+pub enum UpdateInterval {
+    #[serde(rename = "1h")]
+    Hourly,
+    #[serde(rename = "5h")]
+    EveryFiveHours,
+    #[serde(rename = "1d")]
+    Daily,
+    #[serde(rename = "7d")]
+    Weekly,
+    #[serde(rename = "off")]
+    Off,
+}
+impl UpdateInterval {
+    pub fn parse(value: &str) -> Result<Self> {
+        variant::parse(value, "Invalid update check interval")
+    }
+    pub fn duration(self) -> Option<std::time::Duration> {
+        let duration = match self {
+            Self::Hourly => chrono::Duration::hours(1),
+            Self::EveryFiveHours => chrono::Duration::hours(5),
+            Self::Daily => chrono::Duration::days(1),
+            Self::Weekly => chrono::Duration::days(7),
+            Self::Off => return None,
+        };
+        duration.to_std().ok()
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -92,6 +123,25 @@ pub fn settings_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf> {
         Ok(app.path().app_config_dir()?.join(SETTINGS_FILE))
     }
 }
+pub fn current<R: Runtime>(app: &AppHandle<R>) -> Result<Settings> {
+    Ok(read(&settings_path(app)?))
+}
+pub fn response<R: Runtime>(app: &AppHandle<R>) -> Result<Response> {
+    Ok(Response {
+        settings: current(app)?,
+        key_stored: crate::ai::key_stored(),
+    })
+}
+pub fn save<R: Runtime>(app: &AppHandle<R>, settings: Settings) -> Result<Settings> {
+    use tauri::{Emitter, Manager};
+    let settings = write(&settings_path(app)?, settings)?;
+    if let Some(service) = app.try_state::<std::sync::Arc<crate::updater::Service>>() {
+        service.preferences(settings.clone());
+    }
+    apply_window_settings(app, &settings)?;
+    app.emit(SETTINGS_CHANGED, ()).map_err(Error::from)?;
+    Ok(settings)
+}
 pub fn apply_window_settings<R: Runtime>(app: &AppHandle<R>, settings: &Settings) -> Result<()> {
     apply_zoom(app, settings.zoom)?;
     apply_backdrop(app, &settings.theme)
@@ -134,7 +184,7 @@ pub fn read(path: &Path) -> Settings {
         .unwrap_or_default()
 }
 pub fn write(path: &Path, settings: Settings) -> Result<Settings> {
-    if !["1h", "5h", "1d", "7d", "off"].contains(&settings.update_check_interval.as_str())
+    if UpdateInterval::parse(&settings.update_check_interval).is_err()
         || !["30s", "1m", "5m", "10m", "15m", "30m", "off"]
             .contains(&settings.auto_fetch_interval.as_str())
         || !["system", "light", "dark"].contains(&settings.theme.as_str())

@@ -1,7 +1,7 @@
 import { shortHash } from './git';
 import { folderName } from './paths';
 import { plural, pluralWord, truncateList, type ListLayout } from './text';
-import type { Applied, Pruned, Stash, Status } from './types';
+import type { Applied, Commands, Pruned, Stash, Status } from './types';
 export interface Before {
   status?: Status;
   stashes?: Stash[];
@@ -23,46 +23,63 @@ const NAME_LIST: ListLayout = {
   separator: ', ',
   overflowSeparator: ' ',
 };
+type SyncDescriber = (
+  key: string,
+  commits: number | null,
+  status: Status | undefined,
+) => Success;
+function upstreamOf(status: Status | undefined) {
+  return status?.upstream ?? 'the remote';
+}
+function fetched(key: string, commits: number | null): Success {
+  const success = { key: key, title: 'Fetched' };
+  if (commits === null) return success;
+  if (!commits) return { ...success, description: 'Up to date', info: true };
+  return { ...success, description: plural(commits, 'new commit') };
+}
+function pulled(
+  key: string,
+  commits: number | null,
+  status: Status | undefined,
+): Success {
+  const success = { key: key, title: `Pulled from ${upstreamOf(status)}` };
+  if (!commits)
+    return { ...success, description: 'Already up to date', info: true };
+  return { ...success, description: plural(commits, 'commit') };
+}
+function pushed(
+  key: string,
+  commits: number | null,
+  status: Status | undefined,
+): Success {
+  const upstream = upstreamOf(status);
+  if (commits === null)
+    return { key: key, title: `Published ${status?.branch ?? 'branch'}` };
+  if (!commits)
+    return {
+      key: key,
+      title: 'Nothing to push',
+      description: `${upstream} already has every commit`,
+      info: true,
+    };
+  return {
+    key: key,
+    replaces: 'commit',
+    title: `Pushed to ${upstream}`,
+    description: plural(commits, 'commit'),
+  };
+}
+const syncDescribers: Record<string, SyncDescriber> = {
+  fetch: fetched,
+  pull: pulled,
+};
 function synced(
   action: string,
   commits: number | null,
   status: Status | undefined,
 ): Success {
-  const key = `sync:${action}`;
-  const upstream = status?.upstream ?? 'the remote';
-  if (action === 'fetch')
-    return {
-      key: key,
-      title: 'Fetched',
-      ...(commits === null
-        ? {}
-        : commits
-          ? { description: plural(commits, 'new commit') }
-          : { description: 'Up to date', info: true }),
-    };
-  if (action === 'pull')
-    return {
-      key: key,
-      title: `Pulled from ${upstream}`,
-      ...(commits
-        ? { description: plural(commits, 'commit') }
-        : { description: 'Already up to date', info: true }),
-    };
-  if (commits === null)
-    return { key: key, title: `Published ${status?.branch ?? 'branch'}` };
-  return commits
-    ? {
-        key: key,
-        replaces: 'commit',
-        title: `Pushed to ${upstream}`,
-        description: plural(commits, 'commit'),
-      }
-    : {
-        key: key,
-        title: 'Nothing to push',
-        description: `${upstream} already has every commit`,
-        info: true,
-      };
+  const describe = syncDescribers[action] ?? pushed;
+  return describe(`sync:${action}`, commits, status);
 }
 export function listNames(names: string[]) {
   return truncateList(names, NAME_LIST);
@@ -163,98 +180,113 @@ function changed(
     return { key: 'revert', title: 'Reverted', description: description };
   return null;
 }
+interface Finished {
+  args: Record<string, unknown>;
+  result: unknown;
+  before: Before;
+}
+type SuccessDescriber = (finished: Finished) => Success | null;
+function nameOf({ args }: Finished) {
+  return String(args.name);
+}
+function stashOf({ args, before }: Finished) {
+  return before.stashes?.find((entry) => entry.hash === args.hash);
+}
+function firstLine(text: string) {
+  return text.split('\n')[0];
+}
+function switched(finished: Finished): Success {
+  return { key: 'branch_switch', title: `Switched to ${nameOf(finished)}` };
+}
+function droppedStash(finished: Finished): Success {
+  const stash = stashOf(finished);
+  return {
+    key: 'stash_drop',
+    title: 'Stash dropped',
+    description: stash?.message,
+    restore: stash && { hash: stash.hash, message: stash.message },
+  };
+}
+function merged(finished: Finished): Success | null {
+  if (!finished.result) return null;
+  const { status } = finished.before;
+  return {
+    key: 'branch_merge',
+    title: `Merged ${nameOf(finished)}`,
+    description: status && `into ${status.branch}`,
+  };
+}
+const successDescribers: Partial<Record<keyof Commands, SuccessDescriber>> = {
+  sync: ({ args, result, before }) =>
+    synced(
+      String(args.action),
+      typeof result === 'number' ? result : null,
+      before.status,
+    ),
+  commit: ({ args, result }) => ({
+    key: 'commit',
+    title: 'Committed',
+    description: `${shortHash(String(result))} ${firstLine(String(args.message))}`,
+  }),
+  stash_save: ({ before }) => ({
+    key: 'stash_save',
+    title: 'Stashed',
+    description: before.status && plural(before.status.entries.length, 'file'),
+  }),
+  stash_apply: (finished) => ({
+    key: 'stash_apply',
+    title: finished.args.pop ? 'Stash popped' : 'Stash applied',
+    description: stashOf(finished)?.message,
+  }),
+  stash_drop: droppedStash,
+  stash_restore: ({ args }) => ({
+    key: 'stash_restore',
+    replaces: 'stash_drop',
+    title: 'Stash restored',
+    description: String(args.message),
+  }),
+  branch_switch: switched,
+  smart_checkout: switched,
+  branch_create: (finished) => ({
+    key: 'branch_create',
+    title: `Created ${nameOf(finished)}`,
+  }),
+  branch_delete: (finished) => ({
+    key: 'branch_delete',
+    title: `Deleted ${nameOf(finished)}`,
+  }),
+  branch_gone: ({ result }) => gone(stringsOf(result)),
+  branch_prune: ({ result, before }) =>
+    isPruned(result) ? pruned(result, before.status) : null,
+  branch_merge: merged,
+  worktree_add: ({ result }) => ({
+    key: 'worktree_add',
+    title: `Created worktree ${folderName(String(result))}`,
+  }),
+  worktree_remove: ({ args }) => ({
+    key: 'worktree_remove',
+    title: `Deleted worktree ${folderName(String(args.worktree))}`,
+  }),
+  worktree_apply: ({ args, result }) =>
+    isApplied(result) ? applied(String(args.target), result) : null,
+  worktree_unapply: ({ args }) => ({
+    key: 'worktree_unapply',
+    replaces: 'worktree_apply',
+    title: 'Undid apply',
+    description: `Changes removed from ${folderName(String(args.target))}`,
+  }),
+  merge_abort: () => ({ key: 'merge_abort', title: 'Merge aborted' }),
+  files_action: ({ args }) =>
+    changed(args.action, plural(stringsOf(args.paths).length, 'file')),
+  hunk_action: ({ args }) => changed(args.action, String(args.path)),
+};
 export function describeSuccess(
-  command: string,
+  command: keyof Commands,
   args: Record<string, unknown>,
   result: unknown,
-  { status, stashes }: Before,
+  before: Before,
 ): Success | null {
-  const name = String(args.name);
-  const stash = stashes?.find((entry) => entry.hash === args.hash);
-  switch (command) {
-    case 'sync':
-      return synced(
-        String(args.action),
-        typeof result === 'number' ? result : null,
-        status,
-      );
-    case 'commit':
-      return {
-        key: command,
-        title: 'Committed',
-        description: `${shortHash(String(result))} ${String(args.message).split('\n')[0]}`,
-      };
-    case 'stash_save':
-      return {
-        key: command,
-        title: 'Stashed',
-        description: status && plural(status.entries.length, 'file'),
-      };
-    case 'stash_apply':
-      return {
-        key: command,
-        title: args.pop ? 'Stash popped' : 'Stash applied',
-        description: stash?.message,
-      };
-    case 'stash_drop':
-      return {
-        key: command,
-        title: 'Stash dropped',
-        description: stash?.message,
-        restore: stash && { hash: stash.hash, message: stash.message },
-      };
-    case 'stash_restore':
-      return {
-        key: command,
-        replaces: 'stash_drop',
-        title: 'Stash restored',
-        description: String(args.message),
-      };
-    case 'branch_switch':
-    case 'smart_checkout':
-      return { key: 'branch_switch', title: `Switched to ${name}` };
-    case 'branch_create':
-      return { key: command, title: `Created ${name}` };
-    case 'branch_delete':
-      return { key: command, title: `Deleted ${name}` };
-    case 'branch_gone':
-      return gone(stringsOf(result));
-    case 'branch_prune':
-      return isPruned(result) ? pruned(result, status) : null;
-    case 'branch_merge':
-      return result
-        ? {
-            key: command,
-            title: `Merged ${name}`,
-            description: status && `into ${status.branch}`,
-          }
-        : null;
-    case 'worktree_add':
-      return {
-        key: command,
-        title: `Created worktree ${folderName(String(result))}`,
-      };
-    case 'worktree_remove':
-      return {
-        key: command,
-        title: `Deleted worktree ${folderName(String(args.worktree))}`,
-      };
-    case 'worktree_apply':
-      return isApplied(result) ? applied(String(args.target), result) : null;
-    case 'worktree_unapply':
-      return {
-        key: command,
-        replaces: 'worktree_apply',
-        title: 'Undid apply',
-        description: `Changes removed from ${folderName(String(args.target))}`,
-      };
-    case 'merge_abort':
-      return { key: command, title: 'Merge aborted' };
-    case 'files_action':
-      return changed(args.action, plural(stringsOf(args.paths).length, 'file'));
-    case 'hunk_action':
-      return changed(args.action, String(args.path));
-    default:
-      return null;
-  }
+  const describe = successDescribers[command];
+  if (!describe) return null;
+  return describe({ args: args, result: result, before: before });
 }

@@ -1,5 +1,5 @@
 use crate::{
-    diff::resolve,
+    diff::{resolve, DiffSource},
     error::{Error, Result},
     git,
     graph::{lanes, Commit, Lane},
@@ -180,6 +180,23 @@ pub struct CommitDetail {
     pub timestamp: i64,
     pub subject: String,
     pub body: String,
+}
+pub async fn files_with_untracked(
+    repo: &Repo,
+    revision: &str,
+    source: Option<DiffSource>,
+) -> Result<CommitFiles> {
+    let mut files = files(repo, revision).await?;
+    if source != Some(DiffSource::Stash) {
+        return Ok(files);
+    }
+    for path in crate::stash::untracked(repo, revision).await? {
+        files
+            .statuses
+            .entry(path)
+            .or_insert_with(|| git::UNTRACKED.into());
+    }
+    Ok(files)
 }
 pub async fn detail(repo: &Repo, revision: &str) -> Result<CommitDetail> {
     let sha = resolve(repo, revision).await?;

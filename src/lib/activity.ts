@@ -1,6 +1,6 @@
 import { folderName } from './paths';
 import type { Activity, Progress } from '../stores/activity';
-import type { Status } from './types';
+import type { Commands, Status } from './types';
 const phases: Record<string, string> = {
   'Enumerating objects': 'Preparing',
   'Counting objects': 'Counting',
@@ -26,46 +26,43 @@ const fileVerbs: Record<string, string> = {
   discard: 'Discarding…',
   revert: 'Reverting…',
 };
+type ActivityArgs = Activity['args'];
+type Describer = (args: ActivityArgs, status: Status) => string | null;
+function syncing(args: ActivityArgs, status: Status) {
+  if (args.action === 'fetch') return 'Fetching';
+  if (args.action === 'pull') return `Pulling from ${status.upstream}`;
+  return `Pushing to ${status.upstream ?? status.branch}`;
+}
+function switching(args: ActivityArgs) {
+  return `Switching to ${String(args.name)}…`;
+}
+function changingFiles(args: ActivityArgs) {
+  return fileVerbs[String(args.action)] ?? null;
+}
+const describers: Partial<Record<keyof Commands, Describer>> = {
+  sync: syncing,
+  commit: () => 'Committing…',
+  stash_save: () => 'Stashing…',
+  stash_apply: (args) => (args.pop ? 'Popping stash…' : 'Applying stash…'),
+  stash_drop: () => 'Dropping stash…',
+  branch_switch: switching,
+  smart_checkout: switching,
+  branch_create: (args) => `Creating ${String(args.name)}…`,
+  branch_delete: (args) => `Deleting ${String(args.name)}…`,
+  branch_gone: () => 'Checking remote…',
+  branch_prune: () => 'Pruning branches…',
+  branch_merge: (args) => `Merging ${String(args.name)}…`,
+  merge_abort: () => 'Aborting merge…',
+  worktree_apply: (args) =>
+    args.smart ? 'Stashing and applying…' : 'Applying to main…',
+  worktree_unapply: () => 'Undoing apply…',
+  worktree_remove: (args) =>
+    `Deleting worktree ${folderName(String(args.worktree))}…`,
+  files_action: changingFiles,
+  hunk_action: changingFiles,
+};
 export function describeActivity(activity: Activity, status: Status) {
-  const { args } = activity;
-  switch (activity.command) {
-    case 'sync':
-      if (args.action === 'fetch') return 'Fetching';
-      if (args.action === 'pull') return `Pulling from ${status.upstream}`;
-      return `Pushing to ${status.upstream ?? status.branch}`;
-    case 'commit':
-      return 'Committing…';
-    case 'stash_save':
-      return 'Stashing…';
-    case 'stash_apply':
-      return args.pop ? 'Popping stash…' : 'Applying stash…';
-    case 'stash_drop':
-      return 'Dropping stash…';
-    case 'branch_switch':
-    case 'smart_checkout':
-      return `Switching to ${String(args.name)}…`;
-    case 'branch_create':
-      return `Creating ${String(args.name)}…`;
-    case 'branch_delete':
-      return `Deleting ${String(args.name)}…`;
-    case 'branch_gone':
-      return 'Checking remote…';
-    case 'branch_prune':
-      return 'Pruning branches…';
-    case 'branch_merge':
-      return `Merging ${String(args.name)}…`;
-    case 'merge_abort':
-      return 'Aborting merge…';
-    case 'worktree_apply':
-      return args.smart ? 'Stashing and applying…' : 'Applying to main…';
-    case 'worktree_unapply':
-      return 'Undoing apply…';
-    case 'worktree_remove':
-      return `Deleting worktree ${folderName(String(args.worktree))}…`;
-    case 'files_action':
-    case 'hunk_action':
-      return fileVerbs[String(args.action)] ?? null;
-    default:
-      return null;
-  }
+  const describe = describers[activity.command];
+  if (!describe) return null;
+  return describe(activity.args, status);
 }

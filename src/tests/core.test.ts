@@ -914,7 +914,7 @@ describe('git activity', () => {
 describe('success notices', () => {
   it('describes each finished command in plain words', () => {
     const say = (
-      command: string,
+      command: keyof Commands,
       args: Record<string, unknown>,
       result: unknown = null,
       before: Before = { status },

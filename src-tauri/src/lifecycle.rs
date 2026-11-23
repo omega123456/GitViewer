@@ -1,6 +1,6 @@
 use crate::{
     app::main_window,
-    session::{Geometry, Store},
+    session::{Geometry, Session, Store},
 };
 use tauri::{Emitter, Manager, Runtime};
 
@@ -125,6 +125,23 @@ pub fn complete_close<R: Runtime>(app: &tauri::AppHandle<R>) -> crate::error::Re
         }
     }
     Ok(())
+}
+
+pub fn quit<R: Runtime>(app: &tauri::AppHandle<R>) {
+    app.state::<Store>().unsaved(Vec::new());
+    request_close(app);
+}
+
+pub fn update_session<R: Runtime>(app: &tauri::AppHandle<R>, session: Session) {
+    app.state::<Store>().update(session.tabs, session.active);
+}
+
+pub fn close_with_session<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    session: Session,
+) -> crate::error::Result<()> {
+    update_session(app, session);
+    complete_close(app)
 }
 
 fn cancel_close<R: Runtime>(app: &tauri::AppHandle<R>) {

@@ -14,7 +14,7 @@ import { Button } from '../shared/Button';
 import { FileMenu } from '../shared/FileMenu';
 import { tabBar, dirtyDot } from '../shared/styles';
 import { revealInSidebar } from '../sidebar/reveal';
-import { tabSteps } from '../shared/ViewSwitch';
+import { handleKeyByTable, tabKeyHandlers } from '../../lib/keyboard';
 import { shortHash } from '../../lib/git';
 export function FileTabStrip({
   repo,
@@ -38,14 +38,17 @@ export function FileTabStrip({
   if (!tabs.length) return null;
   const names = tabs.map((tab) => fileName(tab.selection.path));
   const keydown = (event: KeyboardEvent) => {
-    const step = tabSteps[event.key];
-    if (!step) return;
-    event.preventDefault();
-    const index = tabs.findIndex((tab) => tabKey(tab.selection) === active);
-    moved.current = true;
-    useSelection
-      .getState()
-      .select(repo, tabs[step(Math.max(index, 0), tabs.length)].selection);
+    const current = Math.max(
+      tabs.findIndex((tab) => tabKey(tab.selection) === active),
+      0,
+    );
+    handleKeyByTable(
+      event,
+      tabKeyHandlers(current, tabs.length, (index) => {
+        moved.current = true;
+        useSelection.getState().select(repo, tabs[index].selection);
+      }),
+    );
   };
   return (
     <div

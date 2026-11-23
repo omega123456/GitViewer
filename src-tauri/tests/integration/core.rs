@@ -1,5 +1,6 @@
 use gitviewer_lib::{
-    ai, diff,
+    ai,
+    diff::{self, DiffSource, LineKind},
     error::Error,
     git::{self, detect},
     graph::{lanes, Commit},
@@ -143,7 +144,7 @@ fn porcelain_handles_all_records_and_odd_paths() {
 #[test]
 fn diffs_preserve_ranges_words_modes_and_newlines() {
     let text="diff --git a/a b/a\nold mode 100644\nnew mode 100755\n--- a/a\n+++ b/a\n@@ -1,2 +1,2 @@\n context\n-old text\n\\ No newline at end of file\n+new text\n\\ No newline at end of file\n";
-    let parsed = diff::parse(text, "a", "unstaged").unwrap();
+    let parsed = diff::parse(text, "a", DiffSource::Unstaged).unwrap();
     assert_eq!(parsed.old_mode.as_deref(), Some("100644"));
     assert_eq!(parsed.new_mode.as_deref(), Some("100755"));
     assert_eq!(parsed.hunks[0].lines[1].marks, vec![[0, 3]]);
@@ -154,17 +155,17 @@ fn diffs_preserve_ranges_words_modes_and_newlines() {
         .unwrap()
         .contains("\\ No newline at end of file"));
     assert!(diff::patch("a\n", &parsed.hunks[0]).is_err());
-    assert!(diff::parse("@@ -x +1 @@\n", "a", "staged").is_err());
-    assert!(diff::parse("@@ -1,x +1 @@\n", "a", "staged").is_err());
-    assert!(diff::parse("@@ malformed\n", "a", "staged").is_err());
+    assert!(diff::parse("@@ -x +1 @@\n", "a", DiffSource::Staged).is_err());
+    assert!(diff::parse("@@ -1,x +1 @@\n", "a", DiffSource::Staged).is_err());
+    assert!(diff::parse("@@ malformed\n", "a", DiffSource::Staged).is_err());
     assert!(
-        diff::parse("Binary files a and b differ\n", "a", "staged")
+        diff::parse("Binary files a and b differ\n", "a", DiffSource::Staged)
             .unwrap()
             .binary
     );
     assert!(media::is_image("example.PNG"));
     assert!(!media::is_image("example.rs"));
-    let h = diff::parse("@@ -0,0 +1 @@\n+hello\n", "x", "staged").unwrap();
+    let h = diff::parse("@@ -0,0 +1 @@\n+hello\n", "x", DiffSource::Staged).unwrap();
     assert_eq!(h.hunks[0].new_count, 1);
 }
 fn pairs(old: &[String], new: &[String]) -> String {
@@ -175,7 +176,7 @@ fn pairs(old: &[String], new: &[String]) -> String {
 #[test]
 fn word_marks_are_utf16_ranges_over_changed_words_only() {
     let text = "@@ -1,4 +1,4 @@\n kept line\n-let value = old;\n-h\u{e9}llo \u{1f389} w\u{f6}rld again\n+let value = new;\n+h\u{e9}llo \u{1f389} world again\n";
-    let parsed = diff::parse(text, "a.rs", "commit").unwrap();
+    let parsed = diff::parse(text, "a.rs", DiffSource::Commit).unwrap();
     let lines = &parsed.hunks[0].lines;
     assert!(lines[0].marks.is_empty());
     assert_eq!(lines[1].marks, vec![[12, 15]]);
@@ -187,7 +188,7 @@ fn word_marks_are_utf16_ranges_over_changed_words_only() {
     let adjacent = diff::parse(
         "@@ -1 +1 @@\n-call(one two, keep)\n+call(three, keep)\n",
         "a",
-        "commit",
+        DiffSource::Commit,
     )
     .unwrap();
     assert_eq!(adjacent.hunks[0].lines[0].marks, vec![[5, 12]]);
@@ -210,7 +211,7 @@ fn word_marks_skip_long_lines_and_stop_at_the_file_budget() {
             ],
         ),
         "a",
-        "commit",
+        DiffSource::Commit,
     )
     .unwrap();
     let lines = &long.hunks[0].lines;
@@ -230,12 +231,12 @@ fn word_marks_skip_long_lines_and_stop_at_the_file_budget() {
         pairs(&old[..split], &new[..split]),
         pairs(&old[split..], &new[split..])
     );
-    let budgeted = diff::parse(&text, "a", "commit").unwrap();
+    let budgeted = diff::parse(&text, "a", DiffSource::Commit).unwrap();
     let marked: Vec<bool> = budgeted
         .hunks
         .iter()
         .flat_map(|hunk| &hunk.lines)
-        .filter(|line| line.kind == "add")
+        .filter(|line| line.kind == LineKind::Add)
         .map(|line| !line.marks.is_empty())
         .collect();
     assert_eq!(marked.len(), fits + 1);
@@ -253,7 +254,7 @@ fn word_marks_pair_lines_by_content() {
     let wrapped = diff::parse(
         "@@ -1,3 +1,4 @@\n-  <Popover.Content\n-    align=\"start\"\n-    disabled={disabled || branch.current}\n+  {open && (\n+    <Popover.Content\n+      align=\"start\"\n+      disabled={disabled || branch.isHead}\n",
         "a.tsx",
-        "commit",
+        DiffSource::Commit,
     )
     .unwrap();
     let lines = &wrapped.hunks[0].lines;
@@ -265,7 +266,7 @@ fn word_marks_pair_lines_by_content() {
     let inserted = diff::parse(
         "@@ -1 +1,2 @@\n-let total = price * count;\n+let shipping = 5;\n+let total = price * amount;\n",
         "a.rs",
-        "commit",
+        DiffSource::Commit,
     )
     .unwrap();
     let lines = &inserted.hunks[0].lines;
@@ -279,7 +280,7 @@ fn word_marks_skip_unrelated_and_mostly_rewritten_lines() {
         "@@ -1 +1 @@\n-  const rows = branches.filter(Boolean);\n+  return query.data?.map(toRow) ?? [];\n",
         "@@ -1 +1 @@\n-x = alpha_beta_gamma(1);\n+x = delta_epsilon_zeta(1);\n",
     ] {
-        let parsed = diff::parse(text, "a", "commit").unwrap();
+        let parsed = diff::parse(text, "a", DiffSource::Commit).unwrap();
         assert!(parsed.hunks[0].lines.iter().all(|line| line.marks.is_empty()));
     }
 }
@@ -289,7 +290,7 @@ fn word_marks_fall_back_to_position_for_large_or_costly_gaps() {
         (0..count).map(|n| format!("value {n} = {word}")).collect()
     };
     let marked = |text: &str| -> Vec<bool> {
-        diff::parse(text, "a", "commit").unwrap().hunks[0]
+        diff::parse(text, "a", DiffSource::Commit).unwrap().hunks[0]
             .lines
             .iter()
             .map(|line| !line.marks.is_empty())
@@ -314,7 +315,7 @@ fn a_large_modify_heavy_diff_serializes_compactly() {
     let new: Vec<String> = (0..10_000)
         .map(|n| format!("    let value_{n} = compute(alpha, gamma, {n});"))
         .collect();
-    let parsed = diff::parse(&pairs(&old, &new), "large.rs", "commit").unwrap();
+    let parsed = diff::parse(&pairs(&old, &new), "large.rs", DiffSource::Commit).unwrap();
     let lines = &parsed.hunks[0].lines;
     assert_eq!(lines.len(), 20_000);
     assert!(lines.iter().all(|line| !line.marks.is_empty()));

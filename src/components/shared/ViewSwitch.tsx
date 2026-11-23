@@ -1,15 +1,9 @@
 import type { KeyboardEvent, ReactNode } from 'react';
 import { clickable, focus } from './styles';
-import { stepIndex } from '../../lib/list';
-export const tabSteps: Record<
-  string,
-  (index: number, count: number) => number
-> = {
-  ArrowRight: (index, count) => stepIndex(index, 1, count),
-  ArrowLeft: (index, count) => stepIndex(index, -1, count),
-  Home: () => 0,
-  End: (_current, count) => count - 1,
-};
+import { handleKeyByTable, tabKeyHandlers } from '../../lib/keyboard';
+export function focusTab(list: HTMLElement, index: number) {
+  list.querySelectorAll<HTMLElement>('[role="tab"]')[index]?.focus();
+}
 const selected =
   'font-semibold text-ink after:absolute after:bottom-px after:left-1/2 after:h-0.75 after:w-4 after:-translate-x-1/2 after:rounded-xs after:bg-accent dark:text-ink-dark dark:after:bg-accent-dark';
 export function ViewSwitch<T extends string>({
@@ -28,14 +22,15 @@ export function ViewSwitch<T extends string>({
   stretch?: boolean;
 }) {
   const keydown = (event: KeyboardEvent<HTMLDivElement>) => {
-    const step = tabSteps[event.key];
-    if (!step) return;
-    event.preventDefault();
-    const index = step(Math.max(options.indexOf(value), 0), options.length);
-    onChange(options[index]);
-    const tabs =
-      event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]');
-    tabs[index]?.focus();
+    const list = event.currentTarget;
+    const current = Math.max(options.indexOf(value), 0);
+    handleKeyByTable(
+      event,
+      tabKeyHandlers(current, options.length, (index) => {
+        onChange(options[index]);
+        focusTab(list, index);
+      }),
+    );
   };
   return (
     <div

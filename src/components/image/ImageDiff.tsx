@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import {
   Columns2,
   Layers,
@@ -30,6 +30,16 @@ const FALLBACK_IMAGE_WIDTH = 600;
 const MINIMUM_ZOOM_WIDTH = 100;
 const ZOOM_STEP = 100;
 const order: ImageMode[] = ['side by side', 'swipe', 'onion skin'];
+interface ModeStage {
+  diff: Diff;
+  view: string;
+  image: (side: 'old' | 'new') => ReactNode;
+}
+const modeStages: Record<ImageMode, (stage: ModeStage) => ReactNode> = {
+  'side by side': ({ diff, image }) => <SideBySide diff={diff} image={image} />,
+  swipe: ({ view, image }) => <SwipeCompare view={view} image={image} />,
+  'onion skin': ({ view, image }) => <OnionSkin view={view} image={image} />,
+};
 export function ImageDiff({
   repo,
   view = repo,
@@ -133,13 +143,7 @@ export function ImageDiff({
         ref={stage}
         className="relative flex min-h-0 flex-1 items-center justify-center overflow-auto bg-checker p-6 dark:bg-checker-dark"
       >
-        {mode === 'side by side' ? (
-          <SideBySide diff={diff} image={image} />
-        ) : mode === 'swipe' ? (
-          <SwipeCompare view={view} image={image} />
-        ) : (
-          <OnionSkin view={view} image={image} />
-        )}
+        {modeStages[mode]({ diff, view, image })}
         <ZoomControls zoomIn={zoomIn} zoomOut={zoomOut} fit={fit} />
       </div>
       {mode === 'onion skin' && <BlendSlider view={view} />}

@@ -8,12 +8,15 @@ export const treeRoot = '\0';
 export function statusLetter(status: string) {
   return status === UNTRACKED ? 'U' : status;
 }
+const statusClasses: Partial<Record<string, string>> = {
+  A: addedInk,
+  D: removedInk,
+  C: 'text-deleted opacity-50 dark:text-deleted-dark',
+  M: 'text-modified dark:text-modified-dark',
+};
+const otherStatusClass = 'text-untracked dark:text-untracked-dark';
 export function statusClass(status: string) {
-  if (status === 'A') return addedInk;
-  if (status === 'D') return removedInk;
-  if (status === 'C') return 'text-deleted opacity-50 dark:text-deleted-dark';
-  if (status === 'M') return 'text-modified dark:text-modified-dark';
-  return 'text-untracked dark:text-untracked-dark';
+  return statusClasses[status] ?? otherStatusClass;
 }
 export function sourceFor(entry?: Entry): Source {
   if (!entry || entry.index === UNTRACKED) return 'file';

@@ -1,5 +1,5 @@
 import { useEffect, type KeyboardEvent } from 'react';
-import type { Action } from '../../lib/keyboard';
+import { handleKeyByTable, type Action } from '../../lib/keyboard';
 import type { Find } from './find';
 import { findActionSet, FindControls } from './FindControls';
 const NEXT = 1;
@@ -34,17 +34,11 @@ export function FindBar({
     find.close();
     onClose();
   };
-  const keys = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      find.step(event.shiftKey ? PREVIOUS : NEXT);
-      return;
-    }
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      close();
-    }
-  };
+  const keys = (event: KeyboardEvent<HTMLInputElement>) =>
+    handleKeyByTable(event, {
+      Enter: () => find.step(event.shiftKey ? PREVIOUS : NEXT),
+      Escape: close,
+    });
   return (
     <div
       role="search"

@@ -5,6 +5,12 @@ use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{filter::Targets, fmt::writer::MakeWriterExt, layer::SubscriberExt};
 
 const LOG_RETENTION_DAYS: i64 = 7;
+const FRONTEND_LOG_LIMIT: usize = 4096;
+
+pub fn frontend_error(message: &str) {
+    let truncated: String = message.chars().take(FRONTEND_LOG_LIMIT).collect();
+    tracing::error!(target: "frontend", message = %truncated, "Frontend error");
+}
 
 pub fn cleanup(directory: &Path, today: NaiveDate) -> std::io::Result<()> {
     for entry in std::fs::read_dir(directory)? {

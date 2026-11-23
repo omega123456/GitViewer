@@ -3,6 +3,7 @@ use crate::{
     fs, git,
     media::is_image,
     repo::Repo,
+    variant,
 };
 use serde::{Deserialize, Serialize};
 use similar::{ChangeTag, DiffTag, TextDiff};
@@ -11,10 +12,47 @@ use std::ops::Range;
 pub mod quote;
 pub mod stack;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DiffSource {
+    Staged,
+    Unstaged,
+    File,
+    Commit,
+    Stash,
+    Compare,
+}
+impl DiffSource {
+    pub fn parse(name: &str) -> Result<Self> {
+        variant::parse(name, "Unknown diff source")
+    }
+    pub fn is_revision(self) -> bool {
+        matches!(self, Self::Commit | Self::Stash)
+    }
+    pub fn is_uncommitted(self) -> bool {
+        matches!(self, Self::Staged | Self::Unstaged)
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LineKind {
+    Add,
+    Remove,
+    Context,
+}
+impl LineKind {
+    fn patch_prefix(self) -> char {
+        match self {
+            Self::Add => '+',
+            Self::Remove => '-',
+            Self::Context => ' ',
+        }
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Line {
-    pub kind: String,
+    pub kind: LineKind,
     pub content: String,
     pub old: Option<u32>,
     pub new: Option<u32>,
@@ -31,11 +69,11 @@ pub struct Hunk {
     pub new_count: u32,
     pub lines: Vec<Line>,
 }
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Diff {
     pub path: String,
-    pub source: String,
+    pub source: DiffSource,
     pub old_mode: Option<String>,
     pub new_mode: Option<String>,
     pub binary: bool,
@@ -55,6 +93,27 @@ pub struct Diff {
 pub struct Dimensions {
     pub width: u32,
     pub height: u32,
+}
+impl Diff {
+    pub fn empty(path: &str, source: DiffSource) -> Self {
+        Self {
+            path: path.into(),
+            source,
+            old_mode: None,
+            new_mode: None,
+            binary: false,
+            too_large: false,
+            hunks: Vec::new(),
+            patches: Vec::new(),
+            content: None,
+            added: false,
+            image: false,
+            old_size: 0,
+            new_size: 0,
+            old_dimensions: None,
+            new_dimensions: None,
+        }
+    }
 }
 pub const DIFF_CONTEXT_LINES: u32 = 3;
 const MAX_CONTEXT_LINES: u32 = 50_000;
@@ -227,12 +286,8 @@ fn range(value: &str) -> Result<(u32, u32)> {
         .map_err(|_| Error::unexpected("Malformed diff count"))?;
     Ok((start, count))
 }
-pub fn parse(text: &str, path: &str, source: &str) -> Result<Diff> {
-    let mut diff = Diff {
-        path: path.into(),
-        source: source.into(),
-        ..Diff::default()
-    };
+pub fn parse(text: &str, path: &str, source: DiffSource) -> Result<Diff> {
+    let mut diff = Diff::empty(path, source);
     let mut old = 0;
     let mut new = 0;
     for value in text.split_terminator('\n') {
@@ -263,23 +318,23 @@ pub fn parse(text: &str, path: &str, source: &str) -> Result<Diff> {
                     '+' => {
                         let number = new;
                         new += 1;
-                        ("add", None, Some(number))
+                        (LineKind::Add, None, Some(number))
                     }
                     '-' => {
                         let number = old;
                         old += 1;
-                        ("remove", Some(number), None)
+                        (LineKind::Remove, Some(number), None)
                     }
                     ' ' => {
                         let (old_line, new_line) = (old, new);
                         old += 1;
                         new += 1;
-                        ("context", Some(old_line), Some(new_line))
+                        (LineKind::Context, Some(old_line), Some(new_line))
                     }
                     _ => continue,
                 };
                 hunk.lines.push(Line {
-                    kind: kind.into(),
+                    kind,
                     content: value[1..].into(),
                     old: old_number,
                     new: new_number,
@@ -553,16 +608,16 @@ fn mark(lines: &mut [Line], old: usize, new: usize, budget: &mut usize) {
 fn mark_words(lines: &mut [Line], budget: &mut usize) {
     let mut position = 0;
     while position < lines.len() {
-        if lines[position].kind != "remove" {
+        if lines[position].kind != LineKind::Remove {
             position += 1;
             continue;
         }
         let start = position;
-        while position < lines.len() && lines[position].kind == "remove" {
+        while position < lines.len() && lines[position].kind == LineKind::Remove {
             position += 1;
         }
         let added = position;
-        while position < lines.len() && lines[position].kind == "add" {
+        while position < lines.len() && lines[position].kind == LineKind::Add {
             position += 1;
         }
         for (old, new) in pairs(&lines[start..added], &lines[added..position], budget) {
@@ -674,19 +729,17 @@ enum Blob {
 async fn location(
     repo: &Repo,
     path: &str,
-    source: &str,
+    source: DiffSource,
     revision: &str,
     base: &str,
     old: bool,
 ) -> Result<Blob> {
     let full = repo.path(path)?;
-    if (source == "unstaged" || source == "file") && !old {
+    let working = matches!(source, DiffSource::Unstaged | DiffSource::File);
+    if working && !old {
         return Ok(Blob::Working(full));
     }
-    if source == "file" {
-        return Ok(Blob::Absent);
-    }
-    if source == "stash"
+    if source == DiffSource::Stash
         && crate::stash::untracked(repo, revision)
             .await?
             .iter()
@@ -702,9 +755,10 @@ async fn location(
         )));
     }
     let reference = match source {
-        "staged" if old => git::HEAD.into(),
-        "staged" | "unstaged" => String::new(),
-        "commit" | "stash" => {
+        DiffSource::File => return Ok(Blob::Absent),
+        DiffSource::Staged if old => git::HEAD.into(),
+        DiffSource::Staged | DiffSource::Unstaged => String::new(),
+        DiffSource::Commit | DiffSource::Stash => {
             let sha = resolve(repo, revision).await?;
             if old {
                 git::first_parent(&sha)
@@ -712,11 +766,10 @@ async fn location(
                 sha
             }
         }
-        "compare" if old => resolve(repo, base).await?,
-        "compare" => resolve(repo, revision).await?,
-        _ => return Err(Error::refused("Unknown diff source")),
+        DiffSource::Compare if old => resolve(repo, base).await?,
+        DiffSource::Compare => resolve(repo, revision).await?,
     };
-    let original = if old && source == "staged" {
+    let original = if old && source == DiffSource::Staged {
         renamed_from(repo, path).await?
     } else {
         None
@@ -755,7 +808,7 @@ async fn blob_bytes(repo: &Repo, blob: &Blob) -> Result<Vec<u8>> {
 pub async fn bytes(
     repo: &Repo,
     path: &str,
-    source: &str,
+    source: DiffSource,
     revision: &str,
     base: &str,
     old: bool,
@@ -769,7 +822,7 @@ pub async fn bytes(
 pub async fn size(
     repo: &Repo,
     path: &str,
-    source: &str,
+    source: DiffSource,
     revision: &str,
     base: &str,
     old: bool,
@@ -797,7 +850,7 @@ pub fn size_limit(image: bool) -> usize {
 pub async fn text(
     repo: &Repo,
     path: &str,
-    source: &str,
+    source: DiffSource,
     revision: &str,
     base: &str,
     old: bool,
@@ -887,7 +940,7 @@ async fn side_bytes(repo: &Repo, side: &Blob, size: usize) -> Result<Vec<u8>> {
 pub async fn read(
     repo: &Repo,
     path: &str,
-    source: &str,
+    source: DiffSource,
     revision: &str,
     base: &str,
     context: u32,
@@ -896,50 +949,49 @@ pub async fn read(
     let full = repo.path(path)?;
     let image = is_image(path);
     let mut result = Diff {
-        path: path.into(),
-        source: source.into(),
         image,
-        ..Diff::default()
+        ..Diff::empty(path, source)
     };
     let (parent, sha) = match source {
-        "commit" | "stash" => {
+        DiffSource::Commit | DiffSource::Stash => {
             let sha = resolve(repo, revision).await?;
             (git::first_parent(&sha), sha)
         }
-        "compare" => (resolve(repo, base).await?, resolve(repo, revision).await?),
-        "staged" | "unstaged" | "file" => (String::new(), String::new()),
-        _ => return Err(Error::refused("Unknown diff source")),
+        DiffSource::Compare => (resolve(repo, base).await?, resolve(repo, revision).await?),
+        DiffSource::Staged | DiffSource::Unstaged | DiffSource::File => {
+            (String::new(), String::new())
+        }
     };
-    let untracked = source == "stash"
+    let untracked = source == DiffSource::Stash
         && crate::stash::untracked(repo, &sha)
             .await?
             .iter()
             .any(|entry| entry == path);
-    let original = if source == "staged" {
+    let original = if source == DiffSource::Staged {
         renamed_from(repo, path).await?
     } else {
         None
     };
     let (old, new) = match source {
-        "file" => (Blob::Absent, Blob::Working(full)),
+        DiffSource::File => (Blob::Absent, Blob::Working(full)),
         _ if untracked => (
             Blob::Absent,
             Blob::Object(git::object_at(&git::stash_untracked(&sha), path)),
         ),
-        "unstaged" => (Blob::Object(git::index_object(path)), Blob::Working(full)),
-        "staged" => (
+        DiffSource::Unstaged => (Blob::Object(git::index_object(path)), Blob::Working(full)),
+        DiffSource::Staged => (
             Blob::Object(git::object_at(
                 git::HEAD,
                 original.as_deref().unwrap_or(path),
             )),
             Blob::Object(git::index_object(path)),
         ),
-        _ => (
+        DiffSource::Commit | DiffSource::Stash | DiffSource::Compare => (
             Blob::Object(git::object_at(&parent, path)),
             Blob::Object(git::object_at(&sha, path)),
         ),
     };
-    let rooted = matches!(source, "commit" | "stash") && !untracked;
+    let rooted = source.is_revision() && !untracked;
     let mut specs = Vec::new();
     if rooted {
         specs.push(parent.as_str());
@@ -970,7 +1022,7 @@ pub async fn read(
         result.new_dimensions = dimensions(&side_bytes(repo, &new, result.new_size).await?);
         return Ok(result);
     }
-    if source == "file" || untracked {
+    if source == DiffSource::File || untracked {
         let new = side_bytes(repo, &new, result.new_size).await?;
         if fs::is_binary(&new) {
             result.binary = true;
@@ -980,7 +1032,7 @@ pub async fn read(
                 result.too_large = true;
             } else {
                 result.content = Some(content.into_owned());
-                result.added = source == "stash"
+                result.added = source == DiffSource::Stash
                     || !git::text(
                         &repo.root,
                         &["ls-files", "--others", "--exclude-standard", "--", path],
@@ -995,9 +1047,9 @@ pub async fn read(
     let mut arguments = vec!["diff"];
     arguments.extend(git::PINNED_DIFF_FLAGS);
     arguments.extend(["--find-renames", &context]);
-    if source == "staged" {
+    if source == DiffSource::Staged {
         arguments.push("--cached");
-    } else if source == "unstaged" {
+    } else if source == DiffSource::Unstaged {
         arguments.splice(0..1, ["diff-files", "-p"]);
     } else if root {
         arguments = vec!["show", "--root", git::EMPTY_FORMAT];
@@ -1020,6 +1072,29 @@ pub async fn read(
     parsed.new_size = result.new_size;
     Ok(parsed)
 }
+pub fn add_patches(diff: &mut Diff) {
+    if !diff.source.is_uncommitted() {
+        return;
+    }
+    diff.patches = diff
+        .hunks
+        .iter()
+        .map(|hunk| patch(&diff.path, hunk).unwrap_or_default())
+        .collect();
+}
+pub async fn read_patched(
+    repo: &Repo,
+    path: &str,
+    source: DiffSource,
+    revision: &str,
+    base: &str,
+    context: u32,
+    override_limit: bool,
+) -> Result<Diff> {
+    let mut diff = read(repo, path, source, revision, base, context, override_limit).await?;
+    add_patches(&mut diff);
+    Ok(diff)
+}
 pub fn patch(path: &str, hunk: &Hunk) -> Result<String> {
     if path.contains(['\n', '\r', git::NUL]) {
         return Err(Error::refused("Hunk actions are unavailable for paths containing control characters; use file staging"));
@@ -1035,11 +1110,7 @@ pub fn patch(path: &str, hunk: &Hunk) -> Result<String> {
         hunk.new_count
     );
     for line in &hunk.lines {
-        patch.push(match line.kind.as_str() {
-            "add" => '+',
-            "remove" => '-',
-            _ => ' ',
-        });
+        patch.push(line.kind.patch_prefix());
         patch.push_str(&line.content);
         patch.push('\n');
         if line.no_newline {
@@ -1051,7 +1122,7 @@ pub fn patch(path: &str, hunk: &Hunk) -> Result<String> {
 pub async fn apply_hunk(
     repo: &Repo,
     path: &str,
-    source: &str,
+    source: DiffSource,
     hunk: usize,
     expected: &str,
     action: &str,
@@ -1059,7 +1130,9 @@ pub async fn apply_hunk(
     repo.writable().await?;
     if !matches!(
         (source, action),
-        ("staged", "unstage") | ("unstaged", "stage") | ("unstaged", "discard")
+        (DiffSource::Staged, "unstage")
+            | (DiffSource::Unstaged, "stage")
+            | (DiffSource::Unstaged, "discard")
     ) {
         return Err(Error::refused(
             "This action is not permitted for this diff source",

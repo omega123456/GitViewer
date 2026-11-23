@@ -18,7 +18,7 @@ import {
 } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { platform } from '@tauri-apps/plugin-os';
-import { matches as pressed } from '../../lib/keyboard';
+import { handleKeyByTable, matches as pressed } from '../../lib/keyboard';
 import { plural } from '../../lib/text';
 import { Button } from '../shared/Button';
 import { TextInput } from '../shared/TextInput';
@@ -103,13 +103,9 @@ function Panel({ view, state }: { view: EditorView; state: EditorState }) {
     if (pressed(event.nativeEvent, replaceShortcut())) {
       event.preventDefault();
       openFind(view, true);
-    } else if (event.key === 'Enter') {
-      event.preventDefault();
-      enter();
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      close();
+      return;
     }
+    handleKeyByTable(event, { Enter: enter, Escape: close });
   };
   return (
     <div role="search" className="flex flex-col gap-1.5 px-2 py-1">

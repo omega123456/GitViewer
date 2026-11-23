@@ -1,9 +1,10 @@
 use crate::{
+    app::{emit_closed, emit_files_changed, emit_head_changed, emit_status_changed},
     error::{Error, Result},
     fs,
     git::{self, detect::MINIMUM_GIT_VERSION},
     status::{self, Status},
-    worktree,
+    watch, worktree,
 };
 use serde::Serialize;
 use std::{
@@ -14,6 +15,7 @@ use std::{
         Arc,
     },
 };
+use tauri::{AppHandle, Manager, Runtime};
 use tokio::sync::Mutex;
 
 pub type Repository = Arc<Repo>;
@@ -306,4 +308,39 @@ impl Paths<'_> {
         contained(&self.repo.root, &resolved)?;
         Ok(full)
     }
+}
+fn announce_change<R: Runtime>(app: &AppHandle<R>, id: &str, change: watch::Change) {
+    if change == watch::Change::Files {
+        let _ = emit_files_changed(app, id);
+        return;
+    }
+    let _ = emit_status_changed(app, id);
+    if change == watch::Change::Head {
+        let _ = emit_head_changed(app, id);
+    }
+}
+pub async fn open_watched<R: Runtime>(app: &AppHandle<R>, path: &str) -> Result<Info> {
+    let registry = app.state::<Registry>();
+    let info = registry.open(path).await?;
+    let repo = registry.get(&info.id).await?;
+    let emitter = app.clone();
+    let id = info.id.clone();
+    watch::start(&repo, move |change| announce_change(&emitter, &id, change))?;
+    emit_head_changed(app, &info.id)?;
+    Ok(info)
+}
+pub async fn refresh_announced<R: Runtime>(app: &AppHandle<R>, id: &str) -> Result<()> {
+    let repo = app.state::<Registry>().get(id).await?;
+    let _write = repo.writes.lock().await;
+    let reread = repo.reread().await;
+    emit_status_changed(app, id)?;
+    if reread.as_ref().is_ok_and(|reread| reread.moved) {
+        emit_head_changed(app, id)?;
+    }
+    reread?;
+    Ok(())
+}
+pub async fn close_announced<R: Runtime>(app: &AppHandle<R>, id: &str) -> Result<()> {
+    app.state::<Registry>().repos.lock().await.remove(id);
+    emit_closed(app, id)
 }
