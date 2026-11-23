@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import { focus } from './styles';
+import { clickable, focus } from './styles';
 import { LineCount } from './LineCount';
 import type { Lines } from '../../lib/types';
 export function Section({
@@ -35,7 +35,7 @@ export function Section({
           onClick={() =>
             onOpenChange ? onOpenChange(!expanded) : setInternal(!expanded)
           }
-          className={`flex min-w-0 flex-1 items-center gap-1.5 text-label font-semibold text-muted dark:text-muted-dark ${focus}`}
+          className={`flex min-w-0 flex-1 items-center gap-1.5 text-label font-semibold text-muted dark:text-muted-dark ${clickable} ${focus}`}
         >
           {expanded ? (
             <ChevronDown className="size-3" />

@@ -3,13 +3,8 @@ import { ContextMenu } from 'radix-ui';
 import { Copy, ExternalLink, FileText, LocateFixed } from 'lucide-react';
 import { invoke, reportAppError } from '../../lib/ipc';
 import { perform } from '../../lib/query';
+import { absolutePath, fileName } from '../../lib/paths';
 import { menu, menuItem, menuSeparator } from './styles';
-export function absolutePath(repo: string, path: string) {
-  const root = repo.replace(/^\\\\\?\\/, '');
-  return root.includes('\\')
-    ? `${root}\\${path.replaceAll('/', '\\')}`
-    : `${root}/${path}`;
-}
 function copy(text: string) {
   invoke('clipboard_write', { text }).catch(reportAppError);
 }
@@ -44,7 +39,7 @@ export function FileMenu({
           )}
           <ContextMenu.Item
             className={menuItem}
-            onSelect={() => copy(path.slice(path.lastIndexOf('/') + 1))}
+            onSelect={() => copy(fileName(path))}
           >
             <FileText className="size-3.75 text-muted dark:text-muted-dark" />
             Copy filename

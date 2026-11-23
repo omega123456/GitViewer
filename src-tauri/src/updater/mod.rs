@@ -1,5 +1,6 @@
 use crate::{
     error::{Error, Result},
+    lock::lock_recovering,
     settings::Settings,
 };
 use serde::Serialize;
@@ -121,14 +122,14 @@ impl Service {
         }
     }
     pub fn get(&self) -> Snapshot {
-        self.snapshot.lock().unwrap().clone()
+        lock_recovering(&self.snapshot).clone()
     }
     fn change(&self, update: impl FnOnce(&mut Snapshot)) {
-        update(&mut self.snapshot.lock().unwrap());
+        update(&mut lock_recovering(&self.snapshot));
         (self.changed)();
     }
     pub fn preferences(&self, settings: Settings) {
-        let mut current = self.settings.lock().unwrap();
+        let mut current = lock_recovering(&self.settings);
         let changed = current.update_check_interval != settings.update_check_interval
             || current.install_update_on_quit != settings.install_update_on_quit;
         *current = settings;
@@ -181,7 +182,7 @@ impl Service {
         let Ok(mut pending) = self.pending.try_lock() else {
             return Ok(());
         };
-        if *self.intent.lock().unwrap() != Intent::Quit {
+        if *lock_recovering(&self.intent) != Intent::Quit {
             return Ok(());
         }
         self.change(|state| {
@@ -210,7 +211,7 @@ impl Service {
         if !unchanged {
             pending.release = release;
         }
-        if pending.release.is_some() && self.settings.lock().unwrap().install_update_on_quit {
+        if pending.release.is_some() && lock_recovering(&self.settings).install_update_on_quit {
             self.download(&mut pending).await?;
         }
         Ok(())
@@ -223,11 +224,11 @@ impl Service {
             .pending
             .try_lock()
             .map_err(|_| Error::refused("An update operation is already running"))?;
-        if *self.intent.lock().unwrap() != Intent::Quit {
+        if *lock_recovering(&self.intent) != Intent::Quit {
             return Err(Error::refused("The application is already closing"));
         }
         self.download(&mut pending).await?;
-        *self.intent.lock().unwrap() = Intent::Restart;
+        *lock_recovering(&self.intent) = Intent::Restart;
         self.change(|state| {
             state.phase = Phase::Saving;
             state.error = None;
@@ -238,11 +239,11 @@ impl Service {
         if !self.get().can_quit_without_updating {
             return Err(Error::refused("No failed installation to skip"));
         }
-        *self.intent.lock().unwrap() = Intent::Skip;
+        *lock_recovering(&self.intent) = Intent::Skip;
         Ok(())
     }
     pub fn cancel_close(&self) {
-        *self.intent.lock().unwrap() = Intent::Quit;
+        *lock_recovering(&self.intent) = Intent::Quit;
         self.change(|state| {
             if state.phase == Phase::Saving {
                 state.phase = Phase::Ready;
@@ -250,9 +251,9 @@ impl Service {
         });
     }
     pub fn finish_close(&self) -> Result<bool> {
-        let intent = *self.intent.lock().unwrap();
+        let intent = *lock_recovering(&self.intent);
         let restart = intent == Intent::Restart;
-        let automatic = self.settings.lock().unwrap().install_update_on_quit;
+        let automatic = lock_recovering(&self.settings).install_update_on_quit;
         if intent == Intent::Skip || (!restart && !automatic) {
             return Ok(false);
         }
@@ -262,7 +263,7 @@ impl Service {
         if let (Some(release), Some(bytes)) = (&pending.release, &pending.bytes) {
             self.change(|state| state.phase = Phase::Installing);
             if let Err(error) = release.install(bytes, restart) {
-                *self.intent.lock().unwrap() = Intent::Quit;
+                *lock_recovering(&self.intent) = Intent::Quit;
                 self.change(|state| state.can_quit_without_updating = true);
                 return Err(self.fail(error));
             }
@@ -275,15 +276,15 @@ impl Service {
             return;
         }
         loop {
-            if interval(&self.settings.lock().unwrap().update_check_interval).is_some() {
+            if interval(&lock_recovering(&self.settings).update_check_interval).is_some() {
                 if let Err(error) = self.check().await {
                     tracing::warn!(%error, "Automatic update check failed");
                 }
-            } else if self.settings.lock().unwrap().install_update_on_quit {
+            } else if lock_recovering(&self.settings).install_update_on_quit {
                 if let Ok(mut pending) = self.pending.try_lock() {
                     if pending.release.is_some()
                         && pending.bytes.is_none()
-                        && *self.intent.lock().unwrap() == Intent::Quit
+                        && *lock_recovering(&self.intent) == Intent::Quit
                     {
                         if let Err(error) = self.download(&mut pending).await {
                             tracing::warn!(%error, "Automatic update download failed");
@@ -291,7 +292,7 @@ impl Service {
                     }
                 }
             }
-            let delay = interval(&self.settings.lock().unwrap().update_check_interval);
+            let delay = interval(&lock_recovering(&self.settings).update_check_interval);
             match delay {
                 Some(delay) => {
                     tokio::select! { _ = tokio::time::sleep(delay) => {}, _ = self.wake.notified() => {} }

@@ -227,7 +227,19 @@
   --spacing-toast: 340px;
   --spacing-sidebar: var(--sidebar-width, 300px);
   --spacing-blame: var(--blame-width, 480px);
-  --spacing-branches: var(--branches-width, 320px);
+  --spacing-branches-min: 320px;
+  --spacing-branches-max: 640px;
+  --spacing-branches-row-chrome: 150px;
+  --spacing-branches: clamp(
+    var(--spacing-branches-min),
+    min(
+      calc(
+        var(--branches-name-width, 0ch) + var(--spacing-branches-row-chrome)
+      ),
+      var(--radix-popover-content-available-width, var(--spacing-branches-max))
+    ),
+    var(--spacing-branches-max)
+  );
   --spacing-select-width: var(--radix-select-trigger-width, 160px);
   --spacing-select-height: var(--radix-select-content-available-height, 320px);
   --spacing-virtual: var(--virtual-height);
@@ -251,32 +263,4 @@
   --opacity-blend: var(--blend-opacity);
   --background-image-checker: url('/checker.svg');
   --background-image-checker-dark: url('/checker-dark.svg');
-}
-
-@layer base {
-  body {
-    -webkit-user-select: none;
-    user-select: none;
-  }
-  input,
-  textarea,
-  [contenteditable='true'],
-  .file-content {
-    -webkit-user-select: text;
-    user-select: text;
-  }
-  :where(
-    button,
-    summary,
-    a[href],
-    label:has(input),
-    [role='button'],
-    [role='checkbox'],
-    [role='radio'],
-    [role='tab'],
-    [role='treeitem'],
-    [role='option']
-  ):not(:disabled, [aria-disabled='true']) {
-    cursor: pointer;
-  }
 }

@@ -6,7 +6,7 @@ import {
 } from '@tanstack/react-query';
 import { listen } from '@tauri-apps/api/event';
 import { invoke, normalizeError } from './ipc';
-import type { Commands, Events } from './types';
+import type { Commands, Events, GitError } from './types';
 import { parseProgress } from './activity';
 import { describeSuccess, type Before } from './success';
 import { track, useActivity } from '../stores/activity';
@@ -123,20 +123,38 @@ export async function attempt<K extends keyof Commands>(
     finish();
   }
 }
+export interface PerformOptions<K extends keyof Commands> {
+  run?: (
+    command: K,
+    args: Commands[K]['args'],
+  ) => Promise<Commands[K]['result']>;
+  recover?: (failure: GitError) => unknown;
+}
+function reportFailure<K extends keyof Commands>(
+  command: K,
+  args: Commands[K]['args'],
+  failure: GitError,
+) {
+  useErrors.getState().report(scopeOf(args), failure, {
+    command,
+    retry: () => perform(command, args),
+  });
+}
 export async function perform<K extends keyof Commands>(
   command: K,
   args: Commands[K]['args'],
+  options: PerformOptions<K> = {},
 ): Promise<Commands[K]['result'] | undefined> {
-  const scope = scopeOf(args);
+  const run = options.run ?? attempt;
+  const recover =
+    options.recover ??
+    ((failure: GitError) => reportFailure(command, args, failure));
   try {
-    const result = await attempt(command, args);
-    useErrors.getState().resolve(scope, command);
+    const result = await run(command, args);
+    useErrors.getState().resolve(scopeOf(args), command);
     return result;
   } catch (error) {
-    useErrors.getState().report(scope, normalizeError(error), {
-      command,
-      retry: () => perform(command, args),
-    });
+    await recover(normalizeError(error));
     return undefined;
   }
 }

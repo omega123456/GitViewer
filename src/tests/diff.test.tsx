@@ -17,7 +17,7 @@ import { useReveal } from '../stores/reveal';
 import { useDiffView } from '../stores/diff-view';
 import { DiffPane } from '../components/diff/DiffPane';
 import { ImageDiff } from '../components/image/ImageDiff';
-import { absolutePath } from '../components/shared/FileMenu';
+import { absolutePath } from '../lib/paths';
 import { fuzzyFilter } from '../lib/fuzzy';
 import { mockCommand, dialog, calls, emit } from './harness';
 import { workers } from './setup';

@@ -131,15 +131,12 @@ static STORED_KEY: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None
 
 #[cfg(feature = "test-utils")]
 pub fn key() -> Result<Option<String>> {
-    Ok(STORED_KEY
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .clone())
+    Ok(crate::lock::lock_recovering(&STORED_KEY).clone())
 }
 
 #[cfg(feature = "test-utils")]
 pub fn set_key(value: &str) -> Result<()> {
-    let mut stored = STORED_KEY.lock().unwrap_or_else(|error| error.into_inner());
+    let mut stored = crate::lock::lock_recovering(&STORED_KEY);
     *stored = (!value.is_empty()).then(|| value.to_string());
     Ok(())
 }

@@ -1,4 +1,4 @@
-use crate::{error::Result, git, repo::Repository};
+use crate::{error::Result, git, lock::lock_recovering, repo::Repository};
 use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{
     new_debouncer_opt, DebounceEventResult, DebouncedEvent, Debouncer, NoCache,
@@ -71,10 +71,7 @@ pub fn metadata_only(root: &Path, events: &[DebouncedEvent]) -> bool {
 }
 
 pub fn start(repo: &Repository, changed: impl Fn(Change) + Send + Sync + 'static) -> Result<()> {
-    let mut watchers = repo
-        .watchers
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let mut watchers = lock_recovering(&repo.watchers);
     if !watchers.is_empty() {
         return Ok(());
     }

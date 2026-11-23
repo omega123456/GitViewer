@@ -8,6 +8,7 @@ export function TextInput(props: ComponentPropsWithRef<'input'>) {
       autoCapitalize="off"
       spellCheck={false}
       {...props}
+      className={`select-text ${props.className ?? ''}`}
     />
   );
 }

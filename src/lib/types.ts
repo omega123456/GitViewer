@@ -7,6 +7,7 @@ export interface Environment {
   found: boolean;
   supported: boolean;
   version: string;
+  minimum: string;
 }
 interface EntryRecord {
   path: string;

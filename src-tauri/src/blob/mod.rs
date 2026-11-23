@@ -5,6 +5,13 @@ use crate::{
 };
 use tauri::Manager;
 
+fn content_kind(path: &str) -> &'static str {
+    if diff::is_image(path) {
+        return "Image";
+    }
+    "File"
+}
+
 pub async fn serve<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     uri: String,
@@ -26,13 +33,13 @@ pub async fn serve<R: tauri::Runtime>(
         get("side") == "old",
     )
     .await?
-        > 20 * 1024 * 1024
+        > diff::BLOB_SIZE_LIMIT
     {
-        return Err(Error::refused(if diff::is_image(path) {
-            "Image exceeds the 20 MB limit"
-        } else {
-            "File exceeds the 20 MB limit"
-        }));
+        let kind = content_kind(path);
+        let megabytes = diff::BLOB_SIZE_LIMIT / diff::BYTES_PER_MEGABYTE;
+        return Err(Error::refused(format!(
+            "{kind} exceeds the {megabytes} MB limit"
+        )));
     }
     let bytes = diff::bytes(
         &repo,

@@ -1,23 +1,51 @@
 use crate::git::run_binary;
 use serde::Serialize;
-use std::{future::Future, path::Path};
+use std::{fmt, future::Future, path::Path};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct GitVersion {
+    pub major: u32,
+    pub minor: u32,
+}
+
+impl fmt::Display for GitVersion {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}.{}", self.major, self.minor)
+    }
+}
+
+pub const MINIMUM_GIT_VERSION: GitVersion = GitVersion {
+    major: 2,
+    minor: 38,
+};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Environment {
     pub found: bool,
     pub version: String,
     pub supported: bool,
+    pub minimum: String,
 }
 
-pub fn version_supported(version: &str) -> bool {
+fn parse_version(version: &str) -> Option<GitVersion> {
     let values: Vec<u32> = version
         .trim()
         .trim_start_matches("git version ")
         .split('.')
         .take(2)
-        .filter_map(|p| p.parse().ok())
+        .filter_map(|part| part.parse().ok())
         .collect();
-    matches!(values.as_slice(), [major, minor] if (*major, *minor) >= (2, 38))
+    match values.as_slice() {
+        [major, minor] => Some(GitVersion {
+            major: *major,
+            minor: *minor,
+        }),
+        _ => None,
+    }
+}
+
+pub fn version_supported(version: &str) -> bool {
+    parse_version(version).is_some_and(|parsed| parsed >= MINIMUM_GIT_VERSION)
 }
 
 pub async fn with<P, F>(probe: P) -> Environment
@@ -33,11 +61,13 @@ where
                 .trim()
                 .trim_start_matches("git version ")
                 .to_string(),
+            minimum: MINIMUM_GIT_VERSION.to_string(),
         },
         None => Environment {
             found: false,
             supported: false,
             version: String::new(),
+            minimum: MINIMUM_GIT_VERSION.to_string(),
         },
     }
 }

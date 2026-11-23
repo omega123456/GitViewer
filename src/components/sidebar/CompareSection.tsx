@@ -134,7 +134,7 @@ export function CompareSection({
     key: 'compareBase' | 'compareTarget',
     id?: string,
   ) => (
-    <label className="flex flex-col gap-0.5">
+    <label className="flex cursor-pointer flex-col gap-0.5">
       <span className="text-label font-semibold text-muted dark:text-muted-dark">
         {label}
       </span>

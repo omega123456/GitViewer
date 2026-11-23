@@ -28,6 +28,7 @@ function setup(current: Status, preferences: SettingsResponse = settings) {
     found: true,
     supported: true,
     version: '2.50.1',
+    minimum: '2.38',
   }));
   mockCommand('settings_get', () => stored);
   mockCommand('settings_set', (next) => {

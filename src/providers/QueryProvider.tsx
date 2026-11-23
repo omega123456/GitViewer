@@ -1,18 +1,10 @@
 import { useEffect, type ReactNode } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { client, connectEvents, perform } from '../lib/query';
-import { invoke, normalizeError, reportAppError } from '../lib/ipc';
-import { useErrors } from '../stores/errors';
+import { invoke, reportAppError } from '../lib/ipc';
 import { activeView, anchorOf, useTabs } from '../stores/tabs';
 function refresh(repo: string) {
-  invoke('refresh', { repo })
-    .then(() => useErrors.getState().resolve(repo, 'refresh'))
-    .catch((error: unknown) =>
-      useErrors.getState().report(repo, normalizeError(error), {
-        command: 'refresh',
-        retry: () => perform('refresh', { repo }),
-      }),
-    );
+  void perform('refresh', { repo }, { run: invoke });
 }
 export function QueryProvider({ children }: { children: ReactNode }) {
   useEffect(() => {

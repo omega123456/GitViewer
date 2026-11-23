@@ -55,6 +55,7 @@ export function setup() {
     found: true,
     supported: true,
     version: '2.50.1',
+    minimum: '2.38',
   }));
   mockCommand('settings_get', () => settings);
   mockCommand('status', () => status);

@@ -280,7 +280,12 @@ export const test = base.extend({
                         }
                       : update;
                   case 'env':
-                    return { found: true, supported: true, version: '2.50.1' };
+                    return {
+                      found: true,
+                      supported: true,
+                      version: '2.50.1',
+                      minimum: '2.38',
+                    };
                   case 'settings_get':
                     return settings;
                   case 'ai_models':

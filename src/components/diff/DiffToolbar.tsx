@@ -12,9 +12,9 @@ import type { Settings } from '../../lib/types';
 import { useDiffView } from '../../stores/diff-view';
 import { Button } from '../shared/Button';
 import { ViewSwitch } from '../shared/ViewSwitch';
-import { focus } from '../shared/styles';
+import { clickable, focus } from '../shared/styles';
 function toggle(pressed: boolean) {
-  return `grid size-control place-items-center rounded ${pressed ? 'bg-selected text-accent dark:bg-selected-dark dark:text-accent-dark' : 'text-muted hover:bg-hover dark:text-muted-dark dark:hover:bg-hover-dark'} ${focus}`;
+  return `grid size-control place-items-center rounded ${pressed ? 'bg-selected text-accent dark:bg-selected-dark dark:text-accent-dark' : 'text-muted hover:bg-hover dark:text-muted-dark dark:hover:bg-hover-dark'} ${clickable} ${focus}`;
 }
 export function FullFileButton({
   full,

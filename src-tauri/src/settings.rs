@@ -1,4 +1,7 @@
-use crate::error::{Error, Result};
+use crate::{
+    error::{Error, Result},
+    lock::lock_recovering,
+};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -132,7 +135,7 @@ pub fn write(path: &Path, settings: Settings) -> Result<Settings> {
 pub fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
     use std::io::Write;
     static WRITER: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _guard = WRITER.lock().unwrap_or_else(|error| error.into_inner());
+    let _guard = lock_recovering(&WRITER);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }

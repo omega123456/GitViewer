@@ -1,9 +1,9 @@
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { invoke, normalizeError } from './ipc';
 import { folderName } from './paths';
-import { attempt, client, perform, queryKey } from './query';
+import { client, perform, queryKey } from './query';
 import type { Success } from './success';
-import type { Worktree, WorktreeSummary } from './types';
+import type { GitError, Worktree, WorktreeSummary } from './types';
 import { ask } from '../stores/decision';
 import { useErrors } from '../stores/errors';
 import { useSuccesses } from '../stores/successes';
@@ -25,12 +25,8 @@ export async function applyWorktree(
     description: `Copying commits and uncommitted changes from ${source.name}.`,
     pending: true,
   });
-  try {
-    await attempt('worktree_apply', args);
-    useErrors.getState().resolve(view, 'worktree_apply');
-  } catch (error) {
+  const recover = async (failure: GitError) => {
     withdraw(view, 'worktree_apply');
-    const failure = normalizeError(error);
     if (failure.category !== 'overlap') {
       useErrors.getState().report(view, failure, { command: 'worktree_apply' });
       return;
@@ -59,7 +55,8 @@ export async function applyWorktree(
       (await perform('worktree_apply', { ...args, smart: true })) === undefined
     )
       withdraw(view, 'worktree_apply');
-  }
+  };
+  await perform('worktree_apply', args, { recover });
 }
 export async function unapplyWorktree(
   view: string,

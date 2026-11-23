@@ -1,3 +1,4 @@
+use crate::lock::lock_recovering;
 use chrono::{Duration, NaiveDate, Utc};
 use std::path::Path;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -22,10 +23,7 @@ pub struct Guard(std::sync::Mutex<Option<WorkerGuard>>);
 
 impl Guard {
     pub fn flush(&self) {
-        self.0
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .take();
+        lock_recovering(&self.0).take();
     }
 }
 

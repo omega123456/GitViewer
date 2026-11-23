@@ -8,7 +8,7 @@ export function TextArea(props: ComponentPropsWithRef<'textarea'>) {
       autoCapitalize="off"
       spellCheck={false}
       {...props}
-      className={`overflow-x-hidden wrap-anywhere ${props.className ?? ''}`}
+      className={`overflow-x-hidden wrap-anywhere select-text ${props.className ?? ''}`}
     />
   );
 }

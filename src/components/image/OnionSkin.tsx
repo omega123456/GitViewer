@@ -24,7 +24,7 @@ export function OnionSkin({
 export function BlendSlider({ view }: { view: string }) {
   const { blend } = useTabImageView(view);
   return (
-    <label className="flex shrink-0 items-center gap-3 border-t border-line p-3 text-xs dark:border-line-dark">
+    <label className="flex shrink-0 cursor-pointer items-center gap-3 border-t border-line p-3 text-xs dark:border-line-dark">
       Blend
       <input
         aria-label="Onion skin blend"

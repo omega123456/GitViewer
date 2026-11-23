@@ -4,7 +4,7 @@ import { useBackend } from '../../lib/query';
 import { useLayout, useLayoutFields } from '../../stores/layout';
 import { useSelection } from '../../stores/selection';
 import type { Selection } from '../../lib/types';
-import { dynamic, focus } from '../shared/styles';
+import { clickable, dynamic, focus } from '../shared/styles';
 import { VirtualList, type VirtualListHandle } from '../shared/VirtualList';
 import { ErrorState } from '../states/Errors';
 import { State } from '../states/State';
@@ -49,7 +49,7 @@ export function BlameView({
                 <>
                   <button
                     type="button"
-                    className={`w-14 shrink-0 rounded text-left font-mono text-label text-accent hover:underline dark:text-accent-dark ${focus}`}
+                    className={`w-14 shrink-0 rounded text-left font-mono text-label text-accent hover:underline dark:text-accent-dark ${clickable} ${focus}`}
                     title={line.hash}
                     onClick={() => {
                       useLayout.getState().update(repo, { mode: 'history' });
@@ -86,7 +86,7 @@ export function BlameView({
             <span className="w-11 shrink-0 bg-gutter px-2 text-right text-label text-faint dark:bg-gutter-dark dark:text-faint-dark">
               {line.line}
             </span>
-            <code className="file-content px-2 whitespace-pre">
+            <code className="px-2 whitespace-pre select-text">
               {findTokens([{ content: line.content }], found, index).map(
                 (token, position) => (
                   <span key={position} className={findClass(token)}>

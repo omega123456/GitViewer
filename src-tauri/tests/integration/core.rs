@@ -3,6 +3,7 @@ use gitviewer_lib::{
     error::Error,
     git::{self, detect},
     graph::{lanes, Commit},
+    lock::lock_recovering,
     settings, status,
 };
 
@@ -37,16 +38,30 @@ fn environment_versions_and_error_categories() {
     .message
     .contains("reason detail"));
 }
+#[test]
+fn a_poisoned_lock_is_recovered_with_its_value() {
+    let stored = 7;
+    let shared = std::sync::Mutex::new(stored);
+    let poisoning = std::panic::catch_unwind(|| {
+        let _guard = shared.lock();
+        panic!("poison the lock");
+    });
+    assert!(poisoning.is_err());
+    assert!(shared.is_poisoned());
+    assert_eq!(*lock_recovering(&shared), stored);
+}
 #[tokio::test]
 async fn missing_git_is_a_value() {
     let absent = detect::with(|| async { None }).await;
     assert!(!absent.found);
     assert!(!absent.supported);
     assert!(absent.version.is_empty());
+    assert_eq!(absent.minimum, detect::MINIMUM_GIT_VERSION.to_string());
     let present = detect::with(|| async { Some("git version 2.50.1".to_string()) }).await;
     assert!(present.found);
     assert!(present.supported);
     assert_eq!(present.version, "2.50.1");
+    assert_eq!(present.minimum, "2.38");
     assert!(detect::binary_version("gitviewer-nonexistent-test-binary")
         .await
         .is_none());

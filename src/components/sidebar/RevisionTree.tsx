@@ -12,7 +12,7 @@ import { StatusBadge } from './StatusBadge';
 import { LineCount } from '../shared/LineCount';
 import type { Lines } from '../../lib/types';
 import { useCompact } from '../../stores/density';
-import { dynamic, focus, pill } from '../shared/styles';
+import { clickable, dynamic, focus, pill } from '../shared/styles';
 import {
   changeNodes,
   directoryIds,
@@ -124,7 +124,7 @@ export function RevisionTree({
                 item.getProps().onClick?.(event);
                 if (!node.directory) onSelect(node.path);
               }}
-              className={`absolute top-0 right-1 left-1 flex translate-y-row items-center gap-1.5 rounded pr-2 pl-indent text-left text-sm hover:bg-hover dark:hover:bg-hover-dark ${compact ? 'h-tree-compact' : 'h-tree-comfortable'} ${selectedPath === node.path ? 'bg-selected dark:bg-selected-dark' : ''} ${focus}`}
+              className={`absolute top-0 right-1 left-1 flex translate-y-row items-center gap-1.5 rounded pr-2 pl-indent text-left text-sm hover:bg-hover dark:hover:bg-hover-dark ${compact ? 'h-tree-compact' : 'h-tree-comfortable'} ${selectedPath === node.path ? 'bg-selected dark:bg-selected-dark' : ''} ${clickable} ${focus}`}
               style={dynamic({
                 '--row-offset': `${row.start}px`,
                 '--tree-indent': `${item.getItemMeta().level * 16 + 6}px`,

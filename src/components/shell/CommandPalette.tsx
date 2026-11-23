@@ -25,7 +25,7 @@ import { Button } from '../shared/Button';
 import { MatchedText } from '../shared/MatchedText';
 import { Modal } from '../shared/Modal';
 import { RepositorySignals } from './RepoTabStrip';
-import { focusInset, pill } from '../shared/styles';
+import { clickable, focusInset, pill } from '../shared/styles';
 const groupNames: Record<string, string> = {
   app: 'Application',
   repository: 'Repository',
@@ -367,7 +367,7 @@ export function CommandPalette({ repo }: { repo: string }) {
                   setIndex(enabled.indexOf(row));
                 }}
                 onClick={() => run(row)}
-                className={`relative flex h-10 w-full items-center gap-3 rounded px-3 text-sm disabled:opacity-40 ${row === current ? 'bg-selected dark:bg-selected-dark' : ''} ${focusInset}`}
+                className={`relative flex h-10 w-full items-center gap-3 rounded px-3 text-sm disabled:opacity-40 ${row === current ? 'bg-selected dark:bg-selected-dark' : ''} ${clickable} ${focusInset}`}
               >
                 {row === current && <span className={pill} />}
                 <span className="flex size-3.5 shrink-0 items-center justify-center text-muted dark:text-muted-dark">

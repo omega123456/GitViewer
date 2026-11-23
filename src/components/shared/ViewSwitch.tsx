@@ -1,5 +1,5 @@
 import type { KeyboardEvent, ReactNode } from 'react';
-import { focus } from './styles';
+import { clickable, focus } from './styles';
 export const tabSteps: Record<
   string,
   (index: number, count: number) => number
@@ -56,7 +56,7 @@ export function ViewSwitch<T extends string>({
           aria-selected={value === option}
           tabIndex={value === option ? 0 : -1}
           onClick={() => onChange(option)}
-          className={`relative inline-flex items-center justify-center gap-1.5 rounded text-sm hover:bg-hover active:bg-press dark:hover:bg-hover-dark dark:active:bg-press-dark ${stretch ? 'h-8.5 min-w-max flex-1 basis-0 px-1' : 'h-8 px-2.5'} ${value === option ? selected : 'text-muted dark:text-muted-dark'} ${focus}`}
+          className={`relative inline-flex items-center justify-center gap-1.5 rounded text-sm hover:bg-hover active:bg-press dark:hover:bg-hover-dark dark:active:bg-press-dark ${stretch ? 'h-8.5 min-w-max flex-1 basis-0 px-1' : 'h-8 px-2.5'} ${value === option ? selected : 'text-muted dark:text-muted-dark'} ${clickable} ${focus}`}
         >
           {icons?.[option]}
           <span className="inline-grid whitespace-nowrap *:col-start-1 *:row-start-1 *:first-letter:uppercase">

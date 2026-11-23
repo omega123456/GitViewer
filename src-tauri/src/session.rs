@@ -1,4 +1,4 @@
-use crate::error::Result;
+use crate::{error::Result, lock::lock_recovering};
 use serde::{Deserialize, Serialize};
 use std::{
     path::PathBuf,
@@ -66,17 +66,17 @@ impl Store {
     }
 
     pub fn get(&self) -> Session {
-        self.state.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        lock_recovering(&self.state).clone()
     }
 
     pub fn update(&self, tabs: Vec<Tab>, active: String) {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = lock_recovering(&self.state);
         state.tabs = tabs;
         state.active = active;
     }
 
     pub fn geometry(&self, geometry: Geometry) {
-        self.state.lock().unwrap_or_else(|e| e.into_inner()).window = Some(geometry);
+        lock_recovering(&self.state).window = Some(geometry);
     }
 
     pub fn begin_close(&self) -> bool {
@@ -102,14 +102,11 @@ impl Store {
     }
 
     pub fn unsaved(&self, paths: Vec<String>) {
-        *self.unsaved.lock().unwrap_or_else(|e| e.into_inner()) = paths;
+        *lock_recovering(&self.unsaved) = paths;
     }
 
     pub fn unsaved_paths(&self) -> Vec<String> {
-        self.unsaved
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
+        lock_recovering(&self.unsaved).clone()
     }
 
     pub fn cancel_close(&self) {
@@ -117,7 +114,7 @@ impl Store {
     }
 
     pub fn save(&self) -> Result<()> {
-        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let state = lock_recovering(&self.state);
         if let Some(path) = &self.path {
             crate::settings::write_json(path, &*state)?;
         }

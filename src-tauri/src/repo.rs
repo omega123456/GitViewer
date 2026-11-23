@@ -1,6 +1,6 @@
 use crate::{
     error::{Error, Result},
-    git,
+    git::{self, detect::MINIMUM_GIT_VERSION},
     status::{self, Status},
     worktree,
 };
@@ -51,7 +51,10 @@ pub struct Info {
 impl Registry {
     pub async fn open(&self, path: &str) -> Result<Info> {
         if !git::detect::environment().await.supported {
-            return Err(Error::new("missing_git", "Git 2.38 or newer is required"));
+            return Err(Error::new(
+                "missing_git",
+                format!("Git {MINIMUM_GIT_VERSION} or newer is required"),
+            ));
         }
         let output = git::run(
             Path::new(path),

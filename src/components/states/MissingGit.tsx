@@ -17,10 +17,7 @@ export function MissingGit({
           environment?.found ? 'Git needs an update' : 'Git is not installed'
         }
       >
-        <p>
-          Git 2.38 or newer is required.{' '}
-          {environment?.version && `Detected ${environment.version}.`}
-        </p>
+        {environment && <Requirement environment={environment} />}
         <p className="mt-3">
           macOS: install Command Line Tools using{' '}
           <code>xcode-select --install</code>.
@@ -32,5 +29,13 @@ export function MissingGit({
         {error && <p>{error.message}</p>}
       </State>
     </main>
+  );
+}
+function Requirement({ environment }: { environment: Environment }) {
+  return (
+    <p>
+      Git {environment.minimum} or newer is required.{' '}
+      {environment.version && `Detected ${environment.version}.`}
+    </p>
   );
 }

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Select as RadixSelect } from 'radix-ui';
 import { ChevronDown } from 'lucide-react';
-import { focus, flyout, pill, selectItem, standard } from './styles';
+import { clickable, focus, flyout, pill, selectItem, standard } from './styles';
 export function Select({
   value,
   options = [],
@@ -33,7 +33,7 @@ export function Select({
     >
       <RadixSelect.Trigger
         aria-label={label}
-        className={`flex h-8 w-full items-center gap-2 rounded px-2.5 text-sm disabled:opacity-40 *:min-w-0 ${standard} ${focus}`}
+        className={`flex h-8 w-full items-center gap-2 rounded px-2.5 text-sm disabled:opacity-40 *:min-w-0 ${clickable} ${standard} ${focus}`}
       >
         {icon}
         <RadixSelect.Value placeholder={placeholder}>

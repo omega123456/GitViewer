@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react';
-import { focus, focusInset, standard } from './styles';
+import { clickable, focus, focusInset, standard } from './styles';
 const accent = `rounded bg-accent text-on-accent enabled:hover:bg-accent/90 disabled:opacity-40 dark:bg-accent-dark dark:text-on-accent-dark dark:enabled:hover:bg-accent-dark/90 ${focus}`;
 const subtle = `rounded enabled:hover:bg-hover enabled:active:bg-press disabled:opacity-40 dark:enabled:hover:bg-hover-dark dark:enabled:active:bg-press-dark ${focus}`;
 const variants = {
@@ -22,7 +22,7 @@ export function Button({
   return (
     <button
       type="button"
-      className={`inline-flex shrink-0 items-center justify-center gap-1.5 text-sm ${variants[variant]} ${className}`}
+      className={`inline-flex shrink-0 items-center justify-center gap-1.5 text-sm ${clickable} ${variants[variant]} ${className}`}
       {...props}
     >
       {children}

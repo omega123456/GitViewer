@@ -2,6 +2,7 @@ use crate::{
     diff::size_limit,
     error::{Error, Result},
     git,
+    lock::lock_recovering,
     repo::Repository,
     status::Entry,
 };
@@ -70,10 +71,7 @@ pub async fn working(repo: &Repository) -> Result<Working> {
 }
 
 fn untracked(repo: &Repository, entries: &[Entry]) -> Vec<(String, Lines)> {
-    let mut cache = repo
-        .untracked_lines
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut cache = lock_recovering(&repo.untracked_lines);
     let mut kept = HashMap::new();
     let mut paths = repo.paths();
     let mut counted = Vec::new();

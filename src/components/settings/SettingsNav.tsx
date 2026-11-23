@@ -1,7 +1,7 @@
 import { Download, Sparkles, SlidersHorizontal } from 'lucide-react';
 import { useBackend } from '../../lib/query';
 import { useSettingsNav, type SettingsPane } from '../../stores/settings-nav';
-import { focus, pill } from '../shared/styles';
+import { clickable, focus, pill } from '../shared/styles';
 export const panes: {
   id: SettingsPane;
   label: string;
@@ -27,7 +27,7 @@ export function SettingsNav() {
             type="button"
             aria-current={active ? 'page' : undefined}
             onClick={() => useSettingsNav.getState().select(id)}
-            className={`relative flex h-8.5 shrink-0 items-center gap-3 rounded px-3 text-left text-sm text-ink hover:bg-tab-hover dark:text-ink-dark dark:hover:bg-tab-hover-dark ${active ? 'bg-tab-hover dark:bg-tab-hover-dark' : ''} ${focus}`}
+            className={`relative flex h-8.5 shrink-0 items-center gap-3 rounded px-3 text-left text-sm text-ink hover:bg-tab-hover dark:text-ink-dark dark:hover:bg-tab-hover-dark ${active ? 'bg-tab-hover dark:bg-tab-hover-dark' : ''} ${clickable} ${focus}`}
           >
             {active && <span className={pill} />}
             <Icon className="size-4 shrink-0" />

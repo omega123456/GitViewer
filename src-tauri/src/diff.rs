@@ -711,11 +711,14 @@ pub fn is_image(path: &str) -> bool {
     )
 }
 pub const LINE_LIMIT: usize = 50000;
+pub const BYTES_PER_MEGABYTE: usize = 1024 * 1024;
+pub const BLOB_SIZE_LIMIT: usize = 20 * BYTES_PER_MEGABYTE;
+const TEXT_SIZE_LIMIT: usize = 2 * BYTES_PER_MEGABYTE;
 pub fn size_limit(image: bool) -> usize {
     if image {
-        20 * 1024 * 1024
+        BLOB_SIZE_LIMIT
     } else {
-        2 * 1024 * 1024
+        TEXT_SIZE_LIMIT
     }
 }
 pub async fn text(

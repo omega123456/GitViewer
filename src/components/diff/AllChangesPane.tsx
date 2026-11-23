@@ -40,7 +40,7 @@ import { useSelection, type Stack } from '../../stores/selection';
 import { Button } from '../shared/Button';
 import { CopyButton } from '../shared/CopyButton';
 import { Spinner } from '../shared/Spinner';
-import { dynamic, focus, focusInset } from '../shared/styles';
+import { clickable, dynamic, focus, focusInset } from '../shared/styles';
 import { ErrorState } from '../states/Errors';
 import { State } from '../states/State';
 import { StatusBadge } from '../sidebar/StatusBadge';
@@ -534,7 +534,7 @@ const FileDiff = memo(function FileDiff({
           type="button"
           aria-expanded={open}
           onClick={() => setClosed((all) => ({ ...all, [path]: !all[path] }))}
-          className={`flex h-full min-w-0 flex-1 items-center gap-2 pl-3 text-sm ${focus}`}
+          className={`flex h-full min-w-0 flex-1 items-center gap-2 pl-3 text-sm ${clickable} ${focus}`}
         >
           {open ? (
             <ChevronDown className="size-3.5 shrink-0 text-muted" />

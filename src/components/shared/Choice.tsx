@@ -1,5 +1,5 @@
 import { RadioGroup } from 'radix-ui';
-import { focus } from './styles';
+import { clickable, focus } from './styles';
 const looks = {
   segmented: {
     root: 'inline-flex gap-0.5 rounded-card border border-control-stroke bg-control p-0.5 dark:border-control-stroke-dark dark:bg-control-dark',
@@ -38,7 +38,7 @@ export function Choice<T extends string>({
         <RadioGroup.Item
           key={option}
           value={option}
-          className={`inline-flex items-center text-sm text-ink dark:text-ink-dark ${look.item} ${focus}`}
+          className={`inline-flex items-center text-sm text-ink dark:text-ink-dark ${look.item} ${clickable} ${focus}`}
         >
           {appearance === 'radio' && <span className={ring} />}
           <span className="inline-block whitespace-nowrap first-letter:uppercase">

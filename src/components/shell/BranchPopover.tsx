@@ -517,7 +517,7 @@ export function BranchPopover({
             onPointerDownCapture={markPressedInside}
             align="start"
             style={dynamic({
-              '--branches-width': `clamp(320px, min(calc(${longest}ch + 150px), var(--radix-popover-content-available-width, 640px)), 640px)`,
+              '--branches-name-width': `${longest}ch`,
             })}
             className={`z-30 flex h-96 w-branches flex-col p-2 ${flyout}`}
           >

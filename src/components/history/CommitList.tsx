@@ -19,7 +19,7 @@ import { GroupHeader } from '../shared/Section';
 import { VirtualList, type VirtualListHandle } from '../shared/VirtualList';
 import { ErrorRow, ErrorState } from '../states/Errors';
 import { State } from '../states/State';
-import { dynamic, focus, pill } from '../shared/styles';
+import { clickable, dynamic, focus, pill } from '../shared/styles';
 import { CommitDetails } from './CommitDetails';
 import { LaneGraph, graphWidth, laneCount } from './LaneGraph';
 const refColours = [
@@ -134,7 +134,7 @@ export const CommitList = memo(function CommitList({ repo }: { repo: string }) {
           render={(commit) => (
             <div className="px-1">
               <button
-                className={`relative flex h-commit w-full items-center gap-2 rounded pr-2 text-left hover:bg-hover dark:hover:bg-hover-dark ${selection?.revision === commit.hash ? 'bg-selected dark:bg-selected-dark' : ''} ${focus}`}
+                className={`relative flex h-commit w-full items-center gap-2 rounded pr-2 text-left hover:bg-hover dark:hover:bg-hover-dark ${selection?.revision === commit.hash ? 'bg-selected dark:bg-selected-dark' : ''} ${clickable} ${focus}`}
                 onClick={() =>
                   useSelection.getState().select(repo, {
                     path,

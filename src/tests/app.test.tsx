@@ -24,6 +24,7 @@ function setup() {
     found: true,
     supported: true,
     version: '2.50.1',
+    minimum: '2.38',
   }));
   mockCommand('settings_get', () => settings);
   mockCommand('status', () => status);
@@ -70,9 +71,15 @@ function mountApp() {
 describe('application shell', () => {
   it('blocks on absent and outdated Git', async () => {
     setup();
-    mockCommand('env', () => ({ found: false, supported: false, version: '' }));
+    mockCommand('env', () => ({
+      found: false,
+      supported: false,
+      version: '',
+      minimum: '2.38',
+    }));
     mountApp();
     expect(await screen.findByText('Git is not installed')).toBeVisible();
+    expect(screen.getByText('Git 2.38 or newer is required.')).toBeVisible();
     expect(screen.queryByLabelText('Filter files')).not.toBeInTheDocument();
   });
   it('opens a repository and stages and commits through typed IPC', async () => {

@@ -193,7 +193,6 @@ pub fn command(binary: &str, root: &Path, args: &[&str]) -> Command {
             "GIT_CONFIG_GLOBAL",
             if cfg!(windows) { "NUL" } else { "/dev/null" },
         );
-        command.args([] as [&str; 0]);
     }
     command
 }

@@ -1,12 +1,12 @@
 import type { MouseEvent } from 'react';
 import { ArrowDownFromLine, ArrowUpFromLine } from 'lucide-react';
 import { Spinner } from '../shared/Spinner';
-import { focusInset } from '../shared/styles';
+import { clickable, focusInset } from '../shared/styles';
 import { step, type Direction, type Expansion } from './expansion';
 import type { Row } from './rows';
 const row =
   'flex h-6 items-stretch border-y border-dashed border-line bg-sub font-sans text-xs text-muted dark:border-line-dark dark:bg-sub-dark dark:text-muted-dark';
-const arrow = `grid flex-1 place-items-center text-accent hover:bg-selected dark:text-accent-dark dark:hover:bg-selected-dark ${focusInset}`;
+const arrow = `grid flex-1 place-items-center text-accent hover:bg-selected dark:text-accent-dark dark:hover:bg-selected-dark ${clickable} ${focusInset}`;
 export function BlankGapRow() {
   return <div className={row} />;
 }
@@ -78,7 +78,7 @@ export function GapRow({
               type="button"
               aria-expanded={false}
               aria-label={`Show all ${hidden ?? 'remaining'} lines`}
-              className={`h-5.5 rounded px-1.5 font-medium text-accent hover:bg-selected dark:text-accent-dark dark:hover:bg-selected-dark ${focusInset}`}
+              className={`h-5.5 rounded px-1.5 font-medium text-accent hover:bg-selected dark:text-accent-dark dark:hover:bg-selected-dark ${clickable} ${focusInset}`}
               onClick={press('all')}
             >
               Show all

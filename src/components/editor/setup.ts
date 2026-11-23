@@ -396,6 +396,7 @@ export function createState({
           },
         },
       ]),
+      EditorView.contentAttributes.of({ class: 'select-text' }),
       themeSlot.of(chrome(dark)),
       languageSlot.of([]),
       baseSlot.of(baseText(base)),

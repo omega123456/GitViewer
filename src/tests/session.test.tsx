@@ -262,7 +262,7 @@ it('replaces the native context menu with the edit menu only on text fields', as
     useBrowserRestrictions();
     return (
       <>
-        <code className="file-content">line</code>
+        <code className="select-text">line</code>
         <input aria-label="Toggle" type="checkbox" />
         <input aria-label="Field" />
         <textarea aria-label="Message" />

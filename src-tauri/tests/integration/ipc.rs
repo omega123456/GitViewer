@@ -303,7 +303,7 @@ async fn typed_commands_events_and_protocol_are_wired() {
         .await
         .unwrap_err()
         .message
-        .starts_with("Image exceeds"));
+        .eq("Image exceeds the 20 MB limit"));
     std::fs::File::create(dir.path().join("large.txt"))
         .unwrap()
         .set_len(20 * 1024 * 1024 + 1)
@@ -315,7 +315,7 @@ async fn typed_commands_events_and_protocol_are_wired() {
     .await
     .unwrap_err()
     .message
-    .starts_with("File exceeds"));
+    .eq("File exceeds the 20 MB limit"));
     call("repo_close", json!({"repo":id})).await.unwrap();
     assert!(app.state::<Registry>().get(id).await.is_err());
 }
