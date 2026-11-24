@@ -3,7 +3,7 @@ use gitviewer_lib::{
     diff::{self, DiffSource, LineKind},
     error::Error,
     git::{self, detect},
-    graph::{lanes, Commit},
+    graph::{Commit, lanes},
     lock::lock_recovering,
     media, settings, status,
 };
@@ -29,15 +29,17 @@ fn environment_versions_and_error_categories() {
         Error::from(std::io::Error::other("failure")).message,
         "failure"
     );
-    assert!(git::Output {
-        code: 1,
-        bytes: b"reason".to_vec(),
-        stderr: " detail".into()
-    }
-    .accept(&[0])
-    .unwrap_err()
-    .message
-    .contains("reason detail"));
+    assert!(
+        git::Output {
+            code: 1,
+            bytes: b"reason".to_vec(),
+            stderr: " detail".into()
+        }
+        .accept(&[0])
+        .unwrap_err()
+        .message
+        .contains("reason detail")
+    );
 }
 #[test]
 fn a_poisoned_lock_is_recovered_with_its_value() {
@@ -63,9 +65,11 @@ async fn missing_git_is_a_value() {
     assert!(present.supported);
     assert_eq!(present.version, "2.50.1");
     assert_eq!(present.minimum, "2.38");
-    assert!(detect::binary_version("gitviewer-nonexistent-test-binary")
-        .await
-        .is_none());
+    assert!(
+        detect::binary_version("gitviewer-nonexistent-test-binary")
+            .await
+            .is_none()
+    );
     assert!(detect::environment().await.found);
 }
 #[test]
@@ -154,9 +158,11 @@ fn diffs_preserve_ranges_words_modes_and_newlines() {
     assert_eq!(parsed.hunks[0].lines[2].marks, vec![[0, 3]]);
     assert!(parsed.hunks[0].lines[0].marks.is_empty());
     assert!(parsed.hunks[0].lines[2].no_newline);
-    assert!(diff::patch("a", &parsed.hunks[0])
-        .unwrap()
-        .contains("\\ No newline at end of file"));
+    assert!(
+        diff::patch("a", &parsed.hunks[0])
+            .unwrap()
+            .contains("\\ No newline at end of file")
+    );
     assert!(diff::patch("a\n", &parsed.hunks[0]).is_err());
 }
 #[test]
@@ -249,12 +255,14 @@ fn word_marks_skip_long_lines_and_stop_at_the_file_budget() {
     assert_eq!(marked.len(), fits + 1);
     assert!(marked[..fits].iter().all(|marked| *marked));
     assert!(!marked[fits]);
-    assert!(budgeted.hunks[1]
-        .lines
-        .iter()
-        .rev()
-        .take(1)
-        .all(|line| line.marks.is_empty()));
+    assert!(
+        budgeted.hunks[1]
+            .lines
+            .iter()
+            .rev()
+            .take(1)
+            .all(|line| line.marks.is_empty())
+    );
 }
 #[test]
 fn word_marks_pair_lines_by_content() {
@@ -288,7 +296,12 @@ fn word_marks_skip_unrelated_and_mostly_rewritten_lines() {
         "@@ -1 +1 @@\n-x = alpha_beta_gamma(1);\n+x = delta_epsilon_zeta(1);\n",
     ] {
         let parsed = diff::parse(text, "a", DiffSource::Commit).unwrap();
-        assert!(parsed.hunks[0].lines.iter().all(|line| line.marks.is_empty()));
+        assert!(
+            parsed.hunks[0]
+                .lines
+                .iter()
+                .all(|line| line.marks.is_empty())
+        );
     }
 }
 #[test]
@@ -381,14 +394,14 @@ async fn detection_caches_only_a_supported_environment() {
 async fn a_supported_git_is_probed_once_per_run() {
     let dir = tempfile::tempdir().unwrap();
     let trace = dir.path().join("detect-trace.json");
-    std::env::set_var("GIT_TRACE2_EVENT", &trace);
+    super::support::trace_git_events(&trace);
     let first = super::support::counted(&trace, detect::environment()).await;
     let repeated = super::support::counted(&trace, async {
         detect::environment().await;
         detect::environment().await;
     })
     .await;
-    std::env::remove_var("GIT_TRACE2_EVENT");
+    super::support::stop_tracing_git_events();
     assert_eq!((first, repeated), (1, 0));
 }
 #[test]
@@ -606,9 +619,11 @@ async fn ai_material_ignores_repository_diff_configuration() {
     .await;
     std::fs::write(root.join("file.txt"), "one\ntwo\nfour\n").unwrap();
     let material = ai::material(&root).await.unwrap();
-    assert!(material
-        .text
-        .starts_with("diff --git a/file.txt b/file.txt"));
+    assert!(
+        material
+            .text
+            .starts_with("diff --git a/file.txt b/file.txt")
+    );
     assert!(material.text.contains("+four"));
 }
 fn patch_section(path: &str, lines: &[String]) -> String {
@@ -697,11 +712,13 @@ fn ai_prompt_states_the_source_and_the_detail() {
         ai::prompt("t", &material(ai::Source::WorkingTree, ai::Detail::Patch))
             .contains("Nothing is staged, so the unstaged working tree patch follows.")
     );
-    assert!(ai::prompt(
-        "t",
-        &material(ai::Source::WorkingTree, ai::Detail::Compacted)
-    )
-    .contains("Nothing is staged and the working tree patch exceeds the budget"));
+    assert!(
+        ai::prompt(
+            "t",
+            &material(ai::Source::WorkingTree, ai::Detail::Compacted)
+        )
+        .contains("Nothing is staged and the working tree patch exceeds the budget")
+    );
 }
 #[test]
 fn lane_assignment_handles_merges_and_termination() {
@@ -718,10 +735,12 @@ fn lane_assignment_handles_merges_and_termination() {
     assert!(!commits[0].entered);
     assert!(commits[2].entered);
     assert_eq!(commits[2].color, 1);
-    assert!(commits[2]
-        .segments
-        .iter()
-        .any(|segment| segment.from == 1 && segment.to == 0 && segment.color == 1));
+    assert!(
+        commits[2]
+            .segments
+            .iter()
+            .any(|segment| segment.from == 1 && segment.to == 0 && segment.color == 1)
+    );
     assert!(active.is_empty());
 }
 
@@ -759,10 +778,12 @@ fn lane_assignment_keeps_the_first_parent_in_the_child_column() {
     }
     assert_eq!(lane("f2").lane, 1);
     assert_eq!(lane("f2").color, lane("f1").color);
-    assert!(lane("m2")
-        .segments
-        .iter()
-        .any(|segment| segment.from == 2 && segment.to == 0 && segment.color == 2));
+    assert!(
+        lane("m2")
+            .segments
+            .iter()
+            .any(|segment| segment.from == 2 && segment.to == 0 && segment.color == 2)
+    );
     assert!(!lane("pr").entered);
     assert!(lane("base").entered);
     assert!(active.is_empty());
@@ -785,9 +806,11 @@ async fn infrastructure_errors_keep_their_reason_and_category() {
     let json = serde_json::from_str::<serde_json::Value>("{").unwrap_err();
     assert_eq!(Error::from(json).category, "unexpected");
     let notification = notify::Error::generic("watch unavailable");
-    assert!(Error::from(notification)
-        .message
-        .contains("watch unavailable"));
+    assert!(
+        Error::from(notification)
+            .message
+            .contains("watch unavailable")
+    );
     let runtime = tauri::Error::Io(std::io::Error::other("runtime unavailable"));
     assert!(Error::from(runtime).message.contains("runtime unavailable"));
     let opener = tauri_plugin_opener::Error::UnknownProgramName("missing editor".into());

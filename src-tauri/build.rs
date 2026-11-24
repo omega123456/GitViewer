@@ -8,7 +8,7 @@ fn main() {
         config["identifier"] = serde_json::json!("com.gitviewer.desktop.dev");
         let config = config.to_string();
         println!("cargo::rustc-env=TAURI_CONFIG={config}");
-        std::env::set_var("TAURI_CONFIG", config);
+        unsafe { std::env::set_var("TAURI_CONFIG", config) };
     }
     tauri_build::build()
 }

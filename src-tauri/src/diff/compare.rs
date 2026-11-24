@@ -1,4 +1,4 @@
-use super::{object::resolve, Endpoints};
+use super::{Endpoints, object::resolve};
 use crate::{
     error::{Error, Result},
     git,

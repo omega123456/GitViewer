@@ -5,7 +5,7 @@ use crate::{
         emit_head_changed, emit_status_changed, open_in_system, show_edit_menu, write_clipboard,
     },
     branch::{self, NewBranch, ProgressTarget},
-    diff::{self, stack::StackRef, DiffRef, DiffSource, Endpoints, HunkRequest, ReadOptions, Side},
+    diff::{self, DiffRef, DiffSource, Endpoints, HunkRequest, ReadOptions, Side, stack::StackRef},
     edit::{self, Save},
     error::{Error, Result},
     git, history, lifecycle, lines, logging,
@@ -16,8 +16,8 @@ use crate::{
     tree, updater,
     worktree::{self, AppliedTree, NewWorktree, Placement, Removal, WorktreePair},
 };
-use serde::{de::DeserializeOwned, Serialize};
-use serde_json::{value::RawValue, Value};
+use serde::{Serialize, de::DeserializeOwned};
+use serde_json::{Value, value::RawValue};
 use tauri::{AppHandle, Manager, Runtime};
 
 fn string<'a>(args: &'a Value, key: &str) -> Result<&'a str> {

@@ -1,6 +1,6 @@
 use super::support::{base, fixture};
 use gitviewer_lib::edit::{self, Opened, Written};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn saved(written: Written) -> String {
     match written {
@@ -127,15 +127,17 @@ async fn writes_detect_removed_or_created_files_and_reject_escapes() {
         .unwrap(),
         Written::Conflict(Some(_))
     ));
-    assert!(edit::write(
-        &repo,
-        "../outside.txt",
-        edit::Save {
-            content: "x",
-            expected: None,
-        },
-    )
-    .is_err());
+    assert!(
+        edit::write(
+            &repo,
+            "../outside.txt",
+            edit::Save {
+                content: "x",
+                expected: None,
+            },
+        )
+        .is_err()
+    );
 }
 
 #[tokio::test]
@@ -169,7 +171,9 @@ async fn file_commands_round_trip_and_refresh_status() {
     .await
     .unwrap();
     assert_eq!(conflict["conflict"]["text"], json!("one\n"));
-    assert!(call("file_write", json!({"repo":id,"path":"file.txt"}))
-        .await
-        .is_err());
+    assert!(
+        call("file_write", json!({"repo":id,"path":"file.txt"}))
+            .await
+            .is_err()
+    );
 }

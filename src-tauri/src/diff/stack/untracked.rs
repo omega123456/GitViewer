@@ -1,10 +1,10 @@
 use super::{
-    record::controlled,
-    stream::{batch, Stream},
     Stack,
+    record::controlled,
+    stream::{Stream, batch},
 };
 use crate::{
-    diff::{dimensions, size_limit, Diff, DiffSource, LINE_LIMIT},
+    diff::{Diff, DiffSource, LINE_LIMIT, dimensions, size_limit},
     error::Result,
     fs, git,
     media::is_image,

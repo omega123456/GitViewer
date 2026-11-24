@@ -1,4 +1,4 @@
-use crate::git::{run_binary, EXIT_SUCCESS};
+use crate::git::{EXIT_SUCCESS, run_binary};
 use serde::Serialize;
 use std::{fmt, future::Future};
 

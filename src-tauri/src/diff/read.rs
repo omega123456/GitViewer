@@ -1,12 +1,12 @@
 use super::{
+    Diff, DiffRef, DiffSource, ReadOptions, Side,
     apply::add_patches,
     image_size::dimensions,
     object::{
-        measure, object_sizes, original_path, over_line_limit, resolve, side_bytes, size_limit,
-        stash_has_untracked, Blob,
+        Blob, measure, object_sizes, original_path, over_line_limit, resolve, side_bytes,
+        size_limit, stash_has_untracked,
     },
     parse::parse,
-    Diff, DiffRef, DiffSource, ReadOptions, Side,
 };
 use crate::{error::Result, fs, git, media::is_image, repo::Repo};
 use std::path::PathBuf;

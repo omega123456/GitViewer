@@ -1,4 +1,6 @@
-use super::support::{base, command, counted, fixture, trace_file};
+use super::support::{
+    base, command, counted, fixture, stop_tracing_git_events, trace_file, trace_git_events,
+};
 use gitviewer_lib::{
     history,
     lines::{count, numstat, working},
@@ -55,11 +57,13 @@ async fn working_lines_split_staged_unstaged_and_untracked() {
     let lines = working(&repo).await.unwrap();
     assert_eq!(lines.unstaged.get("notes.md"), Some(&Some([1, 0])));
     assert!(!lines.unstaged.contains_key("blob.bin"));
-    assert!(!repo
-        .untracked_lines
-        .lock()
-        .unwrap()
-        .contains_key("blob.bin"));
+    assert!(
+        !repo
+            .untracked_lines
+            .lock()
+            .unwrap()
+            .contains_key("blob.bin")
+    );
 }
 
 #[tokio::test]
@@ -71,13 +75,13 @@ async fn working_lines_cover_an_unborn_branch_with_two_git_processes() {
     std::fs::write(root.join("loose.txt"), "1\n").unwrap();
     repo.refresh().await.unwrap();
     let trace = trace_file(&dir, "lines-trace");
-    std::env::set_var("GIT_TRACE2_EVENT", &trace);
+    trace_git_events(&trace);
     let mut result = None;
     let processes = counted(&trace, async {
         result = Some(working(&repo).await.unwrap());
     })
     .await;
-    std::env::remove_var("GIT_TRACE2_EVENT");
+    stop_tracing_git_events();
     std::fs::remove_file(&trace).ok();
     assert_eq!(processes, 2);
     assert_eq!(

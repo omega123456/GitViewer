@@ -1,7 +1,7 @@
 [package]
 name = "gitviewer"
 version = "3.8.3"
-edition = "2021"
+edition = "2024"
 rust-version = "1.85"
 
 [lib]

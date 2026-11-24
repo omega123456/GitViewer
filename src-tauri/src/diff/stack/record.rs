@@ -1,9 +1,9 @@
 use super::{
-    stream::{is_rename_status, Raw},
-    Stack, BUDGET,
+    BUDGET, Stack,
+    stream::{Raw, is_rename_status},
 };
 use crate::{
-    diff::{parse, parse::HUNK_PREFIX, quote, size_limit, Diff, DiffSource, LINE_LIMIT},
+    diff::{Diff, DiffSource, LINE_LIMIT, parse, parse::HUNK_PREFIX, quote, size_limit},
     error::Result,
     media::is_image,
     repo::Paths,

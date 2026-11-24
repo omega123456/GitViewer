@@ -1,4 +1,4 @@
-use super::{add_patches, dimensions, object::object_sizes, resolve, Diff, DiffSource, Dimensions};
+use super::{Diff, DiffSource, Dimensions, add_patches, dimensions, object::object_sizes, resolve};
 use crate::{
     error::{Error, Result},
     git,
@@ -11,10 +11,10 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
 };
-use stream::{batch, open, Stream, LINE_END};
+use stream::{LINE_END, Stream, batch, open};
 use untracked::{
-    add_stash_untracked, add_worktree_untracked, readable_entries, stash_listing, working_bytes,
-    working_size, Collector,
+    Collector, add_stash_untracked, add_worktree_untracked, readable_entries, stash_listing,
+    working_bytes, working_size,
 };
 
 mod record;

@@ -1,4 +1,4 @@
-use super::{align::mark_words, Diff, DiffSource, Hunk, Line, LineKind};
+use super::{Diff, DiffSource, Hunk, Line, LineKind, align::mark_words};
 use crate::error::{Error, Result};
 
 pub const MARK_BUDGET: usize = 4_000_000;

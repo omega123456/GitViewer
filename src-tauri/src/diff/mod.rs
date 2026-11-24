@@ -13,13 +13,13 @@ pub mod stack;
 
 pub use align::MARK_LINE_LIMIT;
 pub use apply::{add_patches, apply_hunk, patch};
-pub use compare::{compare, ChangedFile, Comparison};
+pub use compare::{ChangedFile, Comparison, compare};
 pub use image_size::dimensions;
 pub use object::{
-    bytes, over_line_limit, resolve, size, size_limit, text, BLOB_SIZE_LIMIT, BYTES_PER_MEGABYTE,
-    LINE_LIMIT,
+    BLOB_SIZE_LIMIT, BYTES_PER_MEGABYTE, LINE_LIMIT, bytes, over_line_limit, resolve, size,
+    size_limit, text,
 };
-pub use parse::{parse, MARK_BUDGET};
+pub use parse::{MARK_BUDGET, parse};
 pub use read::{read, read_patched};
 
 pub const DIFF_CONTEXT_LINES: u32 = 3;

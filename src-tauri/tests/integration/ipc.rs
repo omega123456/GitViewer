@@ -1,6 +1,9 @@
-use super::support::{base, command, counted, fixture, poll_until, trace_file, Polling};
+use super::support::{
+    Polling, base, command, counted, fixture, poll_until, stop_tracing_git_events, trace_file,
+    trace_git_events,
+};
 use gitviewer_lib::{blob, error::Error, ipc, media, repo::Registry};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{
     sync::{Arc, Mutex},
     time::Duration,
@@ -9,11 +12,11 @@ use tauri::{Listener, Manager};
 use tempfile::TempDir;
 use tokio::time::timeout;
 
-pub(super) fn dispatch<R: tauri::Runtime>(
-    app: tauri::AppHandle<R>,
+pub(super) fn dispatch<AppRuntime: tauri::Runtime>(
+    app: tauri::AppHandle<AppRuntime>,
     command: &str,
     args: Value,
-) -> impl std::future::Future<Output = Result<Value, Error>> {
+) -> impl std::future::Future<Output = Result<Value, Error>> + use<AppRuntime> {
     let command = command.to_string();
     async move {
         ipc::dispatch(app, command, args)
@@ -57,9 +60,11 @@ async fn call(app: &tauri::App<tauri::test::MockRuntime>, name: &str, args: Valu
 async fn environment_settings_and_ai_commands_validate_inputs_and_store_keys() {
     let app = app();
     let run = |name: &str, args: Value| dispatch(app.handle().clone(), name, args);
-    assert!(run("env", json!({})).await.unwrap()["supported"]
-        .as_bool()
-        .unwrap());
+    assert!(
+        run("env", json!({})).await.unwrap()["supported"]
+            .as_bool()
+            .unwrap()
+    );
     assert!(run("settings_get", json!({})).await.is_err());
     assert!(run("settings_set", json!({})).await.is_err());
     assert!(run("ai_models", json!({})).await.is_err());
@@ -76,20 +81,24 @@ async fn environment_settings_and_ai_commands_validate_inputs_and_store_keys() {
 
 async fn assert_commit_and_file_read_commands(opened: &OpenedApp) {
     let id = &opened.id;
-    assert!(call(
-        &opened.app,
-        "file_lines",
-        json!({"repo":id,"path":"file.txt","source":"commit","revision":"HEAD"})
-    )
-    .await
-    .is_string());
-    assert!(call(
-        &opened.app,
-        "file_lines",
-        json!({"repo":id,"path":"file.txt","source":"commit","revision":"HEAD","old":true})
-    )
-    .await
-    .is_string());
+    assert!(
+        call(
+            &opened.app,
+            "file_lines",
+            json!({"repo":id,"path":"file.txt","source":"commit","revision":"HEAD"})
+        )
+        .await
+        .is_string()
+    );
+    assert!(
+        call(
+            &opened.app,
+            "file_lines",
+            json!({"repo":id,"path":"file.txt","source":"commit","revision":"HEAD","old":true})
+        )
+        .await
+        .is_string()
+    );
     call(&opened.app, "blame", json!({"repo":id,"path":"file.txt"})).await;
     assert_eq!(
         call(
@@ -119,13 +128,15 @@ async fn assert_commit_and_file_read_commands(opened: &OpenedApp) {
 async fn repository_read_commands_and_diff_stack_are_wired() {
     let opened = open_seeded_app().await;
     let id = &opened.id;
-    assert!(ipc::execute(
-        opened.app.handle().clone(),
-        "status".into(),
-        json!({"repo": id})
-    )
-    .await
-    .is_ok());
+    assert!(
+        ipc::execute(
+            opened.app.handle().clone(),
+            "status".into(),
+            json!({"repo": id})
+        )
+        .await
+        .is_ok()
+    );
     assert_eq!(
         call(&opened.app, "repo_open", json!({"path":opened.dir.path()})).await["id"],
         *id
@@ -308,38 +319,46 @@ async fn assert_sync_progress_and_unknown_commands(opened: &OpenedApp) {
     let completion = progress.lock().unwrap().last().cloned().unwrap();
     assert_eq!(completion["done"], json!(true));
     assert_eq!(completion["message"], json!("fetch complete"));
-    assert!(dispatch(
-        opened.app.handle().clone(),
-        "sync",
-        json!({"repo":id,"action":"invalid"})
-    )
-    .await
-    .is_err());
+    assert!(
+        dispatch(
+            opened.app.handle().clone(),
+            "sync",
+            json!({"repo":id,"action":"invalid"})
+        )
+        .await
+        .is_err()
+    );
     let failure = progress.lock().unwrap().last().cloned().unwrap();
     assert_eq!(failure["done"], json!(true));
-    assert!(failure["message"]
-        .as_str()
-        .unwrap()
-        .starts_with("invalid failed:"));
-    assert!(dispatch(
-        opened.app.handle().clone(),
-        "system_open",
-        json!({"repo":id,"path":"file.txt"})
-    )
-    .await
-    .is_err());
+    assert!(
+        failure["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("invalid failed:")
+    );
+    assert!(
+        dispatch(
+            opened.app.handle().clone(),
+            "system_open",
+            json!({"repo":id,"path":"file.txt"})
+        )
+        .await
+        .is_err()
+    );
     assert!(
         dispatch(opened.app.handle().clone(), "unknown", json!({"repo":id}))
             .await
             .is_err()
     );
-    assert!(dispatch(
-        opened.app.handle().clone(),
-        "status",
-        json!({"repo":"missing"})
-    )
-    .await
-    .is_err());
+    assert!(
+        dispatch(
+            opened.app.handle().clone(),
+            "status",
+            json!({"repo":"missing"})
+        )
+        .await
+        .is_err()
+    );
 }
 
 fn blob_url(scheme: &str, id: &str, path: &str) -> String {
@@ -371,18 +390,22 @@ async fn gitblob_protocol_serves_media_and_enforces_size_limits() {
     for extension in ["svg", "jpg", "gif", "webp", "bmp", "ico", "avif"] {
         let path = format!("image.{extension}");
         std::fs::write(root.join(&path), b"image").unwrap();
-        assert!(blob::serve(
-            opened.app.handle(),
-            blob_url("gitblob://localhost/image", id, &path)
-        )
-        .await
-        .unwrap()
-        .mime
-        .starts_with("image/"));
+        assert!(
+            blob::serve(
+                opened.app.handle(),
+                blob_url("gitblob://localhost/image", id, &path)
+            )
+            .await
+            .unwrap()
+            .mime
+            .starts_with("image/")
+        );
     }
-    assert!(blob::serve(opened.app.handle(), "not a url".into())
-        .await
-        .is_err());
+    assert!(
+        blob::serve(opened.app.handle(), "not a url".into())
+            .await
+            .is_err()
+    );
     let plain = blob::serve(
         opened.app.handle(),
         blob_url("gitblob://localhost/image", id, "file.txt"),
@@ -461,12 +484,14 @@ async fn reads_proceed_while_a_write_holds_the_repository() {
     ] {
         timeout(patient, run(name, args)).await.unwrap().unwrap();
     }
-    assert!(timeout(
-        Duration::from_millis(200),
-        run("refresh", json!({"repo":id}))
-    )
-    .await
-    .is_err());
+    assert!(
+        timeout(
+            Duration::from_millis(200),
+            run("refresh", json!({"repo":id}))
+        )
+        .await
+        .is_err()
+    );
     drop(write);
     poll_until(
         Polling {
@@ -589,10 +614,12 @@ async fn working_tree_diff_sources_carry_applicable_patches_and_minimal_status()
         let hunks = single["hunks"].as_array().unwrap().len();
         assert_eq!(hunks, 1);
         assert_eq!(single["patches"].as_array().unwrap().len(), hunks);
-        assert!(single["patches"][0]
-            .as_str()
-            .unwrap()
-            .starts_with("diff --git"));
+        assert!(
+            single["patches"][0]
+                .as_str()
+                .unwrap()
+                .starts_with("diff --git")
+        );
         assert_eq!(stack["files"][path]["patches"], single["patches"]);
     }
     let staged = call(
@@ -643,14 +670,14 @@ async fn refresh_reads_status_once_and_reports_head_moves() {
     let status = counter(&app, "repo://status-changed");
     let head = counter(&app, "repo://head-changed");
     let trace = trace_file(&dir, "refresh-trace");
-    std::env::set_var("GIT_TRACE2_EVENT", &trace);
+    trace_git_events(&trace);
     let refresh = || async {
         dispatch(app.handle().clone(), "refresh", json!({"repo":id}))
             .await
             .unwrap()
     };
     let processes = counted(&trace, refresh()).await;
-    std::env::remove_var("GIT_TRACE2_EVENT");
+    stop_tracing_git_events();
     std::fs::remove_file(&trace).ok();
     assert_eq!(processes, 1);
     assert_eq!((read(&status), read(&head)), (1, 0));

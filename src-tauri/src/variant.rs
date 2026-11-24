@@ -1,5 +1,5 @@
 use crate::error::{Error, Result};
-use serde::de::{value::StrDeserializer, DeserializeOwned, IntoDeserializer};
+use serde::de::{DeserializeOwned, IntoDeserializer, value::StrDeserializer};
 
 pub fn parse<T: DeserializeOwned>(name: &str, unknown: &str) -> Result<T> {
     let deserializer: StrDeserializer<'_, serde::de::value::Error> = name.into_deserializer();

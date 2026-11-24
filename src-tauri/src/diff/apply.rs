@@ -1,6 +1,6 @@
 use super::{
-    parse::NO_NEWLINE_MARKER, quote, read::read, Diff, DiffRef, DiffSource, Hunk, HunkRequest,
-    ReadOptions,
+    Diff, DiffRef, DiffSource, Hunk, HunkRequest, ReadOptions, parse::NO_NEWLINE_MARKER, quote,
+    read::read,
 };
 use crate::{
     error::{Error, Result},
@@ -25,7 +25,9 @@ pub fn add_patches(diff: &mut Diff) {
 }
 pub fn patch(path: &str, hunk: &Hunk) -> Result<String> {
     if path.contains(CONTROL_CHARACTERS) {
-        return Err(Error::refused("Hunk actions are unavailable for paths containing control characters; use file staging"));
+        return Err(Error::refused(
+            "Hunk actions are unavailable for paths containing control characters; use file staging",
+        ));
     }
     let old_path = quote::always_quoted(quote::OLD_PREFIX, path);
     let new_path = quote::always_quoted(quote::NEW_PREFIX, path);

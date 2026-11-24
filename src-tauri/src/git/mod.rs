@@ -1,4 +1,6 @@
 pub mod detect;
+#[cfg(feature = "test-utils")]
+pub mod trace;
 
 use crate::error::{Error, Result};
 use std::{
@@ -365,6 +367,7 @@ pub fn command(binary: &str, root: &Path, arguments: &[&str]) -> Command {
         command
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_CONFIG_GLOBAL", NULL_DEVICE);
+        trace::send_events_to_target(&mut command);
     }
     command
 }

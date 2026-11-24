@@ -1,4 +1,4 @@
-use super::support::{base, command, fixture, record, Recorded};
+use super::support::{Recorded, base, command, fixture, record};
 use gitviewer_lib::{diff::quote, error::Error, fs, git, media};
 use std::path::Path;
 
@@ -108,12 +108,16 @@ async fn git_plumbing_checks_ancestors_refs_and_merge_conflicts() {
     .await;
     assert!(git::is_ancestor(root, &first, git::HEAD).await.unwrap());
     assert!(!git::is_ancestor(root, git::HEAD, &first).await.unwrap());
-    assert!(git::ref_exists(root, &git::local_branch("main"))
-        .await
-        .unwrap());
-    assert!(!git::ref_exists(root, &git::local_branch("absent"))
-        .await
-        .unwrap());
+    assert!(
+        git::ref_exists(root, &git::local_branch("main"))
+            .await
+            .unwrap()
+    );
+    assert!(
+        !git::ref_exists(root, &git::local_branch("absent"))
+            .await
+            .unwrap()
+    );
     assert_eq!(
         git::merge_conflicts(root, git::HEAD, &first).await.unwrap(),
         None
@@ -144,17 +148,21 @@ async fn git_plumbing_lists_files_runs_pathspecs_and_checks_patches() {
         git::nul_list(root, &["ls-files", "-z"]).await.unwrap(),
         vec!["file.txt"]
     );
-    assert!(git::untracked_in_stash(root, git::HEAD, &["--name-only"])
-        .await
-        .unwrap()
-        .is_empty());
+    assert!(
+        git::untracked_in_stash(root, git::HEAD, &["--name-only"])
+            .await
+            .unwrap()
+            .is_empty()
+    );
     std::fs::write(root.join("new.txt"), "new\n").unwrap();
     git::run_with_pathspec(root, &["add"], ["new.txt"])
         .await
         .unwrap();
-    assert!(command(root, &["diff", "--cached", "--name-only"])
-        .await
-        .contains("new.txt"));
+    assert!(
+        command(root, &["diff", "--cached", "--name-only"])
+            .await
+            .contains("new.txt")
+    );
     let rejected = git::apply_checked(root, &["apply"], b"not a patch\n")
         .await
         .unwrap();

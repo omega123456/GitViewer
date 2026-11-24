@@ -3,12 +3,12 @@ use crate::{
     git,
     lock::lock_recovering,
     repo::Registry,
-    settings::{Ai, Settings, DEFAULT_PROMPT},
+    settings::{Ai, DEFAULT_PROMPT, Settings},
 };
-use async_openai::{config::OpenAIConfig, error::OpenAIError, Client};
+use async_openai::{Client, config::OpenAIConfig, error::OpenAIError};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{path::Path, sync::Mutex, time::Duration};
 
 pub const DIFF_BUDGET: usize = 175_000;
@@ -418,7 +418,9 @@ pub fn prompt(template: &str, material: &Material) -> String {
     let introduction = match (material.source, material.detail) {
         (Source::Index, Detail::Patch) => "The staged patch follows.".to_string(),
         (Source::Index, Detail::Compacted) => {
-            format!("The staged patch exceeds the budget, so a compacted patch follows. {COMPACTED}")
+            format!(
+                "The staged patch exceeds the budget, so a compacted patch follows. {COMPACTED}"
+            )
         }
         (Source::WorkingTree, Detail::Patch) => {
             "Nothing is staged, so the unstaged working tree patch follows.".to_string()
@@ -504,7 +506,7 @@ fn exceeds_context(error: &OpenAIError) -> bool {
         OpenAIError::ApiError(response)
             if response.status_code == StatusCode::PAYLOAD_TOO_LARGE =>
         {
-            return true
+            return true;
         }
         OpenAIError::ApiError(response) => response.api_error.to_string(),
         OpenAIError::JSONDeserialize(_, content) => content.clone(),

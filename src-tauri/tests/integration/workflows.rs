@@ -1,14 +1,15 @@
 use super::support::{
-    arrives, base, command, confirm_quiet, counted, exits, fixture, launched, no_nudge, poll_until,
-    read_diff, record, silent, trace_file, trace_size, Polling, Recorded,
+    Polling, Recorded, arrives, base, command, confirm_quiet, counted, exits, fixture, launched,
+    no_nudge, poll_until, read_diff, record, silent, stop_tracing_git_events, trace_file,
+    trace_git_events, trace_size,
 };
 use gitviewer_lib::{
     actions::{self, FilesAction},
     ai,
     branch::{self, SyncAction},
     diff::{
-        self, stack::StackRef, DiffRef, DiffSource, Endpoints, HunkRequest, LineKind, ReadOptions,
-        Side,
+        self, DiffRef, DiffSource, Endpoints, HunkRequest, LineKind, ReadOptions, Side,
+        stack::StackRef,
     },
     git, history,
     repo::{Registry, Repo, Repository},
@@ -22,14 +23,14 @@ use std::time::{Duration, Instant};
 use std::{
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 use tempfile::TempDir;
 use wiremock::{
-    matchers::{body_partial_json, method, path},
     Mock, MockServer, ResponseTemplate,
+    matchers::{body_partial_json, method, path},
 };
 
 struct FileText {
@@ -145,11 +146,13 @@ async fn apply_first_hunk(repo: &Repo, source: DiffSource, action: &str) {
 #[tokio::test]
 async fn lazy_tree_and_plain_reads_respect_gitignore() {
     let (dir, repo) = fixture().await;
-    assert!(history::page(&repo, "", "")
-        .await
-        .unwrap()
-        .commits
-        .is_empty());
+    assert!(
+        history::page(&repo, "", "")
+            .await
+            .unwrap()
+            .commits
+            .is_empty()
+    );
     assert!(actions::commit(&repo, "").await.is_err());
     assert!(actions::commit(&repo, "empty").await.is_err());
     std::fs::create_dir(dir.path().join("ignored")).unwrap();
@@ -202,9 +205,11 @@ async fn staging_commit_and_invalid_path_guards() {
         history::page(&repo, "", "").await.unwrap().commits[0].subject,
         "first"
     );
-    assert!(actions::files(&repo, &[], FilesAction::Stage)
-        .await
-        .is_err());
+    assert!(
+        actions::files(&repo, &[], FilesAction::Stage)
+            .await
+            .is_err()
+    );
     assert!(
         actions::files(&repo, &["../outside".into()], FilesAction::Stage)
             .await
@@ -232,18 +237,20 @@ async fn hunk_stage_unstage_discard_and_staleness() {
         .await
         .unwrap();
     assert!(unstaged.hunks[0].lines.last().unwrap().no_newline);
-    assert!(diff::apply_hunk(
-        &repo,
-        HunkRequest {
-            path: "file.txt",
-            source: DiffSource::Unstaged,
-            hunk: 0,
-            expected: "outdated",
-            action: "stage",
-        }
-    )
-    .await
-    .is_err());
+    assert!(
+        diff::apply_hunk(
+            &repo,
+            HunkRequest {
+                path: "file.txt",
+                source: DiffSource::Unstaged,
+                hunk: 0,
+                expected: "outdated",
+                action: "stage",
+            }
+        )
+        .await
+        .is_err()
+    );
     apply_first_hunk(&repo, DiffSource::Unstaged, "stage").await;
     repo.refresh().await.unwrap();
     apply_first_hunk(&repo, DiffSource::Staged, "unstage").await;
@@ -252,18 +259,20 @@ async fn hunk_stage_unstage_discard_and_staleness() {
         std::fs::read_to_string(dir.path().join("file.txt")).unwrap(),
         "one\ntwo\nthree\n"
     );
-    assert!(diff::apply_hunk(
-        &repo,
-        HunkRequest {
-            path: "file.txt",
-            source: DiffSource::Commit,
-            hunk: 0,
-            expected: "",
-            action: "stage",
-        }
-    )
-    .await
-    .is_err());
+    assert!(
+        diff::apply_hunk(
+            &repo,
+            HunkRequest {
+                path: "file.txt",
+                source: DiffSource::Commit,
+                hunk: 0,
+                expected: "",
+                action: "stage",
+            }
+        )
+        .await
+        .is_err()
+    );
 }
 #[tokio::test]
 async fn commit_detail_carries_the_full_message() {
@@ -368,11 +377,13 @@ async fn blame_history_and_branch_deletion() {
     branch::create(&repo, "temporary", "HEAD").await.unwrap();
     branch::delete(&repo, "temporary").await.unwrap();
     branch::delete(&repo, "other").await.unwrap();
-    assert!(!branch::list(&repo)
-        .await
-        .unwrap()
-        .iter()
-        .any(|branch| branch.name == "other"));
+    assert!(
+        !branch::list(&repo)
+            .await
+            .unwrap()
+            .iter()
+            .any(|branch| branch.name == "other")
+    );
     assert!(branch::switch(&repo, "missing").await.is_err());
 }
 async fn assert_direct_compare_read(repo: &Repo, base: &str, target: &str) {
@@ -455,28 +466,32 @@ async fn branch_comparison_supports_merge_base_and_direct_diffs() {
 async fn branch_comparison_refuses_unrelated_merge_bases() {
     let (dir, repo) = fixture().await;
     base(&repo).await;
-    assert!(diff::compare(
-        &repo,
-        Endpoints {
-            base: "main",
-            target: "main",
-        },
-        true,
-    )
-    .await
-    .unwrap()
-    .files
-    .is_empty());
-    assert!(diff::compare(
-        &repo,
-        Endpoints {
-            base: "main",
-            target: "missing",
-        },
-        true,
-    )
-    .await
-    .is_err());
+    assert!(
+        diff::compare(
+            &repo,
+            Endpoints {
+                base: "main",
+                target: "main",
+            },
+            true,
+        )
+        .await
+        .unwrap()
+        .files
+        .is_empty()
+    );
+    assert!(
+        diff::compare(
+            &repo,
+            Endpoints {
+                base: "main",
+                target: "missing",
+            },
+            true,
+        )
+        .await
+        .is_err()
+    );
     command(dir.path(), &["checkout", "--orphan", "island"]).await;
     std::fs::write(dir.path().join("island.txt"), "island\n").unwrap();
     command(dir.path(), &["add", "island.txt"]).await;
@@ -561,18 +576,20 @@ async fn smart_apply_combines_disjoint_work_and_hashes_survive_renumbering() {
     assert!(stash::list(&repo).await.unwrap().is_empty());
     let target = stash::save(&repo, "target").await.unwrap();
     std::fs::write(dir.path().join("file.txt"), "overlap\n").unwrap();
-    assert!(stash::apply(
-        &repo,
-        &target,
-        stash::ApplyOptions {
-            pop: false,
-            smart: true
-        }
-    )
-    .await
-    .unwrap_err()
-    .message
-    .contains("share paths"));
+    assert!(
+        stash::apply(
+            &repo,
+            &target,
+            stash::ApplyOptions {
+                pop: false,
+                smart: true
+            }
+        )
+        .await
+        .unwrap_err()
+        .message
+        .contains("share paths")
+    );
 }
 #[tokio::test]
 async fn watcher_invalidates_without_mutating_status() {
@@ -688,11 +705,13 @@ async fn working_tree_reads_never_rewrite_the_index() {
         &["changed.txt"],
     )
     .await;
-    assert!(ai::material(&repo.root)
-        .await
-        .unwrap()
-        .text
-        .contains("+after"));
+    assert!(
+        ai::material(&repo.root)
+            .await
+            .unwrap()
+            .text
+            .contains("+after")
+    );
     assert_eq!(std::fs::read(&index).unwrap(), before);
     command(dir.path(), &["diff", "--", "file.txt"]).await;
     assert_ne!(std::fs::read(&index).unwrap(), before);
@@ -731,11 +750,9 @@ async fn setup_remote_pair() -> RemotePair {
     }
 }
 
-#[tokio::test]
-async fn local_remote_fetch_pull_and_push_preserve_dirty_files() {
-    let pair = setup_remote_pair().await;
+async fn push_remote_change(peer: &Repo) {
     record(
-        &pair.peer,
+        peer,
         Recorded {
             path: "remote.txt",
             body: "remote\n",
@@ -744,11 +761,17 @@ async fn local_remote_fetch_pull_and_push_preserve_dirty_files() {
     )
     .await;
     assert_eq!(
-        branch::sync(&pair.peer, SyncAction::Push, silent())
+        branch::sync(peer, SyncAction::Push, silent())
             .await
             .unwrap(),
         Some(1)
     );
+}
+
+#[tokio::test]
+async fn local_remote_fetch_pull_and_push_preserve_dirty_files() {
+    let pair = setup_remote_pair().await;
+    push_remote_change(&pair.peer).await;
     let repo = &pair.local;
     let root = pair.local_dir.path();
     assert_eq!(repo.refresh().await.unwrap().fetched, None);
@@ -763,10 +786,12 @@ async fn local_remote_fetch_pull_and_push_preserve_dirty_files() {
     assert!(!reported.lock().unwrap().is_empty());
     let refreshed = repo.refresh().await.unwrap();
     assert_eq!(refreshed.divergence.behind, Some(1));
-    assert!(refreshed
-        .fetched
-        .as_deref()
-        .is_some_and(|at| chrono::DateTime::parse_from_rfc3339(at).is_ok()));
+    assert!(
+        refreshed
+            .fetched
+            .as_deref()
+            .is_some_and(|at| chrono::DateTime::parse_from_rfc3339(at).is_ok())
+    );
     std::fs::write(root.join("file.txt"), "one\ntwo\ndirty\n").unwrap();
     std::fs::write(root.join("untracked.txt"), "untracked\n").unwrap();
     repo.refresh().await.unwrap();
@@ -832,11 +857,13 @@ async fn diverged_pull_detached_push_and_non_local_remotes_are_refused() {
         "Unknown synchronization action"
     );
     command(root, &["checkout", "--detach"]).await;
-    assert!(branch::sync(repo, SyncAction::Push, silent())
-        .await
-        .unwrap_err()
-        .message
-        .contains("Detached"));
+    assert!(
+        branch::sync(repo, SyncAction::Push, silent())
+            .await
+            .unwrap_err()
+            .message
+            .contains("Detached")
+    );
     command(
         root,
         &[
@@ -847,11 +874,13 @@ async fn diverged_pull_detached_push_and_non_local_remotes_are_refused() {
         ],
     )
     .await;
-    assert!(branch::sync(repo, SyncAction::Fetch, silent())
-        .await
-        .unwrap_err()
-        .message
-        .contains("fixture remotes"));
+    assert!(
+        branch::sync(repo, SyncAction::Fetch, silent())
+            .await
+            .unwrap_err()
+            .message
+            .contains("fixture remotes")
+    );
 }
 
 #[tokio::test]
@@ -884,11 +913,13 @@ async fn push_publishes_a_branch_without_upstream() {
     let (dir, handle) = fixture().await;
     base(&handle).await;
     command(dir.path(), &["checkout", "-b", "feature"]).await;
-    assert!(branch::sync(&handle, SyncAction::Push, silent())
-        .await
-        .unwrap_err()
-        .message
-        .contains("Add a remote"));
+    assert!(
+        branch::sync(&handle, SyncAction::Push, silent())
+            .await
+            .unwrap_err()
+            .message
+            .contains("Add a remote")
+    );
     let remote = tempfile::tempdir().unwrap();
     command(remote.path(), &["init", "--bare", "--initial-branch=main"]).await;
     command(
@@ -1054,9 +1085,11 @@ async fn tree_action_stash_and_branch_refuse_invalid_inputs() {
         "refused"
     );
     assert!(stash::remove(&repo, "missing").await.is_err());
-    assert!(stash::apply(&repo, "missing", plain_apply(false))
-        .await
-        .is_err());
+    assert!(
+        stash::apply(&repo, "missing", plain_apply(false))
+            .await
+            .is_err()
+    );
     assert!(branch::delete(&repo, "main").await.is_err());
     assert!(branch::delete(&repo, "missing").await.is_err());
 }
@@ -1112,9 +1145,11 @@ async fn rename_hunks_preserve_identity_and_file_unstage_restores_both_paths() {
     actions::files(&repo, &["renamed.txt".into()], FilesAction::Unstage)
         .await
         .unwrap();
-    assert!(command(dir.path(), &["diff", "--cached", "--name-only"])
-        .await
-        .is_empty());
+    assert!(
+        command(dir.path(), &["diff", "--cached", "--name-only"])
+            .await
+            .is_empty()
+    );
     assert_eq!(
         std::fs::read_to_string(dir.path().join("renamed.txt")).unwrap(),
         changed
@@ -1162,18 +1197,20 @@ async fn one_of_three_hunks_and_new_file_hunks_match_the_index() {
         std::fs::read_to_string(dir.path().join("file.txt")).unwrap(),
         changed
     );
-    assert!(diff::apply_hunk(
-        &repo,
-        HunkRequest {
-            path: "file.txt",
-            source: DiffSource::Unstaged,
-            hunk: 99,
-            expected: "",
-            action: "stage",
-        }
-    )
-    .await
-    .is_err());
+    assert!(
+        diff::apply_hunk(
+            &repo,
+            HunkRequest {
+                path: "file.txt",
+                source: DiffSource::Unstaged,
+                hunk: 99,
+                expected: "",
+                action: "stage",
+            }
+        )
+        .await
+        .is_err()
+    );
 }
 
 async fn save_mixed_stash(repo: &Repo) -> String {
@@ -1221,11 +1258,13 @@ async fn stash_untracked_contents_and_safe_checkout_preserve_staged_work() {
     let hash = save_mixed_stash(&repo).await;
     assert_mixed_stash_diffs(&repo, &hash).await;
     std::fs::write(dir.path().join("new.txt"), "existing content").unwrap();
-    assert!(stash::precheck(&repo, &hash)
-        .await
-        .unwrap_err()
-        .message
-        .contains("untracked path"));
+    assert!(
+        stash::precheck(&repo, &hash)
+            .await
+            .unwrap_err()
+            .message
+            .contains("untracked path")
+    );
     std::fs::remove_file(dir.path().join("new.txt")).unwrap();
     stash::apply(&repo, &hash, plain_apply(true)).await.unwrap();
     stash::smart_checkout(&repo, "other").await.unwrap();
@@ -1402,9 +1441,11 @@ async fn conflicted_repository_refuses_writes_and_literal_paths_do_not_expand() 
             .await
             .is_err()
     );
-    assert!(branch::sync(&repo, SyncAction::Fetch, silent())
-        .await
-        .is_err());
+    assert!(
+        branch::sync(&repo, SyncAction::Fetch, silent())
+            .await
+            .is_err()
+    );
     assert!(stash::save(&repo, "conflict").await.is_err());
     command(dir.path(), &["merge", "--abort"]).await;
     std::fs::write(dir.path().join("[literal].txt"), "literal").unwrap();
@@ -1453,11 +1494,13 @@ async fn invalid_repositories_upstreams_and_watch_roots_fail_honestly() {
     );
     let (dir, repo) = fixture().await;
     base(&repo).await;
-    assert!(branch::sync(&repo, SyncAction::Pull, silent())
-        .await
-        .unwrap_err()
-        .message
-        .contains("No upstream"));
+    assert!(
+        branch::sync(&repo, SyncAction::Pull, silent())
+            .await
+            .unwrap_err()
+            .message
+            .contains("No upstream")
+    );
     assert!(watch::start(&Arc::new(Repo::new(dir.path().join("missing"))), |_| {}).is_err());
 }
 
@@ -1524,11 +1567,13 @@ async fn setup_prune_fixture() -> PruneFixture {
 async fn prune_deletes_merged_branches_without_a_remote_branch() {
     let fixture = setup_prune_fixture().await;
     let repo = &fixture.repo;
-    assert!(branch::list(repo)
-        .await
-        .unwrap()
-        .iter()
-        .all(|branch| !branch.gone));
+    assert!(
+        branch::list(repo)
+            .await
+            .unwrap()
+            .iter()
+            .all(|branch| !branch.gone)
+    );
     assert_eq!(
         branch::gone(repo).await.unwrap(),
         ["local-only", "merged", "unmerged"]
@@ -1581,11 +1626,13 @@ async fn remote_checkout_creates_tracking_branches_and_never_detaches() {
     assert_eq!(repo.refresh().await.unwrap().branch, "feature");
     command(dir.path(), &["branch", "--unset-upstream"]).await;
     branch::switch(&repo, "main").await.unwrap();
-    assert!(branch::switch(&repo, "origin/feature")
-        .await
-        .unwrap_err()
-        .message
-        .contains("different reference"));
+    assert!(
+        branch::switch(&repo, "origin/feature")
+            .await
+            .unwrap_err()
+            .message
+            .contains("different reference")
+    );
     branch::switch(&repo, "feature").await.unwrap();
     std::fs::write(dir.path().join("feature.txt"), "feature").unwrap();
     actions::files(&repo, &["feature.txt".into()], FilesAction::Stage)
@@ -1626,13 +1673,26 @@ async fn the_default_branch_named_by_the_remote_head_cannot_be_deleted() {
     branch::create(&repo, "other", "main").await.unwrap();
     branch::switch(&repo, "other").await.unwrap();
     for name in ["main", "origin/main"] {
-        assert!(branch::delete(&repo, name)
-            .await
-            .unwrap_err()
-            .message
-            .contains("default branch"));
+        assert!(
+            branch::delete(&repo, name)
+                .await
+                .unwrap_err()
+                .message
+                .contains("default branch")
+        );
     }
     branch::delete(&repo, "origin/feature").await.unwrap();
+}
+
+async fn assert_working_text_withheld(repo: &Repo, contents: impl AsRef<[u8]>) {
+    std::fs::write(repo.root.join("file.txt"), contents).unwrap();
+    let request = FileText {
+        source: DiffSource::Unstaged,
+        revision: String::new(),
+        base: String::new(),
+        side: Side::New,
+    };
+    assert!(file_text(repo, request).await.is_none());
 }
 
 #[tokio::test]
@@ -1685,18 +1745,9 @@ async fn file_text_reads_the_new_side_of_every_source_within_the_limits() {
             .as_deref(),
         Some("base\n")
     );
-    std::fs::write(dir.path().join("file.txt"), b"bin\0ary").unwrap();
-    assert!(text(DiffSource::Unstaged, String::new(), String::new())
-        .await
-        .is_none());
-    std::fs::write(dir.path().join("file.txt"), "x\n".repeat(50001)).unwrap();
-    assert!(text(DiffSource::Unstaged, String::new(), String::new())
-        .await
-        .is_none());
-    std::fs::write(dir.path().join("file.txt"), "x".repeat(2 * 1024 * 1024 + 1)).unwrap();
-    assert!(text(DiffSource::Unstaged, String::new(), String::new())
-        .await
-        .is_none());
+    assert_working_text_withheld(&repo, b"bin\0ary").await;
+    assert_working_text_withheld(&repo, "x\n".repeat(50001)).await;
+    assert_working_text_withheld(&repo, "x".repeat(2 * 1024 * 1024 + 1)).await;
 }
 
 #[tokio::test]
@@ -2673,16 +2724,22 @@ async fn stacked_entries_handle_unborn_repos_and_invalid_sources() {
         .unwrap();
     fresh.refresh().await.unwrap();
     equivalent(&fresh, working_stack(DiffSource::Staged), &["first.txt"]).await;
-    assert!(diff::stack::read(&fresh, commit_stack("HEAD"))
-        .await
-        .is_err());
-    assert!(diff::stack::read(&fresh, working_stack(DiffSource::File))
-        .await
-        .is_err());
-    assert!(equivalent(&fresh, working_stack(DiffSource::Unstaged), &[])
-        .await
-        .files
-        .is_empty());
+    assert!(
+        diff::stack::read(&fresh, commit_stack("HEAD"))
+            .await
+            .is_err()
+    );
+    assert!(
+        diff::stack::read(&fresh, working_stack(DiffSource::File))
+            .await
+            .is_err()
+    );
+    assert!(
+        equivalent(&fresh, working_stack(DiffSource::Unstaged), &[])
+            .await
+            .files
+            .is_empty()
+    );
 }
 async fn seed_unreproducible_stack_entries(repo: &Repo) {
     let root = repo.root.as_path();
@@ -2804,12 +2861,14 @@ async fn stacks_omit_symlink_escapes() {
     let stack = read_stack(&repo, DiffSource::Unstaged).await;
     assert!(!stack.files.contains_key("dir/linked.txt"));
     assert!(!stack.files.contains_key("escape.txt"));
-    assert!(read_diff(
-        &repo,
-        DiffRef::working("dir/linked.txt", DiffSource::Unstaged)
-    )
-    .await
-    .is_err());
+    assert!(
+        read_diff(
+            &repo,
+            DiffRef::working("dir/linked.txt", DiffSource::Unstaged)
+        )
+        .await
+        .is_err()
+    );
     assert!(
         read_diff(&repo, DiffRef::working("escape.txt", DiffSource::File))
             .await
@@ -3070,7 +3129,7 @@ async fn stacks_and_single_file_reads_run_a_fixed_number_of_git_processes() {
     command(root, &["commit", "-am", "Modify"]).await;
     repo.refresh().await.unwrap();
     let trace = trace_file(&dir, "trace");
-    std::env::set_var("GIT_TRACE2_EVENT", &trace);
+    trace_git_events(&trace);
     repo.snapshot().await.unwrap();
     let wide = count_commit_stack(&trace, &repo, "HEAD~1").await;
     let narrow = count_commit_stack(&trace, &repo, "HEAD~2").await;
@@ -3096,7 +3155,7 @@ async fn stacks_and_single_file_reads_run_a_fixed_number_of_git_processes() {
         },
     )
     .await;
-    std::env::remove_var("GIT_TRACE2_EVENT");
+    stop_tracing_git_events();
     std::fs::remove_file(&trace).ok();
     assert_eq!((wide, narrow, modified, added), (3, 3, 3, 4));
 }
@@ -3104,7 +3163,7 @@ async fn stacks_and_single_file_reads_run_a_fixed_number_of_git_processes() {
 async fn concurrent_snapshots_of_a_stale_repository_read_status_once() {
     let (dir, handle) = fixture().await;
     let trace = trace_file(&dir, "snapshot-trace");
-    std::env::set_var("GIT_TRACE2_EVENT", &trace);
+    trace_git_events(&trace);
     handle.stale.store(true, Ordering::SeqCst);
     let reads = counted(&trace, async {
         let (first, second, third) =
@@ -3114,7 +3173,7 @@ async fn concurrent_snapshots_of_a_stale_repository_read_status_once() {
         third.unwrap();
     })
     .await;
-    std::env::remove_var("GIT_TRACE2_EVENT");
+    stop_tracing_git_events();
     std::fs::remove_file(&trace).ok();
     assert_eq!(reads, 1);
 }
@@ -3139,7 +3198,7 @@ async fn revert_removes_every_added_file_with_one_rm_process() {
     base(&handle).await;
     let root = dir.path();
     let trace = trace_file(&dir, "revert-trace");
-    std::env::set_var("GIT_TRACE2_EVENT", &trace);
+    trace_git_events(&trace);
     for count in [1, 2000] {
         many(root, "added", count);
         command(root, &["add", "-A"]).await;
@@ -3168,14 +3227,11 @@ async fn revert_removes_every_added_file_with_one_rm_process() {
             "one\ntwo\nthree\n"
         );
     }
-    std::env::remove_var("GIT_TRACE2_EVENT");
+    stop_tracing_git_events();
     std::fs::remove_file(&trace).ok();
 }
-#[tokio::test]
-async fn staged_pairing_unstage_and_revert_handle_thousands_of_renames() {
-    let (dir, handle) = fixture().await;
-    let root = dir.path();
-    many(root, "before", 2000);
+async fn stage_directory_rename(root: &Path, count: usize) -> String {
+    many(root, "before", count);
     let long = numbered("row ", 20);
     std::fs::write(root.join("before").join("0.txt"), &long).unwrap();
     commit_all(root, "Many").await;
@@ -3186,12 +3242,21 @@ async fn staged_pairing_unstage_and_revert_handle_thousands_of_renames() {
     )
     .unwrap();
     command(root, &["add", "-A"]).await;
+    long
+}
+#[tokio::test]
+async fn staged_pairing_unstage_and_revert_handle_thousands_of_renames() {
+    let (dir, handle) = fixture().await;
+    let root = dir.path();
+    let long = stage_directory_rename(root, 2000).await;
     let status = handle.refresh().await.unwrap();
     assert_eq!(status.entries.len(), 2000);
-    assert!(status
-        .entries
-        .iter()
-        .all(|entry| entry.original_path().is_some()));
+    assert!(
+        status
+            .entries
+            .iter()
+            .all(|entry| entry.original_path().is_some())
+    );
     let staged = read_stack(&handle, DiffSource::Staged).await;
     assert_eq!(staged.files.len(), 2000);
     assert!(staged.files.keys().all(|path| path.starts_with("after/")));
@@ -3210,9 +3275,11 @@ async fn staged_pairing_unstage_and_revert_handle_thousands_of_renames() {
     actions::files(&handle, &paths, FilesAction::Unstage)
         .await
         .unwrap();
-    assert!(command(root, &["diff", "--cached", "--name-only"])
-        .await
-        .is_empty());
+    assert!(
+        command(root, &["diff", "--cached", "--name-only"])
+            .await
+            .is_empty()
+    );
     assert!(root.join("after").join("1999.txt").exists());
     command(root, &["add", "-A"]).await;
     handle.refresh().await.unwrap();
@@ -3416,7 +3483,7 @@ async fn metadata_batches_notify_only_when_the_snapshot_changes() {
     let root = fixture.dir.path().to_path_buf();
     let handle = &fixture.handle;
     let trace = trace_file(&fixture.dir, "echo-trace");
-    std::env::set_var("GIT_TRACE2_EVENT", &trace);
+    trace_git_events(&trace);
     let changes = Arc::new(Mutex::new(Vec::new()));
     let captured = changes.clone();
     watch::start(handle, move |change| captured.lock().unwrap().push(change)).unwrap();
@@ -3469,7 +3536,7 @@ async fn metadata_batches_notify_only_when_the_snapshot_changes() {
     changes.lock().unwrap().clear();
     command(&root, &["branch", "created"]).await;
     arrives(&changes, &Change::Head, no_nudge).await;
-    std::env::remove_var("GIT_TRACE2_EVENT");
+    stop_tracing_git_events();
     std::fs::remove_file(&trace).ok();
 }
 #[tokio::test]

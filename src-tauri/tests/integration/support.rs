@@ -169,6 +169,12 @@ pub(super) fn trace_file(dir: &TempDir, name: &str) -> PathBuf {
     ))
 }
 
+pub(super) fn trace_git_events(trace: &Path) {
+    git::trace::trace_events(trace);
+}
+pub(super) fn stop_tracing_git_events() {
+    git::trace::stop_tracing_events();
+}
 pub(super) async fn counted<F: std::future::Future>(trace: &Path, work: F) -> usize {
     let from = trace_size(trace);
     work.await;

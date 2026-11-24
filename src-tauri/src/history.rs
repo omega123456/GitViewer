@@ -1,9 +1,9 @@
 use crate::{
-    diff::{resolve, DiffSource},
+    diff::{DiffSource, resolve},
     error::{Error, Result},
     git,
-    graph::{lanes, Commit, Lane},
-    lines::{numstat, Lines},
+    graph::{Commit, Lane, lanes},
+    lines::{Lines, numstat},
     repo::Repo,
 };
 use serde::Serialize;

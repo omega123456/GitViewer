@@ -1,9 +1,9 @@
 use super::ipc::{app, dispatch};
 use super::support::{
-    arrives, base, command, confirm_quiet, fixture, fixture_named, no_nudge, Polling,
+    Polling, arrives, base, command, confirm_quiet, fixture, fixture_named, no_nudge,
 };
 use gitviewer_lib::{branch, repo::Registry, worktree};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -118,10 +118,12 @@ async fn lists_every_worktree_state_and_marks_checked_out_branches() {
         .iter()
         .find(|branch| branch.name == "idle")
         .unwrap();
-    assert!(serde_json::to_value(idle)
-        .unwrap()
-        .get("worktree")
-        .is_none());
+    assert!(
+        serde_json::to_value(idle)
+            .unwrap()
+            .get("worktree")
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -150,11 +152,13 @@ async fn opening_a_linked_worktree_reports_its_project_and_prune_drops_missing_f
         .await
         .unwrap();
     assert_eq!(listed.as_array().unwrap().len(), 3);
-    assert!(listed
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|entry| entry["id"] == id && entry["branch"] == "feat"));
+    assert!(
+        listed
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["id"] == id && entry["branch"] == "feat")
+    );
     dispatch(app.handle().clone(), "worktree_prune", json!({"repo": id}))
         .await
         .unwrap();
@@ -162,11 +166,13 @@ async fn opening_a_linked_worktree_reports_its_project_and_prune_drops_missing_f
         .await
         .unwrap();
     assert_eq!(pruned.as_array().unwrap().len(), 2);
-    assert!(pruned
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|entry| entry["missing"] == false));
+    assert!(
+        pruned
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|entry| entry["missing"] == false)
+    );
 }
 
 #[tokio::test]
@@ -344,15 +350,19 @@ async fn worktree_add_creates_new_branch_worktree_and_notifies_main() {
         json!({"repo": linked, "path": feature["path"], "mode": "new", "branch": "feature/x", "base": "main"}),
     )
     .await;
-    assert!(statuses
-        .lock()
-        .unwrap()
-        .contains(&main.to_string_lossy().into_owned()));
-    assert!(worktree::list(&main)
-        .await
-        .unwrap()
-        .iter()
-        .any(|entry| entry.branch == "feature/x"));
+    assert!(
+        statuses
+            .lock()
+            .unwrap()
+            .contains(&main.to_string_lossy().into_owned())
+    );
+    assert!(
+        worktree::list(&main)
+            .await
+            .unwrap()
+            .iter()
+            .any(|entry| entry.branch == "feature/x")
+    );
 }
 
 #[tokio::test]
@@ -388,18 +398,22 @@ async fn worktree_add_checks_out_existing_branches_and_refuses_bad_args() {
         json!({"repo": id, "path": sibling(&main, "app-idle"), "mode": "existing", "branch": "idle"}),
     )
     .await;
-    assert!(worktree::list(&main)
-        .await
-        .unwrap()
-        .iter()
-        .any(|entry| entry.branch == "idle"));
+    assert!(
+        worktree::list(&main)
+            .await
+            .unwrap()
+            .iter()
+            .any(|entry| entry.branch == "idle")
+    );
     for refused in [
         json!({"repo": id, "path": "relative", "mode": "detached", "base": "main"}),
         json!({"repo": id, "path": sibling(&main, "app-bad"), "mode": "detached", "base": "-x"}),
     ] {
-        assert!(dispatch(app.handle().clone(), "worktree_add", refused)
-            .await
-            .is_err());
+        assert!(
+            dispatch(app.handle().clone(), "worktree_add", refused)
+                .await
+                .is_err()
+        );
     }
 }
 
@@ -450,13 +464,15 @@ async fn summaries_count_orphan_commits_and_removal_needs_force_for_dirty_and_lo
         summary,
         json!({"ahead": 1, "orphans": 0, "submodules": true})
     );
-    assert!(dispatch(
-        app.handle().clone(),
-        "worktree_remove",
-        json!({"repo": id, "worktree": feat_id}),
-    )
-    .await
-    .is_err());
+    assert!(
+        dispatch(
+            app.handle().clone(),
+            "worktree_remove",
+            json!({"repo": id, "worktree": feat_id}),
+        )
+        .await
+        .is_err()
+    );
     call(
         &app,
         "worktree_remove",
@@ -465,13 +481,15 @@ async fn summaries_count_orphan_commits_and_removal_needs_force_for_dirty_and_lo
     .await;
     assert!(!ahead.feat.exists());
     command(&main, &["worktree", "lock", ahead.spike.to_str().unwrap()]).await;
-    assert!(dispatch(
-        app.handle().clone(),
-        "worktree_remove",
-        json!({"repo": id, "worktree": spike_id, "force": 1}),
-    )
-    .await
-    .is_err());
+    assert!(
+        dispatch(
+            app.handle().clone(),
+            "worktree_remove",
+            json!({"repo": id, "worktree": spike_id, "force": 1}),
+        )
+        .await
+        .is_err()
+    );
     call(
         &app,
         "worktree_remove",
@@ -524,9 +542,11 @@ async fn apply_copies_commits_and_uncommitted_work_into_main_and_undo_reverses_i
         std::fs::read_to_string(main.join("new.txt")).unwrap(),
         "new\n"
     );
-    assert!(command(&main, &["diff", "--cached", "--name-only"])
-        .await
-        .is_empty());
+    assert!(
+        command(&main, &["diff", "--cached", "--name-only"])
+            .await
+            .is_empty()
+    );
     assert_eq!(command(&linked, &["ls-files", "-s"]).await, index);
     assert_eq!(command(&linked, &["status", "--porcelain"]).await, status);
 
@@ -561,20 +581,24 @@ async fn unapply_refuses_modified_main_or_bad_inputs_and_idle_apply_is_a_noop() 
     .await
     .unwrap_err();
     assert!(refused.message.contains("Main changed"));
-    assert!(dispatch(
-        app.handle().clone(),
-        "worktree_unapply",
-        json!({"repo": id, "target": id, "base": "--output=x", "tree": applied["tree"]}),
-    )
-    .await
-    .is_err());
-    assert!(dispatch(
-        app.handle().clone(),
-        "worktree_apply",
-        json!({"repo": id, "source": id, "target": id}),
-    )
-    .await
-    .is_err());
+    assert!(
+        dispatch(
+            app.handle().clone(),
+            "worktree_unapply",
+            json!({"repo": id, "target": id, "base": "--output=x", "tree": applied["tree"]}),
+        )
+        .await
+        .is_err()
+    );
+    assert!(
+        dispatch(
+            app.handle().clone(),
+            "worktree_apply",
+            json!({"repo": id, "source": id, "target": id}),
+        )
+        .await
+        .is_err()
+    );
     let idle = PathBuf::from(sibling(&main, "app-idle"));
     add(&main, &idle, &["--detach"]).await;
     let idle_id = open(&app, &idle).await;
@@ -648,16 +672,20 @@ async fn a_three_way_apply_merges_cleanly_or_leaves_conflicts_when_main_moved_on
         std::fs::read_to_string(main.join("file.txt")).unwrap(),
         "ONE\ntwo\nthree\nfour\n"
     );
-    assert!(command(&main, &["diff", "--cached", "--name-only"])
-        .await
-        .is_empty());
+    assert!(
+        command(&main, &["diff", "--cached", "--name-only"])
+            .await
+            .is_empty()
+    );
 
     command(&main, &["checkout", "--", "file.txt"]).await;
     std::fs::write(main.join("file.txt"), "uno\ntwo\nthree\nfour\n").unwrap();
     command(&main, &["commit", "-am", "Uno"]).await;
     let conflicted = call(&app, "worktree_apply", args).await;
     assert_eq!(conflicted["conflicts"], 1);
-    assert!(std::fs::read_to_string(main.join("file.txt"))
-        .unwrap()
-        .contains("<<<<<<<"));
+    assert!(
+        std::fs::read_to_string(main.join("file.txt"))
+            .unwrap()
+            .contains("<<<<<<<")
+    );
 }
