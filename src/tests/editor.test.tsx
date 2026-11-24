@@ -1,832 +1,397 @@
 import {
   act,
   fireEvent,
-  render,
   screen,
   waitFor,
   within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { undo } from '@codemirror/commands';
-import type { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
-import { describe, expect, it } from 'vitest';
-import App from '../App';
-import { Providers } from '../providers';
-import { QueryProvider } from '../providers/QueryProvider';
-import { AllChangesPane } from '../components/diff/AllChangesPane';
-import {
-  baseSlot,
-  baseText,
-  changes,
-  createState,
-} from '../components/editor/setup';
-import { registeredActions } from '../lib/actions';
-import { closeRepository } from '../lib/repository';
-import type { Opened, Selection, SettingsResponse } from '../lib/types';
-import { client, queryKey } from '../lib/query';
-import { useEditor } from '../stores/editor';
+import { expect, it } from 'vitest';
 import { useLayout } from '../stores/layout';
+import { selectionOf } from '../stores/selection';
 import {
-  useSelection,
-  selectionOf,
-  allChangesOf,
-  fileTabsOf,
-} from '../stores/selection';
-import { useTabs } from '../stores/tabs';
-import { calls, dialog, emit, host, mockCommand } from './harness';
-import { diff, repository, settings, stack, status } from './fixtures';
-import { DEFAULT_MAX_FILE_TABS } from '../lib/settings';
+  calls,
+  callsFor,
+  count,
+  dialog,
+  emit,
+  host,
+  mockCommand,
+} from './harness';
+import { repository, settings } from './fixtures';
+import { findEditorView, runAction } from './workbench';
+import {
+  WORKING_TEXT,
+  editorBuffer,
+  gutterMarks,
+  mountEditor,
+  openedFile,
+  pressWindowKey,
+  setupEditor,
+  startEditing,
+  typeIntoEditor,
+} from './editor-helpers';
 
-const index = 'a\nb\nc\nd\ne\nf\ng\nh\n';
-const working = 'a\nB\nc\nd\nf\ng\nh\ni\n';
-const selection: Selection = { path: 'src/app.ts', source: 'unstaged' };
-function opened(text: string, version: string): Opened {
-  return { text, version, bom: false, crlf: false };
-}
-function setup(file: Opened | null = opened(working, 'v1')) {
-  let current = file;
-  mockCommand('env', () => ({
-    found: true,
-    supported: true,
-    version: '2.50.1',
-    minimum: '2.38',
-  }));
-  mockCommand('settings_get', () => settings);
-  mockCommand('status', () => status);
-  mockCommand('tree', () => []);
-  mockCommand('stashes', () => []);
-  mockCommand('history', () => ({ commits: [], cursor: null }));
-  mockCommand('branches', () => []);
-  mockCommand('diff', () => diff);
-  mockCommand('diff_stack', () => stack);
-  mockCommand('file_lines', () => index);
-  mockCommand('file_read', () => current);
-  mockCommand('file_write', ({ content }) => {
-    current = opened(content, `saved:${content.length}`);
-    return { saved: current.version };
-  });
-  mockCommand('files_action', () => null);
-  mockCommand('unsaved_set', () => null);
-  mockCommand('quit', () => null);
-  mockCommand('repo_close', () => null);
-  mockCommand('edit_menu', () => null);
-  useTabs.getState().open(repository.id, repository.name);
-  return {
-    change: (next: Opened | null) => {
-      current = next;
-      act(() => emit('repo://status-changed', { repo: repository.id }));
-    },
-  };
-}
-function mount(start: Selection = selection) {
-  useSelection.getState().select(repository.id, start, DEFAULT_MAX_FILE_TABS);
-  return render(
-    <Providers>
-      <App />
-    </Providers>,
-  );
-}
-async function editor() {
-  const host = await screen.findByLabelText('Editor');
-  await waitFor(() => expect(host.querySelector('.cm-editor')).not.toBeNull());
-  return EditorView.findFromDOM(host.querySelector('.cm-editor')!)!;
-}
-async function startEditing() {
-  const user = userEvent.setup();
-  await user.click(await screen.findByRole('button', { name: 'Edit' }));
-  return { user, view: await editor() };
-}
-function type(view: EditorView, text: string) {
-  act(() => view.dispatch({ changes: { from: 0, insert: text } }));
-}
-function gutter(view: EditorView) {
-  const marks: [number, string][] = [];
-  view.state
-    .field(changes)
-    .markers.between(0, view.state.doc.length, (from, _, marker) => {
-      const kind = ['added', 'modified', 'deleted'].find((name) =>
-        (marker as unknown as { className: string }).className.includes(name),
-      );
-      marks.push([view.state.doc.lineAt(from).number, kind ?? '']);
-    });
-  return marks;
-}
-function buffer(path = 'src/app.ts') {
-  return useEditor.getState().buffers[repository.id]?.[path];
-}
-function tabLimit() {
-  const current = client.getQueryData<SettingsResponse>(
-    queryKey('settings_get', {}),
-  );
-  return current?.maxFileTabs ?? DEFAULT_MAX_FILE_TABS;
-}
-function open(path: string, editing?: boolean) {
-  return act(async () => {
-    useSelection
-      .getState()
-      .select(repository.id, { path, source: 'unstaged', editing }, tabLimit());
-  });
-}
-function openTabs() {
-  return fileTabsOf(repository.id, 'working')?.map((tab) => tab.selection.path);
-}
-function strip() {
-  return screen.getByRole('tablist', { name: 'Open files' });
-}
-async function editFile(path: string, text: string) {
-  await open(path, true);
-  await waitFor(() => expect(buffer(path)).toBeDefined());
-  type(await editor(), text);
-}
-const writes = () => calls.filter((call) => call.command === 'file_write');
-const key = (init: KeyboardEventInit) =>
-  act(() => {
-    fireEvent.keyDown(window, init);
-  });
+const MODIFIED_LINE = 2;
+const DELETED_LINE = 5;
+const ADDED_LINE = 8;
+const INSERTED_PREFIX_LENGTH = 2;
+const MATCH_START = 4;
+const MATCH_END = 7;
+const KEY_CODE_H = 72;
+const KEY_CODE_Z = 90;
+const TWO_CONFIRMATIONS = 2;
 
-describe('working-tree editor', () => {
-  it('edits in place, saves with the shortcut, and returns to the diff', async () => {
-    setup();
-    mount();
-    const { view } = await startEditing();
-    expect(view.state.doc.toString()).toBe(working);
-    expect(screen.getByRole('button', { name: 'Diff' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
-    expect(await screen.findByText('TypeScript')).toBeVisible();
-    expect(screen.getByText('UTF-8')).toBeVisible();
-    expect(screen.getByText('LF')).toBeVisible();
-    expect(screen.getByText('Ln 1, Col 1')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
-    expect(document.querySelector('.cm-changes .bg-modified')).not.toBeNull();
-    expect(gutter(view)).toEqual([
-      [2, 'modified'],
-      [5, 'deleted'],
-      [8, 'added'],
-    ]);
-    type(view, 'x\n');
-    expect(screen.getByRole('img', { name: 'Unsaved changes' })).toBeVisible();
-    await waitFor(() =>
-      expect(calls).toContainEqual({
-        command: 'unsaved_set',
-        args: { paths: ['app.ts'] },
-      }),
-    );
-    key({ key: 's', metaKey: true });
-    await waitFor(() =>
-      expect(
-        screen.queryByRole('img', { name: 'Unsaved changes' }),
-      ).not.toBeInTheDocument(),
-    );
-    expect(writes()[0].args).toEqual({
-      repo: repository.id,
-      path: 'src/app.ts',
-      content: `x\n${working}`,
-      expected: 'v1',
-    });
-    expect(buffer()?.disk.version).toBe(`saved:${working.length + 2}`);
-    act(() => {
-      fireEvent.keyDown(view.contentDOM, { key: 'Escape' });
-    });
-    expect(await screen.findByRole('button', { name: 'Edit' })).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    );
-    expect(buffer()).toBeUndefined();
-  });
-  it('toggles from the registry, opens find, and follows the theme', async () => {
-    setup();
-    mount();
-    await screen.findByRole('button', { name: 'Edit' });
-    const diffs = () => calls.filter((call) => call.command === 'diff').length;
-    const before = diffs();
-    await act(async () => {
-      await registeredActions(repository.id)
-        .find((action) => action.id === 'edit')
-        ?.run();
-    });
-    const view = await editor();
-    expect(diffs()).toBe(before);
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: 'Find' }));
-    expect(
-      await screen.findByRole('textbox', { name: 'Find in file' }),
-    ).toHaveFocus();
-    mockCommand('settings_get', () => ({ ...settings, theme: 'dark' }));
-    await act(async () => emit('settings://changed', null));
-    await waitFor(() =>
-      expect(view.state.facet(EditorView.darkTheme)).toBe(true),
-    );
-    fireEvent.contextMenu(view.contentDOM);
-    expect(calls.some((call) => call.command === 'edit_menu')).toBe(true);
-    await user.click(screen.getByRole('button', { name: 'Blame' }));
-    expect(selectionOf(repository.id, 'working')?.editing).toBe(false);
-  });
-  it('keeps find apart from replace and replaces quotes verbatim', async () => {
-    setup(opened("say 'a' and 'a'\nend\n", 'v1'));
-    mount();
-    const { user, view } = await startEditing();
-    key({ key: 'f', metaKey: true });
-    const find = await screen.findByRole('textbox', { name: 'Find in file' });
-    const bar = within(screen.getByRole('search'));
-    expect(find).toHaveFocus();
-    expect(find).toHaveAttribute('autocorrect', 'off');
-    expect(find).toHaveAttribute('spellcheck', 'false');
-    expect(bar.queryByRole('textbox', { name: 'Replace with' })).toBeNull();
-    await user.type(find, "'a'");
-    const selected = () =>
-      view.state.sliceDoc(
-        view.state.selection.main.from,
-        view.state.selection.main.to,
-      );
-    expect(selected()).toBe("'a'");
-    expect(bar.getByRole('status')).toHaveTextContent('1 of 2');
-    await user.keyboard('{Enter}');
-    expect(bar.getByRole('status')).toHaveTextContent('2 of 2');
-    await user.keyboard('{Shift>}{Enter}{/Shift}');
-    expect(bar.getByRole('status')).toHaveTextContent('1 of 2');
-    key({ key: 'F3' });
-    expect(bar.getByRole('status')).toHaveTextContent('2 of 2');
-    key({ key: 'F3', shiftKey: true });
-    expect(bar.getByRole('status')).toHaveTextContent('1 of 2');
-    act(() => view.dispatch({ selection: { anchor: 0 } }));
-    expect(bar.getByRole('status')).toHaveTextContent('2 results');
-    await user.click(bar.getByRole('button', { name: 'Next match' }));
-    expect(bar.getByRole('status')).toHaveTextContent('1 of 2');
-    await user.click(bar.getByRole('button', { name: 'Previous match' }));
-    expect(bar.getByRole('status')).toHaveTextContent('2 of 2');
-    act(() => view.dispatch({ selection: { anchor: view.state.doc.length } }));
-    await user.clear(find);
-    expect(bar.getByRole('status')).toBeEmptyDOMElement();
-    await user.type(find, "'a'");
-    expect(bar.getByRole('status')).toHaveTextContent('1 of 2');
-    act(() => view.dispatch({ selection: { anchor: 4, head: 7 } }));
-    key({ key: 'r', metaKey: true, shiftKey: true });
-    const replace = await bar.findByRole('textbox', { name: 'Replace with' });
-    expect(replace).toHaveFocus();
-    expect(replace).toHaveAttribute('autocorrect', 'off');
-    await user.type(replace, '"b"');
-    await user.click(bar.getByRole('button', { name: 'Replace' }));
-    expect(view.state.doc.toString()).toBe('say "b" and \'a\'\nend\n');
-    expect(bar.getByRole('status')).toHaveTextContent('1 of 1');
-    await user.click(bar.getByRole('button', { name: 'Replace all' }));
-    expect(view.state.doc.toString()).toBe('say "b" and "b"\nend\n');
-    expect(bar.getByRole('status')).toHaveTextContent('No results');
-    expect(bar.getByRole('button', { name: 'Replace all' })).toBeDisabled();
-    fireEvent.keyDown(replace, { key: 'Escape' });
-    expect(screen.queryByRole('search')).toBeNull();
-    act(() => view.dispatch({ selection: { anchor: 0 } }));
-    key({ key: 'r', metaKey: true, shiftKey: true });
-    expect(
-      await screen.findByRole('textbox', { name: 'Find in file' }),
-    ).toHaveValue("'a'");
-    expect(screen.getByRole('textbox', { name: 'Replace with' })).toHaveFocus();
-    expect(screen.getByRole('textbox', { name: 'Replace with' })).toHaveValue(
-      '"b"',
-    );
-    key({ key: 'f', metaKey: true });
-    expect(screen.queryByRole('textbox', { name: 'Replace with' })).toBeNull();
-    expect(screen.getByRole('textbox', { name: 'Find in file' })).toHaveFocus();
-    await user.click(screen.getByRole('button', { name: 'Close find' }));
-    expect(screen.queryByRole('search')).toBeNull();
-    key({ key: 'f', metaKey: true });
-    expect(
-      await screen.findByRole('textbox', { name: 'Find in file' }),
-    ).toHaveFocus();
-    act(() => {
-      fireEvent.keyDown(view.contentDOM, { key: 'Escape' });
-    });
-    expect(screen.queryByRole('search')).toBeNull();
-    expect(screen.getByLabelText('Editor')).toBeVisible();
-  });
-  it('opens replace with Ctrl+H from the editor and keeps it for history elsewhere', async () => {
-    setup();
-    mount();
-    const { view } = await startEditing();
-    const replaceRow = () =>
-      screen.queryByRole('textbox', { name: 'Replace with' });
-    act(() => {
-      fireEvent.keyDown(view.contentDOM, {
-        key: 'h',
-        code: 'KeyH',
-        keyCode: 72,
-        ctrlKey: true,
-      });
-    });
-    expect(replaceRow()).toBeVisible();
-    key({ key: 'f', metaKey: true });
-    expect(replaceRow()).toBeNull();
-    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Find in file' }), {
-      key: 'h',
-      ctrlKey: true,
-    });
-    expect(
-      await screen.findByRole('textbox', { name: 'Replace with' }),
-    ).toBeVisible();
-    act(() => {
-      fireEvent.keyDown(view.contentDOM, { key: 'Escape' });
-    });
-    host.platform = 'windows';
-    act(() => {
-      fireEvent.keyDown(view.contentDOM, {
-        key: 'h',
-        code: 'KeyH',
-        keyCode: 72,
-        ctrlKey: true,
-      });
-    });
-    expect(replaceRow()).toBeVisible();
-    expect(useLayout.getState().tabs[repository.id]?.mode).not.toBe('history');
-    key({ key: 'h', ctrlKey: true });
-    expect(useLayout.getState().tabs[repository.id]?.mode).toBe('history');
-  });
-  it('wraps lines from the button and Alt+Z and shares the setting with the diff', async () => {
-    setup();
-    mount();
-    const { user, view } = await startEditing();
-    const button = screen.getByTitle('Word wrap');
-    expect(button).toHaveAttribute('aria-pressed', 'false');
-    expect(view.dom.querySelector('.cm-lineWrapping')).toBeNull();
-    await user.click(button);
-    expect(button).toHaveAttribute('aria-pressed', 'true');
-    expect(view.dom.querySelector('.cm-lineWrapping')).not.toBeNull();
-    act(() => {
-      fireEvent.keyDown(view.contentDOM, {
-        key: 'z',
-        code: 'KeyZ',
-        keyCode: 90,
-        altKey: true,
-      });
-    });
-    expect(button).toHaveAttribute('aria-pressed', 'false');
-    expect(view.dom.querySelector('.cm-lineWrapping')).toBeNull();
-    await user.click(button);
-    await user.click(screen.getByRole('button', { name: 'Diff' }));
-    expect(await screen.findByTitle('Word wrap')).toHaveAttribute(
-      'data-state',
-      'on',
-    );
-  });
-  it('reverts unsaved edits in place and lets undo bring them back', async () => {
-    setup();
-    mount();
-    const { user, view } = await startEditing();
-    const button = screen.getByRole('button', { name: 'Revert' });
-    expect(button).toBeDisabled();
-    type(view, 'x');
-    dialog.approved = false;
-    await user.click(button);
-    expect(dialog.asked).toBe(1);
-    expect(view.state.doc.toString()).toBe(`x${working}`);
-    dialog.approved = true;
-    await user.click(button);
-    expect(dialog.asked).toBe(2);
-    expect(view.state.doc.toString()).toBe(working);
-    expect(buffer()?.dirty).toBe(false);
+it('edits in place, saves with the shortcut, and returns to the diff', async () => {
+  setupEditor();
+  mountEditor();
+  const { view } = await startEditing();
+  expect(view.state.doc.toString()).toBe(WORKING_TEXT);
+  expect(screen.getByRole('button', { name: 'Diff' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  expect(await screen.findByText('TypeScript')).toBeVisible();
+  expect(screen.getByText('UTF-8')).toBeVisible();
+  expect(screen.getByText('LF')).toBeVisible();
+  expect(screen.getByText('Ln 1, Col 1')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+  expect(document.querySelector('.cm-changes .bg-modified')).not.toBeNull();
+  expect(gutterMarks(view)).toEqual([
+    [MODIFIED_LINE, 'modified'],
+    [DELETED_LINE, 'deleted'],
+    [ADDED_LINE, 'added'],
+  ]);
+  typeIntoEditor(view, 'x\n');
+  expect(screen.getByRole('img', { name: 'Unsaved changes' })).toBeVisible();
+  await waitFor(() =>
+    expect(calls).toContainEqual({
+      command: 'unsaved_set',
+      args: { paths: ['app.ts'] },
+    }),
+  );
+  pressWindowKey({ key: 's', metaKey: true });
+  await waitFor(() =>
     expect(
       screen.queryByRole('img', { name: 'Unsaved changes' }),
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Diff' })).toBeVisible();
-    act(() => {
-      undo(view);
-    });
-    expect(view.state.doc.toString()).toBe(`x${working}`);
-    expect(buffer()?.dirty).toBe(true);
+    ).not.toBeInTheDocument(),
+  );
+  expect(callsFor('file_write')[0]).toEqual({
+    repo: repository.id,
+    path: 'src/app.ts',
+    content: `x\n${WORKING_TEXT}`,
+    expected: 'v1',
   });
-  it('reloads a clean buffer silently and flags a dirty one', async () => {
-    const disk = setup();
-    mount();
-    const { user, view } = await startEditing();
-    disk.change(opened('elsewhere', 'v2'));
-    await waitFor(() => expect(view.state.doc.toString()).toBe('elsewhere'));
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    type(view, 'mine ');
-    disk.change(opened('again', 'v3'));
-    const banner = await screen.findByRole('alert');
-    expect(banner).toHaveTextContent('app.ts changed on disk');
-    await user.click(
-      within(banner).getByRole('button', { name: 'Keep my edits' }),
-    );
-    expect(buffer()?.disk.version).toBe('v3');
-    await user.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(writes()).toHaveLength(1));
-    expect(writes()[0].args).toMatchObject({
-      content: 'mine elsewhere',
-      expected: 'v3',
-    });
-    type(view, 'more ');
-    disk.change(opened('fresh', 'v4'));
-    await user.click(
-      await screen.findByRole('button', { name: 'Reload from disk' }),
-    );
-    expect(view.state.doc.toString()).toBe('fresh');
-    expect(buffer()?.dirty).toBe(false);
+  expect(editorBuffer()?.disk.version).toBe(
+    `saved:${WORKING_TEXT.length + INSERTED_PREFIX_LENGTH}`,
+  );
+  act(() => {
+    fireEvent.keyDown(view.contentDOM, { key: 'Escape' });
   });
-  it('offers to recreate or discard a file deleted on disk', async () => {
-    const disk = setup();
-    mount();
-    const { user, view } = await startEditing();
-    type(view, 'mine ');
-    disk.change(null);
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'app.ts was deleted on disk.',
-    );
-    await user.click(screen.getByRole('button', { name: 'Keep my edits' }));
-    expect(buffer()?.disk.version).toBeNull();
-    disk.change(opened('back', 'v5'));
-    await user.click(
-      await screen.findByRole('button', { name: 'Keep my edits' }),
-    );
-    expect(buffer()?.disk.version).toBe('v5');
-    disk.change(null);
-    await user.click(
-      await screen.findByRole('button', { name: 'Discard edits' }),
-    );
-    await screen.findByRole('button', { name: 'Edit' });
-    expect(buffer()).toBeUndefined();
-  });
-  it('drops a clean buffer whose file disappears', async () => {
-    const disk = setup();
-    mount();
-    await startEditing();
-    disk.change(null);
-    expect(
-      await screen.findByText("This file can't be edited here"),
-    ).toBeVisible();
-  });
-  it('turns a save conflict into the banner and a failure into a retryable toast', async () => {
-    setup();
-    mount();
-    const { user, view } = await startEditing();
-    type(view, 'x');
-    mockCommand('file_write', () => ({ conflict: opened('theirs', 'v9') }));
-    await user.click(screen.getByRole('button', { name: 'Save' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'changed on disk',
-    );
-    await user.click(screen.getByRole('button', { name: 'Keep my edits' }));
-    mockCommand('file_write', () => {
-      throw { category: 'unexpected', message: 'Permission denied' };
-    });
-    await user.click(screen.getByRole('button', { name: 'Save' }));
-    expect(await screen.findByText('Could not save app.ts')).toBeVisible();
-    expect(buffer()?.dirty).toBe(true);
-    type(view, 'y');
-    mockCommand('file_write', () => ({ saved: 'v10' }));
-    await user.click(screen.getByRole('button', { name: 'Retry' }));
-    await waitFor(() => expect(buffer()?.dirty).toBe(false));
-    expect(writes().at(-1)?.args).toMatchObject({
-      content: `yx${working}`,
-      expected: 'v9',
-    });
-  });
-  it('keeps unsaved edits across tabs and asks only when leaving edit mode', async () => {
-    setup();
-    mount();
-    const { view } = await startEditing();
-    type(view, 'x');
-    await act(async () => {
-      useSelection
-        .getState()
-        .select(
-          repository.id,
-          { path: 'new.txt', source: 'file' },
-          DEFAULT_MAX_FILE_TABS,
-        );
-      useSelection.getState().viewAll(repository.id, 'unstaged');
-    });
-    expect(dialog.asked).toBe(0);
-    expect(buffer()?.dirty).toBe(true);
-    await act(async () => {
-      useSelection
-        .getState()
-        .select(repository.id, { ...selection }, DEFAULT_MAX_FILE_TABS);
-    });
-    expect(selectionOf(repository.id, 'working')?.editing).toBe(true);
-    expect((await editor()).state.doc.toString()).toBe(`x${working}`);
-    dialog.approved = false;
-    await act(async () => {
-      useSelection
-        .getState()
-        .select(
-          repository.id,
-          { ...selection, editing: false },
-          DEFAULT_MAX_FILE_TABS,
-        );
-    });
-    expect(dialog.asked).toBe(1);
-    expect(selectionOf(repository.id, 'working')?.editing).toBe(true);
-    dialog.approved = true;
-    await act(async () => {
-      useSelection
-        .getState()
-        .select(
-          repository.id,
-          { ...selection, editing: false },
-          DEFAULT_MAX_FILE_TABS,
-        );
-    });
-    await waitFor(() =>
-      expect(selectionOf(repository.id, 'working')?.editing).toBe(false),
-    );
-    expect(buffer()).toBeUndefined();
-  });
-  it('opens a sidebar click in its own tab without asking', async () => {
-    setup();
-    mount();
-    const { user, view } = await startEditing();
-    type(view, 'x');
-    await user.click(
-      within(screen.getByRole('tree', { name: 'Changes' })).getByRole(
-        'treeitem',
-        { name: 'new.txt' },
-      ),
-    );
-    expect(dialog.asked).toBe(0);
-    const tabs = within(strip()).getAllByRole('tab');
-    expect(tabs.map((tab) => tab.textContent)).toEqual(['app.ts', 'new.txt']);
-    expect(tabs[1]).toHaveAttribute('aria-selected', 'true');
-    expect(tabs[1].parentElement).toHaveClass(
-      'before:h-accent',
-      'before:bg-accent',
-    );
-    expect(tabs[0].parentElement).not.toHaveClass('before:bg-accent');
-    expect(
-      within(strip()).getByRole('img', { name: 'Unsaved edits' }),
-    ).toBeInTheDocument();
-    await user.click(tabs[0]);
-    expect((await editor()).state.doc.toString()).toBe(`x${working}`);
-  });
-  it('closes the oldest tab without unsaved edits past the limit', async () => {
-    setup();
-    mockCommand('settings_get', () => ({ ...settings, maxFileTabs: 3 }));
-    mount();
-    const { view } = await startEditing();
-    type(view, 'x');
-    await open('a.ts');
-    await open('b.ts');
-    await open('a.ts');
-    expect(openTabs()).toEqual(['src/app.ts', 'a.ts', 'b.ts']);
-    await open('c.ts');
-    expect(openTabs()).toEqual(['src/app.ts', 'a.ts', 'c.ts']);
-    await editFile('c.ts', 'y');
-    await open('d.ts');
-    expect(openTabs()).toEqual(['src/app.ts', 'c.ts', 'd.ts']);
-    await editFile('d.ts', 'z');
-    await open('e.ts');
-    expect(openTabs()).toEqual(['src/app.ts', 'c.ts', 'd.ts', 'e.ts']);
-    expect(buffer('a.ts')).toBeUndefined();
-    expect(buffer('c.ts')?.dirty).toBe(true);
-  });
-  it('closes tabs by button, middle click and shortcut, asking only for unsaved edits', async () => {
-    setup();
-    mount();
-    const { user, view } = await startEditing();
-    type(view, 'x');
-    await open('a.ts');
-    await open('b.ts');
-    const middle = within(strip()).getByRole('tab', { name: 'a.ts' });
-    fireEvent.mouseDown(middle, { button: 1 });
-    fireEvent(middle, new MouseEvent('auxclick', { bubbles: true, button: 1 }));
-    await waitFor(() => expect(openTabs()).toEqual(['src/app.ts', 'b.ts']));
-    key({ key: 'w', metaKey: true });
-    await waitFor(() => expect(openTabs()).toEqual(['src/app.ts']));
-    expect(selectionOf(repository.id, 'working')?.path).toBe('src/app.ts');
-    dialog.approved = false;
-    await user.click(screen.getByRole('button', { name: 'Close app.ts' }));
-    expect(dialog.asked).toBe(1);
-    expect(openTabs()).toEqual(['src/app.ts']);
-    dialog.approved = true;
-    await user.click(screen.getByRole('button', { name: 'Close app.ts' }));
-    expect(await screen.findByText('Select a file to review')).toBeVisible();
-    expect(
-      screen.queryByRole('tablist', { name: 'Open files' }),
-    ).not.toBeInTheDocument();
-    expect(buffer()).toBeUndefined();
-  });
-  it('keeps a buffer while another tab still edits the same file', async () => {
-    setup();
-    mount();
-    const { view } = await startEditing();
-    type(view, 'x');
-    await act(async () => {
-      useSelection.getState().select(
-        repository.id,
-        {
-          path: 'src/app.ts',
-          source: 'staged',
-          editing: true,
-        },
-        DEFAULT_MAX_FILE_TABS,
-      );
-    });
-    expect(
-      within(strip())
-        .getAllByRole('tab')
-        .map((tab) => tab.textContent),
-    ).toEqual(['app.tsunstaged', 'app.tsstaged']);
-    await act(() =>
-      useSelection
-        .getState()
-        .closeTab(repository.id, 'working', 'staged:::src/app.ts'),
-    );
-    expect(dialog.asked).toBe(0);
-    expect(buffer()?.dirty).toBe(true);
-  });
-  it('cycles and moves between tabs from the keyboard', async () => {
-    setup();
-    mount();
-    await screen.findByRole('button', { name: 'Edit' });
-    await open('a.ts');
-    await open('b.ts');
-    const active = () => selectionOf(repository.id, 'working')?.path;
-    key({ key: 'Tab', ctrlKey: true });
-    expect(active()).toBe('src/app.ts');
-    key({ key: 'Tab', ctrlKey: true, shiftKey: true });
-    expect(active()).toBe('b.ts');
-    const tab = within(strip()).getByRole('tab', { name: 'b.ts' });
-    fireEvent.keyDown(tab, { key: 'ArrowLeft' });
-    expect(active()).toBe('a.ts');
-    await waitFor(() =>
-      expect(within(strip()).getByRole('tab', { name: 'a.ts' })).toHaveFocus(),
-    );
-    fireEvent.keyDown(tab, { key: 'End' });
-    expect(active()).toBe('b.ts');
-    fireEvent.keyDown(tab, { key: 'Home' });
-    expect(active()).toBe('src/app.ts');
-    fireEvent.keyDown(tab, { key: 'ArrowRight' });
-    expect(active()).toBe('a.ts');
-    fireEvent.keyDown(tab, { key: 'x' });
-    expect(active()).toBe('a.ts');
-  });
-  it('falls back to the commit overview after closing the last commit tab', async () => {
-    setup();
-    useSelection.getState().select(
-      repository.id,
-      {
-        path: 'src/app.ts',
-        source: 'commit',
-        revision: 'abc',
-      },
-      DEFAULT_MAX_FILE_TABS,
-    );
-    await act(() =>
-      useSelection
-        .getState()
-        .closeTab(repository.id, 'working', 'commit:abc::src/app.ts'),
-    );
-    expect(selectionOf(repository.id, 'working')).toEqual({
-      path: '',
-      source: 'commit',
-      revision: 'abc',
-      base: undefined,
-    });
-    expect(allChangesOf(repository.id)).toBe('commit');
-  });
-  it('confirms closing a tab and quitting with unsaved edits', async () => {
-    setup();
-    mount();
-    const { view } = await startEditing();
-    type(view, 'x');
-    await editFile('a.ts', 'y');
-    await waitFor(() =>
-      expect(calls).toContainEqual({
-        command: 'unsaved_set',
-        args: { paths: ['app.ts', 'a.ts'] },
-      }),
-    );
-    dialog.approved = false;
-    await act(() => closeRepository(useTabs.getState().tabs[0]));
-    expect(calls.some((call) => call.command === 'repo_close')).toBe(false);
-    await act(async () =>
-      emit('session://unsaved-edits', { paths: ['app.ts'] }),
-    );
-    expect(calls.some((call) => call.command === 'quit')).toBe(false);
-    dialog.approved = true;
-    await act(async () =>
-      emit('session://unsaved-edits', { paths: ['app.ts'] }),
-    );
-    await waitFor(() =>
-      expect(calls.some((call) => call.command === 'quit')).toBe(true),
-    );
-  });
-  it('hides Edit for read-only sources and explains files it cannot open', async () => {
-    setup(null);
-    mount({ path: 'src/app.ts', source: 'commit', revision: 'abc' });
-    await screen.findByRole('button', { name: 'Blame' });
-    expect(
-      screen.queryByRole('button', { name: 'Edit' }),
-    ).not.toBeInTheDocument();
-    await act(async () => {
-      useSelection
-        .getState()
-        .select(repository.id, selection, DEFAULT_MAX_FILE_TABS);
-    });
-    await userEvent
-      .setup()
-      .click(await screen.findByRole('button', { name: 'Edit' }));
-    expect(
-      await screen.findByText("This file can't be edited here"),
-    ).toBeVisible();
-  });
-  it('moves stage all to its own shortcut', async () => {
-    setup();
-    mount();
-    await screen.findByRole('button', { name: 'Edit' });
-    key({ key: 'a', metaKey: true, shiftKey: true });
-    await waitFor(() =>
-      expect(calls.some((call) => call.command === 'files_action')).toBe(true),
-    );
-  });
-  it('opens a stacked file in edit mode from its header', async () => {
-    setup();
-    render(
-      <QueryProvider>
-        <AllChangesPane
-          repo={repository.id}
-          stack="unstaged"
-          status={status}
-          settings={settings}
-          disabled={false}
-        />
-      </QueryProvider>,
-    );
-    const user = userEvent.setup();
-    const [edit] = await screen.findAllByRole('button', { name: 'Edit' });
-    await user.click(edit);
-    expect(selectionOf(repository.id, 'working')).toMatchObject({
-      editing: true,
-    });
-    expect(allChangesOf(repository.id)).toBeUndefined();
-  });
+  expect(await screen.findByRole('button', { name: 'Edit' })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+  expect(editorBuffer()).toBeUndefined();
 });
 
-describe('change gutter', () => {
-  const everyFifth = (line: number) => line % 5 === 0;
-  const source = (count: number, edited: (line: number) => boolean) =>
-    Array.from({ length: count }, (_, line) =>
-      edited(line)
-        ? `  return changed${line};`
-        : `  const keep${line} = compute(${line});`,
-    ).join('\n');
-  function state(text: string, base: string) {
-    return createState({ text, base, dark: false, leave: () => {} });
-  }
-  function marked(current: EditorState) {
-    const lines: number[] = [];
-    current.field(changes).markers.between(0, current.doc.length, (from) => {
-      lines.push(current.doc.lineAt(from).number);
+it('toggles from the registry, opens find, and follows the theme', async () => {
+  setupEditor();
+  mountEditor();
+  await screen.findByRole('button', { name: 'Edit' });
+  const before = count('diff');
+  await runAction('edit');
+  const view = await findEditorView();
+  expect(count('diff')).toBe(before);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: 'Find' }));
+  expect(
+    await screen.findByRole('textbox', { name: 'Find in file' }),
+  ).toHaveFocus();
+  mockCommand('settings_get', () => ({ ...settings, theme: 'dark' }));
+  await act(async () => emit('settings://changed', null));
+  await waitFor(() =>
+    expect(view.state.facet(EditorView.darkTheme)).toBe(true),
+  );
+  fireEvent.contextMenu(view.contentDOM);
+  expect(count('edit_menu')).toBeGreaterThan(0);
+  await user.click(screen.getByRole('button', { name: 'Blame' }));
+  expect(selectionOf(repository.id, 'working')?.editing).toBe(false);
+});
+
+it('finds matches in the editor from the keyboard and bar controls', async () => {
+  setupEditor(openedFile("say 'a' and 'a'\nend\n", 'v1'));
+  mountEditor();
+  const { user, view } = await startEditing();
+  pressWindowKey({ key: 'f', metaKey: true });
+  const find = await screen.findByRole('textbox', { name: 'Find in file' });
+  const bar = within(screen.getByRole('search'));
+  expect(find).toHaveFocus();
+  expect(find).toHaveAttribute('autocorrect', 'off');
+  expect(find).toHaveAttribute('spellcheck', 'false');
+  expect(bar.queryByRole('textbox', { name: 'Replace with' })).toBeNull();
+  await user.type(find, "'a'");
+  const selected = () =>
+    view.state.sliceDoc(
+      view.state.selection.main.from,
+      view.state.selection.main.to,
+    );
+  expect(selected()).toBe("'a'");
+  expect(bar.getByRole('status')).toHaveTextContent('1 of 2');
+  await user.keyboard('{Enter}');
+  expect(bar.getByRole('status')).toHaveTextContent('2 of 2');
+  await user.keyboard('{Shift>}{Enter}{/Shift}');
+  expect(bar.getByRole('status')).toHaveTextContent('1 of 2');
+  pressWindowKey({ key: 'F3' });
+  expect(bar.getByRole('status')).toHaveTextContent('2 of 2');
+  pressWindowKey({ key: 'F3', shiftKey: true });
+  expect(bar.getByRole('status')).toHaveTextContent('1 of 2');
+  act(() => view.dispatch({ selection: { anchor: 0 } }));
+  expect(bar.getByRole('status')).toHaveTextContent('2 results');
+  await user.click(bar.getByRole('button', { name: 'Next match' }));
+  expect(bar.getByRole('status')).toHaveTextContent('1 of 2');
+  await user.click(bar.getByRole('button', { name: 'Previous match' }));
+  expect(bar.getByRole('status')).toHaveTextContent('2 of 2');
+  act(() => view.dispatch({ selection: { anchor: view.state.doc.length } }));
+  await user.clear(find);
+  expect(bar.getByRole('status')).toBeEmptyDOMElement();
+  await user.click(screen.getByRole('button', { name: 'Close find' }));
+  expect(screen.queryByRole('search')).toBeNull();
+  pressWindowKey({ key: 'f', metaKey: true });
+  expect(
+    await screen.findByRole('textbox', { name: 'Find in file' }),
+  ).toHaveFocus();
+  act(() => {
+    fireEvent.keyDown(view.contentDOM, { key: 'Escape' });
+  });
+  expect(screen.queryByRole('search')).toBeNull();
+  expect(screen.getByLabelText('Editor')).toBeVisible();
+});
+
+it('replaces matches verbatim and restores the previous find and replace values', async () => {
+  setupEditor(openedFile("say 'a' and 'a'\nend\n", 'v1'));
+  mountEditor();
+  const { user, view } = await startEditing();
+  pressWindowKey({ key: 'f', metaKey: true });
+  const find = await screen.findByRole('textbox', { name: 'Find in file' });
+  const bar = within(screen.getByRole('search'));
+  await user.type(find, "'a'");
+  expect(bar.getByRole('status')).toHaveTextContent('1 of 2');
+  act(() =>
+    view.dispatch({ selection: { anchor: MATCH_START, head: MATCH_END } }),
+  );
+  pressWindowKey({ key: 'r', metaKey: true, shiftKey: true });
+  const replace = await bar.findByRole('textbox', { name: 'Replace with' });
+  expect(replace).toHaveFocus();
+  expect(replace).toHaveAttribute('autocorrect', 'off');
+  await user.type(replace, '"b"');
+  await user.click(bar.getByRole('button', { name: 'Replace' }));
+  expect(view.state.doc.toString()).toBe('say "b" and \'a\'\nend\n');
+  expect(bar.getByRole('status')).toHaveTextContent('1 of 1');
+  await user.click(bar.getByRole('button', { name: 'Replace all' }));
+  expect(view.state.doc.toString()).toBe('say "b" and "b"\nend\n');
+  expect(bar.getByRole('status')).toHaveTextContent('No results');
+  expect(bar.getByRole('button', { name: 'Replace all' })).toBeDisabled();
+  fireEvent.keyDown(replace, { key: 'Escape' });
+  expect(screen.queryByRole('search')).toBeNull();
+  act(() => view.dispatch({ selection: { anchor: 0 } }));
+  pressWindowKey({ key: 'r', metaKey: true, shiftKey: true });
+  expect(
+    await screen.findByRole('textbox', { name: 'Find in file' }),
+  ).toHaveValue("'a'");
+  expect(screen.getByRole('textbox', { name: 'Replace with' })).toHaveFocus();
+  expect(screen.getByRole('textbox', { name: 'Replace with' })).toHaveValue(
+    '"b"',
+  );
+  pressWindowKey({ key: 'f', metaKey: true });
+  expect(screen.queryByRole('textbox', { name: 'Replace with' })).toBeNull();
+  expect(screen.getByRole('textbox', { name: 'Find in file' })).toHaveFocus();
+});
+
+it('opens replace with Ctrl+H from the editor and keeps it for history elsewhere', async () => {
+  setupEditor();
+  mountEditor();
+  const { view } = await startEditing();
+  const replaceRow = () =>
+    screen.queryByRole('textbox', { name: 'Replace with' });
+  act(() => {
+    fireEvent.keyDown(view.contentDOM, {
+      key: 'h',
+      code: 'KeyH',
+      keyCode: KEY_CODE_H,
+      ctrlKey: true,
     });
-    return lines;
-  }
-  const numbers = (count: number, keep: (line: number) => boolean) =>
-    Array.from({ length: count }, (_, line) => line)
-      .filter(keep)
-      .map((line) => line + 1);
-
-  it('keeps the gutter when the base is reconfigured with equal text', () => {
-    const start = state(working, index);
-    const same = start.update({
-      effects: baseSlot.reconfigure(baseText(index)),
-    }).state;
-    const moved = start.update({
-      effects: baseSlot.reconfigure(baseText(working)),
-    }).state;
-    expect(same.field(changes)).toBe(start.field(changes));
-    expect(moved.field(changes)).not.toBe(start.field(changes));
-    expect(moved.field(changes).chunks).toEqual([]);
   });
-
-  it('marks exactly the edited lines of a file edited throughout', () => {
-    const start = state(
-      source(3000, everyFifth),
-      source(3000, () => false),
-    );
-    expect(marked(start)).toEqual(numbers(3000, everyFifth));
-    const typed = start.update({
-      changes: { from: start.doc.line(2).from, insert: 'x' },
-    }).state;
-    expect(marked(typed)).toEqual(
-      numbers(3000, (line) => everyFifth(line) || line === 1),
-    );
+  expect(replaceRow()).toBeVisible();
+  pressWindowKey({ key: 'f', metaKey: true });
+  expect(replaceRow()).toBeNull();
+  fireEvent.keyDown(screen.getByRole('textbox', { name: 'Find in file' }), {
+    key: 'h',
+    ctrlKey: true,
   });
-
-  it('compares against a CRLF base with a byte-order mark as plain lines', () => {
-    const text = source(200, () => false);
-    const base = `\uFEFF${text.replaceAll('\n', '\r\n')}`;
-    const start = state(text, base);
-    expect(marked(start)).toEqual([]);
-    const typed = start.update({
-      changes: { from: start.doc.line(100).from, insert: 'x' },
-    }).state;
-    expect(marked(typed)).toEqual([100]);
+  expect(
+    await screen.findByRole('textbox', { name: 'Replace with' }),
+  ).toBeVisible();
+  act(() => {
+    fireEvent.keyDown(view.contentDOM, { key: 'Escape' });
   });
+  host.platform = 'windows';
+  act(() => {
+    fireEvent.keyDown(view.contentDOM, {
+      key: 'h',
+      code: 'KeyH',
+      keyCode: KEY_CODE_H,
+      ctrlKey: true,
+    });
+  });
+  expect(replaceRow()).toBeVisible();
+  expect(useLayout.getState().tabs[repository.id]?.mode).not.toBe('history');
+  pressWindowKey({ key: 'h', ctrlKey: true });
+  expect(useLayout.getState().tabs[repository.id]?.mode).toBe('history');
+});
 
-  it('marks the whole file when it has more distinct lines than symbols', () => {
-    const base = source(0xd800, () => false);
-    const edited = state(base.replace('keep0 ', 'kept0 '), base);
-    expect(marked(edited)).toEqual(numbers(0xd800, () => true));
+it('wraps lines from the button and Alt+Z and shares the setting with the diff', async () => {
+  setupEditor();
+  mountEditor();
+  const { user, view } = await startEditing();
+  const button = screen.getByTitle('Word wrap');
+  expect(button).toHaveAttribute('aria-pressed', 'false');
+  expect(view.dom.querySelector('.cm-lineWrapping')).toBeNull();
+  await user.click(button);
+  expect(button).toHaveAttribute('aria-pressed', 'true');
+  expect(view.dom.querySelector('.cm-lineWrapping')).not.toBeNull();
+  act(() => {
+    fireEvent.keyDown(view.contentDOM, {
+      key: 'z',
+      code: 'KeyZ',
+      keyCode: KEY_CODE_Z,
+      altKey: true,
+    });
+  });
+  expect(button).toHaveAttribute('aria-pressed', 'false');
+  expect(view.dom.querySelector('.cm-lineWrapping')).toBeNull();
+  await user.click(button);
+  await user.click(screen.getByRole('button', { name: 'Diff' }));
+  expect(await screen.findByTitle('Word wrap')).toHaveAttribute(
+    'data-state',
+    'on',
+  );
+});
+
+it('reverts unsaved edits in place and lets undo bring them back', async () => {
+  setupEditor();
+  mountEditor();
+  const { user, view } = await startEditing();
+  const button = screen.getByRole('button', { name: 'Revert' });
+  expect(button).toBeDisabled();
+  typeIntoEditor(view, 'x');
+  dialog.approved = false;
+  await user.click(button);
+  expect(dialog.asked).toBe(1);
+  expect(view.state.doc.toString()).toBe(`x${WORKING_TEXT}`);
+  dialog.approved = true;
+  await user.click(button);
+  expect(dialog.asked).toBe(TWO_CONFIRMATIONS);
+  expect(view.state.doc.toString()).toBe(WORKING_TEXT);
+  expect(editorBuffer()?.dirty).toBe(false);
+  expect(
+    screen.queryByRole('img', { name: 'Unsaved changes' }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Diff' })).toBeVisible();
+  act(() => {
+    undo(view);
+  });
+  expect(view.state.doc.toString()).toBe(`x${WORKING_TEXT}`);
+  expect(editorBuffer()?.dirty).toBe(true);
+});
+
+it('reloads a clean buffer silently and flags a dirty one', async () => {
+  const disk = setupEditor();
+  mountEditor();
+  const { user, view } = await startEditing();
+  disk.change(openedFile('elsewhere', 'v2'));
+  await waitFor(() => expect(view.state.doc.toString()).toBe('elsewhere'));
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  typeIntoEditor(view, 'mine ');
+  disk.change(openedFile('again', 'v3'));
+  const banner = await screen.findByRole('alert');
+  expect(banner).toHaveTextContent('app.ts changed on disk');
+  await user.click(
+    within(banner).getByRole('button', { name: 'Keep my edits' }),
+  );
+  expect(editorBuffer()?.disk.version).toBe('v3');
+  await user.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(count('file_write')).toBe(1));
+  expect(callsFor('file_write')[0]).toMatchObject({
+    content: 'mine elsewhere',
+    expected: 'v3',
+  });
+  typeIntoEditor(view, 'more ');
+  disk.change(openedFile('fresh', 'v4'));
+  await user.click(
+    await screen.findByRole('button', { name: 'Reload from disk' }),
+  );
+  expect(view.state.doc.toString()).toBe('fresh');
+  expect(editorBuffer()?.dirty).toBe(false);
+});
+
+it('offers to recreate or discard a file deleted on disk', async () => {
+  const disk = setupEditor();
+  mountEditor();
+  const { user, view } = await startEditing();
+  typeIntoEditor(view, 'mine ');
+  disk.change(null);
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'app.ts was deleted on disk.',
+  );
+  await user.click(screen.getByRole('button', { name: 'Keep my edits' }));
+  expect(editorBuffer()?.disk.version).toBeNull();
+  disk.change(openedFile('back', 'v5'));
+  await user.click(
+    await screen.findByRole('button', { name: 'Keep my edits' }),
+  );
+  expect(editorBuffer()?.disk.version).toBe('v5');
+  disk.change(null);
+  await user.click(
+    await screen.findByRole('button', { name: 'Discard edits' }),
+  );
+  await screen.findByRole('button', { name: 'Edit' });
+  expect(editorBuffer()).toBeUndefined();
+});
+
+it('drops a clean buffer whose file disappears', async () => {
+  const disk = setupEditor();
+  mountEditor();
+  await startEditing();
+  disk.change(null);
+  expect(
+    await screen.findByText("This file can't be edited here"),
+  ).toBeVisible();
+});
+
+it('turns a save conflict into the banner and a failure into a retryable toast', async () => {
+  setupEditor();
+  mountEditor();
+  const { user, view } = await startEditing();
+  typeIntoEditor(view, 'x');
+  mockCommand('file_write', () => ({ conflict: openedFile('theirs', 'v9') }));
+  await user.click(screen.getByRole('button', { name: 'Save' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('changed on disk');
+  await user.click(screen.getByRole('button', { name: 'Keep my edits' }));
+  mockCommand('file_write', () => {
+    throw { category: 'unexpected', message: 'Permission denied' };
+  });
+  await user.click(screen.getByRole('button', { name: 'Save' }));
+  expect(await screen.findByText('Could not save app.ts')).toBeVisible();
+  expect(editorBuffer()?.dirty).toBe(true);
+  typeIntoEditor(view, 'y');
+  mockCommand('file_write', () => ({ saved: 'v10' }));
+  await user.click(screen.getByRole('button', { name: 'Retry' }));
+  await waitFor(() => expect(editorBuffer()?.dirty).toBe(false));
+  expect(callsFor('file_write').at(-1)).toMatchObject({
+    content: `yx${WORKING_TEXT}`,
+    expected: 'v9',
   });
 });

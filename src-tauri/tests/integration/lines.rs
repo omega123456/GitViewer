@@ -1,4 +1,4 @@
-use super::workflows::{base, command, counted, fixture};
+use super::support::{base, command, counted, fixture, trace_file};
 use gitviewer_lib::{
     history,
     lines::{count, numstat, working},
@@ -22,7 +22,7 @@ fn numstat_reads_plain_renamed_and_binary_records() {
 async fn working_lines_split_staged_unstaged_and_untracked() {
     let (dir, repo) = fixture().await;
     let root = dir.path();
-    base(&dir, &repo).await;
+    base(&repo).await;
     std::fs::write(root.join("moved.txt"), "keep\nkeep\n").unwrap();
     command(root, &["add", "moved.txt"]).await;
     command(root, &["commit", "-m", "Second"]).await;
@@ -70,10 +70,7 @@ async fn working_lines_cover_an_unborn_branch_with_two_git_processes() {
     command(root, &["add", "first.txt"]).await;
     std::fs::write(root.join("loose.txt"), "1\n").unwrap();
     repo.refresh().await.unwrap();
-    let trace = root.join("..").join(format!(
-        "{}-lines-trace.json",
-        root.file_name().unwrap().to_string_lossy()
-    ));
+    let trace = trace_file(&dir, "lines-trace");
     std::env::set_var("GIT_TRACE2_EVENT", &trace);
     let mut result = None;
     let processes = counted(&trace, async {
@@ -93,7 +90,7 @@ async fn working_lines_cover_an_unborn_branch_with_two_git_processes() {
 async fn commit_files_carry_statuses_and_lines_from_one_diff() {
     let (dir, repo) = fixture().await;
     let root = dir.path();
-    base(&dir, &repo).await;
+    base(&repo).await;
     let first = history::files(&repo, "HEAD").await.unwrap();
     assert_eq!(
         to_value(first).unwrap(),

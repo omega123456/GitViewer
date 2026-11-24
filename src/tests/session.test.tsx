@@ -1,367 +1,195 @@
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import { expect, it } from 'vitest';
 import { SessionProvider } from '../providers/SessionProvider';
 import { client, queryKey } from '../lib/query';
 import { useTabs } from '../stores/tabs';
 import { layoutDefaults, tabLayout, useLayout } from '../stores/layout';
-import { calls, emit, lastError, mockCommand } from './harness';
+import { calls, callsFor, count, lastError, mockCommand } from './harness';
 import { repository } from './fixtures';
-import { TextInput } from '../components/shared/TextInput';
-import { TextArea } from '../components/shared/TextArea';
 
-describe('session persistence', () => {
-  it('restores repositories, drafts and the active tab, then saves changes in order', async () => {
-    mockCommand('session_get', () => ({
+const SAVED_SIDEBAR_WIDTH = 420;
+const INITIAL_RESIZE_WIDTH = 500;
+const SETTLED_SIDEBAR_WIDTH = 512;
+const TWO_SAVES = 2;
+const FOUR_SAVED_TABS = 4;
+
+function mountSession() {
+  return render(
+    <SessionProvider>
+      <div>Ready</div>
+    </SessionProvider>,
+  );
+}
+
+it('restores repositories, drafts and the active tab, then saves changes in order', async () => {
+  mockCommand('session_get', () => ({
+    tabs: [
+      {
+        path: '/a',
+        message: 'draft',
+        layout: { ...layoutDefaults, width: SAVED_SIDEBAR_WIDTH },
+      },
+      { path: '/b', message: '' },
+    ],
+    active: '/a',
+  }));
+  mockCommand('repo_open', ({ path }) => ({
+    ...repository,
+    id: path,
+    project: path,
+    name: path,
+    root: path,
+  }));
+  mountSession();
+  await screen.findByText('Ready');
+  expect(
+    useTabs.getState().tabs.map(({ id }) => ({
+      id: id,
+      message: useTabs.getState().messages[id],
+    })),
+  ).toEqual([
+    { id: '/a', message: 'draft' },
+    { id: '/b', message: '' },
+  ]);
+  expect(useTabs.getState().active).toBe('/a');
+  expect(tabLayout('/a').width).toBe(SAVED_SIDEBAR_WIDTH);
+  expect(tabLayout('/b')).toEqual(layoutDefaults);
+  expect(client.getQueryData(queryKey('status', { repo: '/b' }))).toEqual(
+    repository.status,
+  );
+  expect(count('session_set')).toBe(0);
+  act(() => {
+    useTabs.getState().setMessage('/a', 'updated');
+    useTabs.getState().close('/b');
+  });
+  await waitFor(() => expect(count('session_set')).toBe(TWO_SAVES));
+  expect(callsFor('session_set').at(-1)).toEqual({
+    tabs: [
+      {
+        path: '/a',
+        message: 'updated',
+        layout: { ...layoutDefaults, width: SAVED_SIDEBAR_WIDTH },
+        shown: true,
+      },
+    ],
+    active: '/a',
+  });
+});
+
+it('opens every saved tab at once and applies them in session order', async () => {
+  mockCommand('session_get', () => ({
+    tabs: [
+      { path: '/a', message: 'first' },
+      { path: '/b', message: 'second' },
+      { path: '/missing', message: '' },
+      { path: '/c', message: 'third' },
+    ],
+    active: '/b',
+  }));
+  const pending = new Map<string, () => void>();
+  mockCommand(
+    'repo_open',
+    ({ path }) =>
+      new Promise((resolve, reject) => {
+        pending.set(path, () =>
+          path === '/missing'
+            ? reject(new Error('Repository unavailable'))
+            : resolve({
+                ...repository,
+                id: path,
+                project: path,
+                name: path,
+                root: path,
+              }),
+        );
+      }),
+  );
+  mountSession();
+  await waitFor(() => expect(pending.size).toBe(FOUR_SAVED_TABS));
+  expect(callsFor('repo_open').map((args) => args.path)).toEqual([
+    '/a',
+    '/b',
+    '/missing',
+    '/c',
+  ]);
+  expect(screen.queryByText('Ready')).not.toBeInTheDocument();
+  for (const path of ['/c', '/missing', '/b']) {
+    await act(async () => pending.get(path)?.());
+    expect(useTabs.getState().tabs).toEqual([]);
+    expect(screen.queryByText('Ready')).not.toBeInTheDocument();
+  }
+  await act(async () => pending.get('/a')?.());
+  await screen.findByText('Ready');
+  expect(
+    useTabs.getState().tabs.map(({ id }) => ({
+      id: id,
+      message: useTabs.getState().messages[id],
+    })),
+  ).toEqual([
+    { id: '/a', message: 'first' },
+    { id: '/b', message: 'second' },
+    { id: '/c', message: 'third' },
+  ]);
+  expect(useTabs.getState().active).toBe('/b');
+  expect(lastError('app')?.message).toBe('Repository unavailable');
+  expect(count('refresh')).toBe(0);
+});
+
+it('saves the sidebar size once a resize settles', async () => {
+  mountSession();
+  await screen.findByText('Ready');
+  act(() => useTabs.getState().open('/a', 'a'));
+  await waitFor(() => expect(count('session_set')).toBe(1));
+  act(() => {
+    useLayout.getState().update('/a', { width: INITIAL_RESIZE_WIDTH });
+    useLayout.getState().update('/a', { width: SETTLED_SIDEBAR_WIDTH });
+  });
+  await waitFor(() =>
+    expect(callsFor('session_set').at(-1)).toEqual({
       tabs: [
         {
           path: '/a',
-          message: 'draft',
-          layout: { ...layoutDefaults, width: 420 },
-        },
-        { path: '/b', message: '' },
-      ],
-      active: '/a',
-    }));
-    mockCommand('repo_open', ({ path }) => ({
-      ...repository,
-      id: path,
-      project: path,
-      name: path,
-      root: path,
-    }));
-    render(
-      <SessionProvider>
-        <div>Ready</div>
-      </SessionProvider>,
-    );
-    await screen.findByText('Ready');
-    expect(
-      useTabs.getState().tabs.map(({ id }) => ({
-        id,
-        message: useTabs.getState().messages[id],
-      })),
-    ).toEqual([
-      { id: '/a', message: 'draft' },
-      { id: '/b', message: '' },
-    ]);
-    expect(useTabs.getState().active).toBe('/a');
-    expect(tabLayout('/a').width).toBe(420);
-    expect(tabLayout('/b')).toEqual(layoutDefaults);
-    expect(client.getQueryData(queryKey('status', { repo: '/b' }))).toEqual(
-      repository.status,
-    );
-    expect(calls.some(({ command }) => command === 'session_set')).toBe(false);
-    act(() => {
-      useTabs.getState().setMessage('/a', 'updated');
-      useTabs.getState().close('/b');
-    });
-    await waitFor(() =>
-      expect(
-        calls.filter(({ command }) => command === 'session_set'),
-      ).toHaveLength(2),
-    );
-    expect(
-      calls.filter(({ command }) => command === 'session_set').at(-1)?.args,
-    ).toEqual({
-      tabs: [
-        {
-          path: '/a',
-          message: 'updated',
-          layout: { ...layoutDefaults, width: 420 },
+          message: '',
+          layout: { ...layoutDefaults, width: SETTLED_SIDEBAR_WIDTH },
           shown: true,
         },
       ],
       active: '/a',
-    });
-  });
-
-  it('opens every saved tab at once and applies them in session order', async () => {
-    mockCommand('session_get', () => ({
-      tabs: [
-        { path: '/a', message: 'first' },
-        { path: '/b', message: 'second' },
-        { path: '/missing', message: '' },
-        { path: '/c', message: 'third' },
-      ],
-      active: '/b',
-    }));
-    const pending = new Map<string, () => void>();
-    mockCommand(
-      'repo_open',
-      ({ path }) =>
-        new Promise((resolve, reject) => {
-          pending.set(path, () =>
-            path === '/missing'
-              ? reject(new Error('Repository unavailable'))
-              : resolve({
-                  ...repository,
-                  id: path,
-                  project: path,
-                  name: path,
-                  root: path,
-                }),
-          );
-        }),
-    );
-    render(
-      <SessionProvider>
-        <div>Ready</div>
-      </SessionProvider>,
-    );
-    await waitFor(() => expect(pending.size).toBe(4));
-    expect(
-      calls
-        .filter(({ command }) => command === 'repo_open')
-        .map(({ args }) => (args as { path: string }).path),
-    ).toEqual(['/a', '/b', '/missing', '/c']);
-    expect(screen.queryByText('Ready')).not.toBeInTheDocument();
-    for (const path of ['/c', '/missing', '/b']) {
-      await act(async () => pending.get(path)?.());
-      expect(useTabs.getState().tabs).toEqual([]);
-      expect(screen.queryByText('Ready')).not.toBeInTheDocument();
-    }
-    await act(async () => pending.get('/a')?.());
-    await screen.findByText('Ready');
-    expect(
-      useTabs.getState().tabs.map(({ id }) => ({
-        id,
-        message: useTabs.getState().messages[id],
-      })),
-    ).toEqual([
-      { id: '/a', message: 'first' },
-      { id: '/b', message: 'second' },
-      { id: '/c', message: 'third' },
-    ]);
-    expect(useTabs.getState().active).toBe('/b');
-    expect(lastError('app')?.message).toBe('Repository unavailable');
-    expect(calls.some(({ command }) => command === 'refresh')).toBe(false);
-  });
-
-  it('saves the sidebar size once a resize settles', async () => {
-    render(
-      <SessionProvider>
-        <div>Ready</div>
-      </SessionProvider>,
-    );
-    await screen.findByText('Ready');
-    act(() => useTabs.getState().open('/a', 'a'));
-    await waitFor(() =>
-      expect(
-        calls.filter(({ command }) => command === 'session_set'),
-      ).toHaveLength(1),
-    );
-    act(() => {
-      useLayout.getState().update('/a', { width: 500 });
-      useLayout.getState().update('/a', { width: 512 });
-    });
-    await waitFor(() =>
-      expect(
-        calls.filter(({ command }) => command === 'session_set').at(-1)?.args,
-      ).toEqual({
-        tabs: [
-          {
-            path: '/a',
-            message: '',
-            layout: { ...layoutDefaults, width: 512 },
-            shown: true,
-          },
-        ],
-        active: '/a',
-      }),
-    );
-    expect(
-      calls.filter(({ command }) => command === 'session_set'),
-    ).toHaveLength(2);
-  });
-
-  it('continues restoring when a repository is unavailable', async () => {
-    mockCommand('session_get', () => ({
-      tabs: [
-        { path: '/missing', message: '' },
-        { path: '/ok', message: 'kept' },
-      ],
-      active: '/missing',
-    }));
-    mockCommand('repo_open', ({ path }) => {
-      if (path === '/missing') throw new Error('Repository unavailable');
-      return { ...repository, id: path, project: path, root: path };
-    });
-    render(
-      <SessionProvider>
-        <div>Ready</div>
-      </SessionProvider>,
-    );
-    await screen.findByText('Ready');
-    expect(useTabs.getState().active).toBe('/ok');
-    expect(lastError('app')?.message).toContain('Repository unavailable');
-  });
-
-  it('shows load and save errors without blocking the application', async () => {
-    mockCommand('session_get', () => {
-      throw new Error('Load failed');
-    });
-    mockCommand('session_set', () => {
-      throw new Error('Save failed');
-    });
-    render(
-      <SessionProvider>
-        <div>Ready</div>
-      </SessionProvider>,
-    );
-    await screen.findByText('Ready');
-    expect(lastError('app')?.message).toBe('Load failed');
-    act(() => useTabs.getState().open('/a', 'a'));
-    await waitFor(() => expect(lastError('app')?.message).toBe('Save failed'));
-  });
-});
-
-it('disables native completion and correction on text fields', () => {
-  render(
-    <>
-      <TextInput aria-label="Name" />
-      <TextArea aria-label="Message" />
-    </>,
-  );
-  for (const field of screen.getAllByRole('textbox')) {
-    expect(field).toHaveAttribute('autocomplete', 'off');
-    expect(field).toHaveAttribute('autocorrect', 'off');
-    expect(field).toHaveAttribute('autocapitalize', 'off');
-    expect(field).toHaveAttribute('spellcheck', 'false');
-  }
-});
-
-it('forwards uncaught frontend errors to native logs', async () => {
-  const { useBrowserRestrictions } = await import('../lib/browser');
-  function Browser() {
-    useBrowserRestrictions();
-    return null;
-  }
-  const { unmount } = render(<Browser />);
-  window.dispatchEvent(
-    new ErrorEvent('error', { message: 'Unexpected failure' }),
-  );
-  await waitFor(() =>
-    expect(calls).toContainEqual({
-      command: 'frontend_log',
-      args: { message: 'Unexpected failure' },
     }),
   );
-  unmount();
+  expect(count('session_set')).toBe(TWO_SAVES);
 });
 
-it('replaces the native context menu with the edit menu only on text fields', async () => {
-  mockCommand('edit_menu', () => null);
-  const { useBrowserRestrictions } = await import('../lib/browser');
-  function Browser() {
-    useBrowserRestrictions();
-    return (
-      <>
-        <code className="select-text">line</code>
-        <input aria-label="Toggle" type="checkbox" />
-        <input aria-label="Field" />
-        <textarea aria-label="Message" />
-      </>
-    );
-  }
-  const { unmount } = render(<Browser />);
-  const menus = () =>
-    calls.filter(({ command }) => command === 'edit_menu').length;
-  for (const target of [
-    screen.getByText('line'),
-    screen.getByLabelText('Toggle'),
-  ])
-    expect(fireEvent.contextMenu(target)).toBe(false);
-  expect(menus()).toBe(0);
-  for (const target of [
-    screen.getByLabelText('Field'),
-    screen.getByLabelText('Message'),
-  ])
-    expect(fireEvent.contextMenu(target)).toBe(false);
-  expect(menus()).toBe(2);
-  unmount();
-});
-
-it('flushes the final draft after pending updates before acknowledging close', async () => {
-  let finish = () => {};
-  mockCommand(
-    'session_set',
-    () =>
-      new Promise<null>((resolve) => {
-        finish = () => resolve(null);
-      }),
-  );
-  render(
-    <SessionProvider>
-      <div>Ready</div>
-    </SessionProvider>,
-  );
-  await screen.findByText('Ready');
-  act(() => useTabs.getState().open('/a', 'a'));
-  await waitFor(() =>
-    expect(calls.some(({ command }) => command === 'session_set')).toBe(true),
-  );
-  act(() => {
-    useTabs.getState().setMessage('/a', 'last keystroke');
-    emit('session://save-requested', null);
-    emit('session://save-requested', null);
+it('continues restoring when a repository is unavailable', async () => {
+  mockCommand('session_get', () => ({
+    tabs: [
+      { path: '/missing', message: '' },
+      { path: '/ok', message: 'kept' },
+    ],
+    active: '/missing',
+  }));
+  mockCommand('repo_open', ({ path }) => {
+    if (path === '/missing') throw new Error('Repository unavailable');
+    return { ...repository, id: path, project: path, root: path };
   });
-  expect(calls.some(({ command }) => command === 'session_close')).toBe(false);
-  await act(async () => finish());
-  await act(async () => finish());
-  await waitFor(() =>
-    expect(calls.filter(({ command }) => command === 'session_close')).toEqual([
-      {
-        command: 'session_close',
-        args: {
-          tabs: [
-            {
-              path: '/a',
-              message: 'last keystroke',
-              layout: layoutDefaults,
-              shown: true,
-            },
-          ],
-          active: '/a',
-        },
-      },
-    ]),
-  );
+  mountSession();
+  await screen.findByText('Ready');
+  expect(useTabs.getState().active).toBe('/ok');
+  expect(lastError('app')?.message).toContain('Repository unavailable');
 });
 
-it('allows editing and another close attempt after a save failure', async () => {
-  mockCommand('session_close', () => {
-    throw new Error('Disk full');
+it('shows load and save errors without blocking the application', async () => {
+  mockCommand('session_get', () => {
+    throw new Error('Load failed');
   });
-  const { unmount } = render(
-    <SessionProvider>
-      <div>Ready</div>
-    </SessionProvider>,
-  );
+  mockCommand('session_set', () => {
+    throw new Error('Save failed');
+  });
+  mountSession();
   await screen.findByText('Ready');
-  act(() => emit('session://save-requested', null));
-  await waitFor(() => expect(lastError('app')?.message).toBe('Disk full'));
+  expect(lastError('app')?.message).toBe('Load failed');
   act(() => useTabs.getState().open('/a', 'a'));
-  await waitFor(() =>
-    expect(calls.some(({ command }) => command === 'session_set')).toBe(true),
-  );
-  mockCommand('session_close', () => null);
-  act(() => emit('session://save-requested', null));
-  await waitFor(() =>
-    expect(
-      calls.filter(({ command }) => command === 'session_close'),
-    ).toHaveLength(2),
-  );
-  unmount();
-  emit('session://save-requested', null);
-  expect(
-    calls.filter(({ command }) => command === 'session_close'),
-  ).toHaveLength(2);
+  await waitFor(() => expect(lastError('app')?.message).toBe('Save failed'));
 });
 
 it('restores the active repository using its canonical path', async () => {
@@ -377,52 +205,9 @@ it('restores the active repository using its canonical path', async () => {
     id: path === '/alias' ? '/canonical' : path,
     project: path === '/alias' ? '/canonical' : path,
   }));
-  render(
-    <SessionProvider>
-      <div>Ready</div>
-    </SessionProvider>,
-  );
+  mountSession();
   await screen.findByText('Ready');
   expect(useTabs.getState().active).toBe('/canonical');
-});
-
-it('resumes snapshots after native shutdown cancellation', async () => {
-  render(
-    <SessionProvider>
-      <div>Ready</div>
-    </SessionProvider>,
-  );
-  await screen.findByText('Ready');
-  act(() => emit('session://save-requested', null));
-  await waitFor(() =>
-    expect(
-      calls.filter(({ command }) => command === 'session_close'),
-    ).toHaveLength(1),
-  );
-  act(() => emit('session://close-cancelled', null));
-  act(() => useTabs.getState().open('/after-cancel', 'after-cancel'));
-  await waitFor(() =>
-    expect(calls).toContainEqual({
-      command: 'session_set',
-      args: {
-        tabs: [
-          {
-            path: '/after-cancel',
-            message: '',
-            layout: layoutDefaults,
-            shown: true,
-          },
-        ],
-        active: '/after-cancel',
-      },
-    }),
-  );
-  act(() => emit('session://save-requested', null));
-  await waitFor(() =>
-    expect(
-      calls.filter(({ command }) => command === 'session_close'),
-    ).toHaveLength(2),
-  );
 });
 
 it('restores worktrees into their project tab, shows the saved one and saves each draft', async () => {
@@ -440,11 +225,7 @@ it('restores worktrees into their project tab, shows the saved one and saves eac
     root: path,
     project: path === '/other' ? '/other' : '/main',
   }));
-  render(
-    <SessionProvider>
-      <div>Ready</div>
-    </SessionProvider>,
-  );
+  mountSession();
   await screen.findByText('Ready');
   expect(useTabs.getState().tabs).toEqual([
     {
@@ -458,9 +239,7 @@ it('restores worktrees into their project tab, shows the saved one and saves eac
   expect(useTabs.getState().active).toBe('/main');
   act(() => useTabs.getState().setMessage('/main', 'edited'));
   await waitFor(() =>
-    expect(
-      calls.filter(({ command }) => command === 'session_set').at(-1)?.args,
-    ).toEqual({
+    expect(callsFor('session_set').at(-1)).toEqual({
       tabs: [
         {
           path: '/main',
@@ -479,4 +258,5 @@ it('restores worktrees into their project tab, shows the saved one and saves eac
       active: '/wt/fix',
     }),
   );
+  expect(calls.length).toBeGreaterThan(0);
 });

@@ -1,6 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, renderHook } from '@testing-library/react';
-import { milliseconds } from 'date-fns';
+import { describe, expect, it, vi } from 'vitest';
 import {
   changedFiles,
   hasWorktreeChange,
@@ -17,49 +15,15 @@ import {
   type RestoredTab,
 } from '../lib/session';
 import { isTreeInvalidation, watchTreeInvalidation } from '../lib/tree-refresh';
-import { scheduleAutoFetch } from '../lib/fetch-schedule';
-import { patched, useFormState } from '../lib/form-state';
 import { client, queryKey } from '../lib/query';
 import type { Entry, Session } from '../lib/types';
-import {
-  expanded,
-  fullyOpened,
-  toggledFull,
-} from '../components/diff/openings';
-import {
-  highlighted,
-  idleHighlight,
-  noTokens,
-  sameInputs,
-} from '../components/diff/highlight-state';
-import {
-  ACTIONABLE_TOAST_DURATION_MS,
-  TOAST_DURATION_MS,
-  diffNotices,
-  toastDuration,
-  toastEntries,
-} from '../components/shell/toast-notices';
-import {
-  emptyCursor,
-  moved,
-  paged,
-  pointedAt,
-  searched,
-} from '../components/shell/palette-cursor';
-import { withViewMode } from '../components/diff/view-mode';
-import { clampedTo } from '../components/shell/ResizeHandle';
-import type { Gap } from '../components/diff/rows';
-import { appScope, type Failure } from '../stores/errors';
-import type { Notice } from '../stores/successes';
 import { useCommit } from '../stores/commit';
 import { useSystemTheme } from '../stores/theme';
 import { useTabs } from '../stores/tabs';
-import { calls, mockCommand } from './harness';
-import { diff, repository } from './fixtures';
+import { calls, clearCalls, mockCommand } from './harness';
+import { repository } from './fixtures';
 
-afterEach(() => {
-  vi.useRealTimers();
-});
+const BOTH_MATCHES = 2;
 
 const staged: Entry = {
   kind: 'ordinary',
@@ -88,7 +52,9 @@ describe('working files', () => {
       { path: 'both.ts', source: 'unstaged' },
       { path: 'new.ts', source: 'file' },
     ]);
-    expect(changedFiles([staged, both, fresh], 'BOTH')).toHaveLength(2);
+    expect(changedFiles([staged, both, fresh], 'BOTH')).toHaveLength(
+      BOTH_MATCHES,
+    );
   });
   it('classifies entries for the selected-file actions', () => {
     expect(isStagedEntry(staged)).toBe(true);
@@ -161,7 +127,7 @@ describe('commit routing', () => {
       'files_action',
       'commit',
     ]);
-    calls.length = 0;
+    clearCalls();
     useTabs.getState().setMessage('r', 'again');
     await routeCommit({
       repo: 'r',
@@ -292,161 +258,5 @@ describe('tree refresh', () => {
       ),
     ).toBe(false);
     client.clear();
-  });
-});
-
-describe('auto fetch', () => {
-  it('fetches each shown view on the interval without overlapping', async () => {
-    vi.useFakeTimers();
-    let finish = () => {};
-    mockCommand(
-      'sync',
-      () =>
-        new Promise<null>((resolve) => {
-          finish = () => resolve(null);
-        }),
-    );
-    useTabs.getState().open('/a', 'A');
-    expect(scheduleAutoFetch(null)).toBeUndefined();
-    const stop = scheduleAutoFetch({ seconds: 30 });
-    vi.advanceTimersByTime(milliseconds({ seconds: 30 }));
-    vi.advanceTimersByTime(milliseconds({ seconds: 30 }));
-    await vi.waitFor(() => expect(calls).toHaveLength(1));
-    finish();
-    await vi.advanceTimersByTimeAsync(milliseconds({ seconds: 30 }));
-    expect(calls).toHaveLength(2);
-    stop?.();
-  });
-});
-
-describe('form state', () => {
-  it('patches and resets a grouped form', () => {
-    expect(patched({ name: 'a', open: false }, { open: true })).toEqual({
-      name: 'a',
-      open: true,
-    });
-    const initial = { name: '', open: false };
-    const { result } = renderHook(() => useFormState(initial));
-    act(() => result.current.update({ name: 'feature' }));
-    expect(result.current.form).toEqual({ name: 'feature', open: false });
-    act(() => result.current.reset());
-    expect(result.current.form).toBe(initial);
-  });
-});
-
-describe('diff view state', () => {
-  const gap: Gap = {
-    key: 'g',
-    kind: 'mid',
-    start: 1,
-    end: 40,
-    offset: 0,
-    hunk: 0,
-  };
-  it('widens a gap in each direction and toggles the full file', () => {
-    expect(expanded({}, { gap: gap, direction: 'down' })).toEqual({
-      g: { down: 20, up: 0 },
-    });
-    expect(
-      expanded({ g: { down: 20, up: 0 } }, { gap: gap, direction: 'up' }),
-    ).toEqual({ g: { down: 20, up: 20 } });
-    expect(
-      expanded({ g: { down: 20, up: 0 } }, { gap: gap, direction: 'all' }),
-    ).toEqual({ g: { down: 20, up: Infinity } });
-    expect(fullyOpened([gap])).toEqual({ g: { down: 0, up: Infinity } });
-    expect(toggledFull([gap], true)).toEqual({});
-    expect(toggledFull([gap], false)).toEqual(fullyOpened([gap]));
-  });
-  it('compares highlight inputs field by field', () => {
-    const inputs = { data: diff, path: 'a', dark: false };
-    expect(sameInputs(inputs, { ...inputs })).toBe(true);
-    expect(sameInputs(inputs, { ...inputs, dark: true })).toBe(false);
-    expect(idleHighlight('a', true)).toEqual({
-      inputs: { path: 'a', dark: true },
-      done: false,
-      tokens: noTokens,
-    });
-    expect(highlighted(inputs, noTokens, true).done).toBe(true);
-  });
-  it('switches one view mode on and the others off', () => {
-    const selection = { path: 'a.md', source: 'unstaged' as const };
-    expect(
-      withViewMode({ ...selection, blame: true }, 'rendered', true),
-    ).toEqual({
-      ...selection,
-      rendered: true,
-      blame: false,
-      editing: false,
-    });
-  });
-  it('clamps a resize value into its bounds', () => {
-    const bounds = { min: 10, max: 20, step: 1 };
-    expect(clampedTo(bounds, 5)).toBe(10);
-    expect(clampedTo(bounds, 25)).toBe(20);
-    expect(clampedTo(bounds, 15)).toBe(15);
-  });
-});
-
-describe('toast notices', () => {
-  const failure: Failure = {
-    id: 1,
-    error: { category: 'git', message: 'boom' },
-  };
-  const notice: Notice = { id: 2, key: 'done', title: 'Done' };
-  it('orders app failures, tab failures and notices by id', () => {
-    const entries = toastEntries({
-      active: '/r',
-      app: [{ ...failure, id: 3 }],
-      tab: [failure],
-      done: [notice],
-    });
-    expect(entries.map((entry) => [entry.scope, entry.id])).toEqual([
-      ['/r', 1],
-      ['/r', 2],
-      [appScope, 3],
-    ]);
-  });
-  it('reports which toasts to dismiss and which to publish', () => {
-    const entries = toastEntries({
-      active: '/r',
-      app: [],
-      tab: [failure],
-      done: [notice],
-    });
-    const changes = diffNotices([1, 9], entries);
-    expect(changes.removed).toEqual([9]);
-    expect(changes.added.map((entry) => entry.id)).toEqual([2]);
-  });
-  it('keeps failures and pending notices until dismissed', () => {
-    const scope = '/r';
-    expect(toastDuration({ scope: scope, id: 1, failure: failure })).toBe(
-      Infinity,
-    );
-    expect(
-      toastDuration({
-        scope: scope,
-        id: 2,
-        notice: { ...notice, pending: true },
-      }),
-    ).toBe(Infinity);
-    expect(
-      toastDuration({ scope: scope, id: 2, notice: { ...notice, show: '/w' } }),
-    ).toBe(ACTIONABLE_TOAST_DURATION_MS);
-    expect(toastDuration({ scope: scope, id: 2, notice: notice })).toBe(
-      TOAST_DURATION_MS,
-    );
-  });
-});
-
-describe('palette cursor', () => {
-  it('resets on search and moves, pages and points within the rows', () => {
-    expect(searched('ab')).toEqual({ filter: 'ab', index: 0 });
-    const cursor = { filter: 'a', index: 9 };
-    expect(moved(cursor, { delta: 1, count: 3 }).index).toBe(0);
-    expect(moved(cursor, { delta: -1, count: 3 }).index).toBe(1);
-    expect(moved(cursor, { delta: 1, count: 0 }).index).toBe(0);
-    expect(paged(emptyCursor, { delta: 10, count: 4 }).index).toBe(3);
-    expect(paged(cursor, { delta: -10, count: 4 }).index).toBe(0);
-    expect(pointedAt(cursor, 2)).toEqual({ filter: 'a', index: 2 });
   });
 });

@@ -1,13 +1,54 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { expect, it } from 'vitest';
 import { LineCount, sumLines } from '../components/shared/LineCount';
 import { GroupHeader } from '../components/shared/Section';
 import { useFilterStore } from '../stores/filter';
 import { emit, mockCommand } from './harness';
-import { geometry } from './setup';
+import { domRect, geometry } from './setup';
 import { repository, status } from './fixtures';
-import { count, mount, settled, setup } from './workbench';
+import { assertElement, count, mountApp, setup } from './workbench';
+
+const STAGED_ADDED = 2;
+const APP_ADDED = 1240;
+const UTIL_REMOVED = 12345;
+const NEW_FILE_ADDED = 3;
+const CONFLICT_LINES = 5;
+const COMMIT_APP_ADDED = 4;
+const COMMIT_APP_REMOVED = 2;
+const TWO_MATCHES = 2;
+const HEADER_ADDED = 18;
+const HEADER_REMOVED = 4;
+const HEADER_HEIGHT = 24;
+const HEADER_PADDING = 8;
+const HEADER_TITLE_WIDTH = 100;
+const HEADER_STATS_LEFT = 114;
+const HEADER_STATS_WIDTH = 40;
+const HEADER_COUNT_MIN_LEFT = 158;
+const HEADER_COUNT_WIDTH = 7;
+const HEADER_FOLDS_GAP = 11;
+const HEADER_FOLDS_WIDTH = 48;
+const HEADER_FOLDS_RESERVE = 52;
+const TIGHT_HEADER_WIDTH = 220;
+const ROOMY_HEADER_WIDTH = 240;
+const FRACTIONAL_START_WIDTH = 224.6;
+const WIDTH_TIGHT_FIRST = 224.8;
+const WIDTH_TIGHT_SECOND = 225.2;
+const WIDTH_TIGHT_THIRD = 225.4;
+const WIDTH_ROOMY = 225.6;
+const WIDTH_RETURN_TIGHT = 224.9;
+const FRACTIONAL_WIDTHS = [
+  WIDTH_TIGHT_FIRST,
+  WIDTH_TIGHT_SECOND,
+  WIDTH_TIGHT_THIRD,
+  WIDTH_ROOMY,
+  WIDTH_TIGHT_SECOND,
+  WIDTH_RETURN_TIGHT,
+];
+const INITIAL_HEADER_COUNT = 2;
+const EXPANDED_HEADER_COUNT = 3;
+const SUM_LINES_REMOVED = 2;
+
 const working = {
   ...status,
   entries: [
@@ -36,185 +77,210 @@ const working = {
     },
   ],
 };
+
 function mockLines() {
   setup();
   mockCommand('status', () => working);
   mockCommand('line_stats', () => ({
-    staged: { 'src/app.ts': [2, 1] },
+    staged: { 'src/app.ts': [STAGED_ADDED, 1] },
     unstaged: {
-      'src/app.ts': [1240, 0],
-      'src/lib/util.ts': [0, 12345],
-      'new.txt': [3, 0],
+      'src/app.ts': [APP_ADDED, 0],
+      'src/lib/util.ts': [0, UTIL_REMOVED],
+      'new.txt': [NEW_FILE_ADDED, 0],
       'logo.png': null,
-      'conflict.ts': [5, 5],
+      'conflict.ts': [CONFLICT_LINES, CONFLICT_LINES],
     },
   }));
 }
-function row(name: string) {
-  return screen.getAllByRole('treeitem', { name })[0].closest('div')!;
+
+function rowOf(name: string) {
+  return assertElement(
+    screen.getAllByRole('treeitem', { name })[0].closest('div'),
+  );
 }
-describe('line counts', () => {
-  it('formats compact counts, one-sided counts, binaries and empty counts', () => {
-    const { container, rerender } = render(<LineCount lines={[1, 0]} />);
-    expect(screen.getByTitle('1 line added, 0 removed')).toHaveTextContent(
-      '+1',
-    );
-    expect(container).not.toHaveTextContent('−');
-    rerender(<LineCount lines={[1240, 12345]} />);
-    expect(container).toHaveTextContent('+1.2k−12k');
-    rerender(<LineCount lines={null} />);
-    expect(screen.getByTitle('Binary file')).toHaveTextContent('bin');
-    rerender(<LineCount lines={[0, 0]} />);
-    expect(container).toBeEmptyDOMElement();
-    rerender(<LineCount lines={undefined} />);
-    expect(container).toBeEmptyDOMElement();
-    expect(sumLines(undefined, ['a'])).toBeUndefined();
-    expect(sumLines({ a: [1, 2], b: null }, ['a', 'b', 'c'])).toEqual([1, 2]);
-  });
 
-  it('shows per-file counts, header totals that ignore the filter, and collapsed folder sums', async () => {
-    mockLines();
-    const user = userEvent.setup();
-    mount();
-    const changes = await screen.findByTitle(
-      '1,243 lines added, 12,345 removed',
-    );
-    expect(changes.closest('h3')).toHaveTextContent('Changes');
-    expect(screen.getAllByTitle('2 lines added, 1 removed')).toHaveLength(2);
-    expect(
-      within(row('util.ts')).getByTitle('0 lines added, 12,345 removed'),
-    ).toHaveTextContent('−12k');
-    expect(within(row('new.txt')).getByText('+3')).toBeInTheDocument();
-    expect(within(row('logo.png')).getByText('bin')).toBeInTheDocument();
-    expect(
-      within(row('conflict.ts')).queryByText(/\+/),
-    ).not.toBeInTheDocument();
-    const folder = screen.getAllByRole('treeitem', { name: 'src' })[1];
-    expect(
-      within(folder).queryByTitle('1,240 lines added, 12,345 removed'),
-    ).not.toBeInTheDocument();
-    await user.click(folder);
-    expect(
-      within(folder).getByTitle('1,240 lines added, 12,345 removed'),
-    ).toHaveClass('opacity-75');
-    act(() => useFilterStore.getState().set(repository.id, 'util'));
-    await settled();
-    expect(
-      screen.getByTitle('1,243 lines added, 12,345 removed'),
-    ).toBeInTheDocument();
-  });
+function headerRect(left: number, width: number) {
+  return domRect({ x: left, y: 0, width: width, height: HEADER_HEIGHT });
+}
 
-  it('does not request counts outside working mode', async () => {
-    mockLines();
-    const user = userEvent.setup();
-    mount();
-    await screen.findByTitle('1,243 lines added, 12,345 removed');
-    const before = count('line_stats');
-    await user.click(screen.getByRole('tab', { name: /history/ }));
-    act(() => emit('repo://status-changed', { repo: repository.id }));
-    await settled();
-    expect(count('line_stats')).toBe(before);
-  });
+function isFoldsSlot(element: Element) {
+  return (
+    element.parentElement?.tagName === 'H3' &&
+    element.querySelector('[aria-label="Expand all"]') !== null
+  );
+}
 
-  it('totals and lists the selected commit files', async () => {
-    mockLines();
-    mockCommand('commit_files', () => ({
-      statuses: { 'src/app.ts': 'M', 'src/b.ts': 'A' },
-      lines: { 'src/app.ts': [4, 2], 'src/b.ts': [1, 0] },
-    }));
-    const user = userEvent.setup();
-    mount();
-    await user.click(await screen.findByRole('tab', { name: /history/ }));
-    await user.click(await screen.findByText('Review commit'));
-    const header = await screen.findByTitle('5 lines added, 2 removed');
-    expect(header.closest('h3')).toHaveTextContent('Files in commit');
-    const tree = screen.getByRole('tree', { name: 'Commit files' });
-    expect(
-      within(tree).getByTitle('4 lines added, 2 removed'),
-    ).toBeInTheDocument();
-    await user.click(within(tree).getByRole('treeitem', { name: 'src' }));
-    expect(
-      within(tree).getByTitle('5 lines added, 2 removed'),
-    ).toBeInTheDocument();
-  });
+function headerChildRect(
+  element: Element,
+  parent: HTMLElement,
+  headerWidth: number,
+) {
+  const folds = [...parent.children].find(isFoldsSlot);
+  const shown = Boolean(folds && !folds.classList.contains('hidden'));
+  const reserve = shown ? HEADER_FOLDS_RESERVE : 0;
+  const countLeft = Math.max(
+    HEADER_COUNT_MIN_LEFT,
+    headerWidth - HEADER_PADDING - HEADER_COUNT_WIDTH - reserve,
+  );
+  if (element === parent.firstElementChild)
+    return headerRect(HEADER_PADDING, HEADER_TITLE_WIDTH);
+  if (element.getAttribute('title')?.includes('lines added'))
+    return headerRect(HEADER_STATS_LEFT, HEADER_STATS_WIDTH);
+  if (isFoldsSlot(element))
+    return shown
+      ? headerRect(countLeft + HEADER_FOLDS_GAP, HEADER_FOLDS_WIDTH)
+      : headerRect(0, 0);
+  return headerRect(countLeft, HEADER_COUNT_WIDTH);
+}
 
-  function stubLayout(size: { width: number }) {
-    const rect = (left: number, width: number) =>
-      ({
-        x: left,
-        y: 0,
-        left,
-        top: 0,
-        width,
-        height: 24,
-        right: left + width,
-        bottom: 24,
-      }) as DOMRect;
-    const inHeader = (element: Element) =>
-      element.parentElement?.tagName === 'H3';
-    const folded = (element: Element) =>
-      inHeader(element) &&
-      element.querySelector('[aria-label="Expand all"]') !== null;
-    geometry.rect = (element: Element) => {
-      if (element.tagName === 'H3') return rect(0, size.width);
-      if (!inHeader(element)) return rect(0, 0);
-      const header = element.parentElement!;
-      const folds = [...header.children].find(folded);
-      const shown = Boolean(folds && !folds.classList.contains('hidden'));
-      const countLeft = Math.max(158, size.width - 8 - 7 - (shown ? 52 : 0));
-      if (element === header.firstElementChild) return rect(8, 100);
-      if (element.getAttribute('title')?.includes('lines added'))
-        return rect(114, 40);
-      if (folded(element)) return shown ? rect(countLeft + 11, 48) : rect(0, 0);
-      return rect(countLeft, 7);
-    };
-  }
-  const header = (count: number) => (
+function stubHeaderLayout(size: { width: number }) {
+  geometry.rect = (element: Element) => {
+    if (element.tagName === 'H3') return headerRect(0, size.width);
+    const parent = element.parentElement;
+    if (parent?.tagName !== 'H3') return headerRect(0, 0);
+    return headerChildRect(element, parent, size.width);
+  };
+}
+
+function renderHeader(itemCount: number) {
+  return (
     <GroupHeader
       title="Staged changes"
-      count={count}
-      lines={[18, 4]}
+      count={itemCount}
+      lines={[HEADER_ADDED, HEADER_REMOVED]}
       folds={<button aria-label="Expand all">E</button>}
     />
   );
-  const slot = () =>
-    screen.getByRole('button', { name: 'Expand all' }).parentElement!;
+}
 
-  it('hides the fold buttons only while the header runs out of room', () => {
-    const size = { width: 220 };
-    stubLayout(size);
-    const { rerender } = render(header(2));
-    expect(slot()).toHaveClass('hidden');
-    expect(screen.getByTitle('18 lines added, 4 removed')).toHaveClass(
-      'group-hover/header:hidden',
-    );
-    size.width = 240;
-    rerender(header(3));
-    expect(slot()).toHaveClass('flex');
-    expect(slot()).not.toHaveClass('hidden');
-    expect(screen.getByTitle('18 lines added, 4 removed')).not.toHaveClass(
-      'group-hover/header:hidden',
-    );
-  });
+function foldsSlot() {
+  return assertElement(
+    screen.getByRole('button', { name: 'Expand all' }).parentElement,
+  );
+}
 
-  it('switches once per crossing on fractional, zoomed widths', () => {
-    const size = { width: 224.6 };
-    stubLayout(size);
-    const { rerender } = render(header(0));
-    const states = [224.8, 225.2, 225.4, 225.6, 225.2, 224.9].map(
-      (width, index) => {
-        size.width = width;
-        rerender(header(index + 1));
-        return slot().classList.contains('hidden') ? 'tight' : 'roomy';
-      },
-    );
-    expect(states).toEqual([
-      'tight',
-      'tight',
-      'tight',
-      'roomy',
-      'roomy',
-      'tight',
-    ]);
+it('formats compact counts, one-sided counts, binaries and empty counts', () => {
+  const { container, rerender } = render(<LineCount lines={[1, 0]} />);
+  expect(screen.getByTitle('1 line added, 0 removed')).toHaveTextContent('+1');
+  expect(container).not.toHaveTextContent('−');
+  rerender(<LineCount lines={[APP_ADDED, UTIL_REMOVED]} />);
+  expect(container).toHaveTextContent('+1.2k−12k');
+  rerender(<LineCount lines={null} />);
+  expect(screen.getByTitle('Binary file')).toHaveTextContent('bin');
+  rerender(<LineCount lines={[0, 0]} />);
+  expect(container).toBeEmptyDOMElement();
+  rerender(<LineCount lines={undefined} />);
+  expect(container).toBeEmptyDOMElement();
+  expect(sumLines(undefined, ['a'])).toBeUndefined();
+  expect(
+    sumLines({ a: [1, SUM_LINES_REMOVED], b: null }, ['a', 'b', 'c']),
+  ).toEqual([1, SUM_LINES_REMOVED]);
+});
+
+it('shows per-file counts, header totals that ignore the filter, and collapsed folder sums', async () => {
+  mockLines();
+  const user = userEvent.setup();
+  mountApp();
+  const changes = await screen.findByTitle('1,243 lines added, 12,345 removed');
+  expect(changes.closest('h3')).toHaveTextContent('Changes');
+  expect(screen.getAllByTitle('2 lines added, 1 removed')).toHaveLength(
+    TWO_MATCHES,
+  );
+  expect(
+    within(rowOf('util.ts')).getByTitle('0 lines added, 12,345 removed'),
+  ).toHaveTextContent('−12k');
+  expect(within(rowOf('new.txt')).getByText('+3')).toBeInTheDocument();
+  expect(within(rowOf('logo.png')).getByText('bin')).toBeInTheDocument();
+  expect(
+    within(rowOf('conflict.ts')).queryByText(/\+/),
+  ).not.toBeInTheDocument();
+  const folder = screen.getAllByRole('treeitem', { name: 'src' })[1];
+  expect(
+    within(folder).queryByTitle('1,240 lines added, 12,345 removed'),
+  ).not.toBeInTheDocument();
+  await user.click(folder);
+  expect(
+    within(folder).getByTitle('1,240 lines added, 12,345 removed'),
+  ).toHaveClass('opacity-75');
+  act(() => useFilterStore.getState().set(repository.id, 'util'));
+  await waitFor(() =>
+    expect(screen.queryByRole('treeitem', { name: 'new.txt' })).toBeNull(),
+  );
+  expect(
+    screen.getByTitle('1,243 lines added, 12,345 removed'),
+  ).toBeInTheDocument();
+});
+
+it('does not request counts outside working mode', async () => {
+  mockLines();
+  const user = userEvent.setup();
+  mountApp();
+  await screen.findByTitle('1,243 lines added, 12,345 removed');
+  const beforeStats = count('line_stats');
+  const beforeStatus = count('status');
+  await user.click(screen.getByRole('tab', { name: /history/ }));
+  act(() => emit('repo://status-changed', { repo: repository.id }));
+  await waitFor(() => expect(count('status')).toBe(beforeStatus + 1));
+  expect(count('line_stats')).toBe(beforeStats);
+});
+
+it('totals and lists the selected commit files', async () => {
+  mockLines();
+  mockCommand('commit_files', () => ({
+    statuses: { 'src/app.ts': 'M', 'src/b.ts': 'A' },
+    lines: {
+      'src/app.ts': [COMMIT_APP_ADDED, COMMIT_APP_REMOVED],
+      'src/b.ts': [1, 0],
+    },
+  }));
+  const user = userEvent.setup();
+  mountApp();
+  await user.click(await screen.findByRole('tab', { name: /history/ }));
+  await user.click(await screen.findByText('Review commit'));
+  const header = await screen.findByTitle('5 lines added, 2 removed');
+  expect(header.closest('h3')).toHaveTextContent('Files in commit');
+  const tree = screen.getByRole('tree', { name: 'Commit files' });
+  expect(
+    within(tree).getByTitle('4 lines added, 2 removed'),
+  ).toBeInTheDocument();
+  await user.click(within(tree).getByRole('treeitem', { name: 'src' }));
+  expect(
+    within(tree).getByTitle('5 lines added, 2 removed'),
+  ).toBeInTheDocument();
+});
+
+it('hides the fold buttons only while the header runs out of room', () => {
+  const size = { width: TIGHT_HEADER_WIDTH };
+  stubHeaderLayout(size);
+  const { rerender } = render(renderHeader(INITIAL_HEADER_COUNT));
+  expect(foldsSlot()).toHaveClass('hidden');
+  expect(screen.getByTitle('18 lines added, 4 removed')).toHaveClass(
+    'group-hover/header:hidden',
+  );
+  size.width = ROOMY_HEADER_WIDTH;
+  rerender(renderHeader(EXPANDED_HEADER_COUNT));
+  expect(foldsSlot()).toHaveClass('flex');
+  expect(foldsSlot()).not.toHaveClass('hidden');
+  expect(screen.getByTitle('18 lines added, 4 removed')).not.toHaveClass(
+    'group-hover/header:hidden',
+  );
+});
+
+it('switches once per crossing on fractional, zoomed widths', () => {
+  const size = { width: FRACTIONAL_START_WIDTH };
+  stubHeaderLayout(size);
+  const { rerender } = render(renderHeader(0));
+  const states = FRACTIONAL_WIDTHS.map((width, index) => {
+    size.width = width;
+    rerender(renderHeader(index + 1));
+    return foldsSlot().classList.contains('hidden') ? 'tight' : 'roomy';
   });
+  expect(states).toEqual([
+    'tight',
+    'tight',
+    'tight',
+    'roomy',
+    'roomy',
+    'tight',
+  ]);
 });

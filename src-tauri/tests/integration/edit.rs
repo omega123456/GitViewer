@@ -1,4 +1,4 @@
-use super::workflows::{base, fixture};
+use super::support::{base, fixture};
 use gitviewer_lib::edit::{self, Opened, Written};
 use serde_json::{json, Value};
 
@@ -40,9 +40,8 @@ async fn reads_normalise_line_endings_and_refuse_non_text() {
 }
 
 #[tokio::test]
-async fn writes_keep_the_file_shape_and_detect_conflicts() {
-    let (dir, handle) = fixture().await;
-    let repo = handle.clone();
+async fn writes_keep_the_file_shape_and_detect_external_edits() {
+    let (dir, repo) = fixture().await;
     let path = dir.path().join("windows.txt");
     std::fs::write(&path, "\u{feff}one\r\ntwo\r\n").unwrap();
     let opened = edit::read(&repo, "windows.txt").unwrap().unwrap();
@@ -72,8 +71,8 @@ async fn writes_keep_the_file_shape_and_detect_conflicts() {
             "windows.txt",
             edit::Save {
                 content: "mine\n",
-                expected: Some(&version)
-            }
+                expected: Some(&version),
+            },
         )
         .unwrap(),
         Written::Conflict(Some(Opened {
@@ -83,6 +82,14 @@ async fn writes_keep_the_file_shape_and_detect_conflicts() {
             crlf: true,
         }))
     );
+}
+
+#[tokio::test]
+async fn writes_detect_removed_or_created_files_and_reject_escapes() {
+    let (dir, repo) = fixture().await;
+    let path = dir.path().join("windows.txt");
+    std::fs::write(&path, "initial\n").unwrap();
+    let version = edit::read(&repo, "windows.txt").unwrap().unwrap().version;
     std::fs::remove_file(&path).unwrap();
     assert_eq!(
         edit::write(
@@ -90,8 +97,8 @@ async fn writes_keep_the_file_shape_and_detect_conflicts() {
             "windows.txt",
             edit::Save {
                 content: "mine\n",
-                expected: Some(&version)
-            }
+                expected: Some(&version),
+            },
         )
         .unwrap(),
         Written::Conflict(None)
@@ -114,8 +121,8 @@ async fn writes_keep_the_file_shape_and_detect_conflicts() {
             "windows.txt",
             edit::Save {
                 content: "again\n",
-                expected: None
-            }
+                expected: None,
+            },
         )
         .unwrap(),
         Written::Conflict(Some(_))
@@ -125,8 +132,8 @@ async fn writes_keep_the_file_shape_and_detect_conflicts() {
         "../outside.txt",
         edit::Save {
             content: "x",
-            expected: None
-        }
+            expected: None,
+        },
     )
     .is_err());
 }
@@ -134,7 +141,7 @@ async fn writes_keep_the_file_shape_and_detect_conflicts() {
 #[tokio::test]
 async fn file_commands_round_trip_and_refresh_status() {
     let (dir, handle) = fixture().await;
-    base(&dir, &handle).await;
+    base(&handle).await;
     let app = gitviewer_lib::configure(tauri::test::mock_builder())
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .unwrap();

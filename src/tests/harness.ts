@@ -1,30 +1,81 @@
-import { generated, update } from './fixtures';
 import { vi } from 'vitest';
 import type { Commands, Events } from '../lib/types';
 import { useActivity } from '../stores/activity';
 import { useErrors } from '../stores/errors';
-type Handler = (args: never) => unknown;
-const handlers = new Map<string, Handler>();
+import { envMock, generated, update, worktreeFixture } from './fixtures';
+
+type CommandHandlers = {
+  [K in keyof Commands]?: (
+    args: Commands[K]['args'],
+  ) => Commands[K]['result'] | Promise<Commands[K]['result']>;
+};
+interface DialogState {
+  path: string | null;
+  approved: boolean;
+  asked: number;
+  message: string;
+  title: string;
+}
+
+const handlers: CommandHandlers = {};
 const listeners = new Map<string, Set<(event: { payload: unknown }) => void>>();
+
 export const host = { platform: 'macos', version: '15.0.0', title: '' };
-export const dialog = {
-  path: null as string | null,
+export const dialog: DialogState = {
+  path: null,
   approved: true,
   asked: 0,
   message: '',
   title: '',
 };
 export const calls: { command: string; args: unknown }[] = [];
+
 export function mockCommand<K extends keyof Commands>(
   command: K,
-  handler: (
-    args: Commands[K]['args'],
-  ) => Commands[K]['result'] | Promise<Commands[K]['result']>,
+  handler: NonNullable<CommandHandlers[K]>,
 ) {
-  handlers.set(command, handler as Handler);
+  handlers[command] = handler;
 }
+
+function isCommandCall<K extends keyof Commands>(
+  entry: { command: string; args: unknown },
+  command: K,
+): entry is { command: K; args: Commands[K]['args'] } {
+  return entry.command === command;
+}
+
+export function callsFor<K extends keyof Commands>(
+  command: K,
+): Commands[K]['args'][] {
+  return calls
+    .filter((entry) => isCommandCall(entry, command))
+    .map((entry) => entry.args);
+}
+
+export function count(command: keyof Commands) {
+  return callsFor(command).length;
+}
+
+export function clearCalls() {
+  calls.length = 0;
+}
+
+export function emptyRepoMocks() {
+  mockCommand('env', () => envMock);
+  mockCommand('tree', () => []);
+  mockCommand('stashes', () => []);
+  mockCommand('history', () => ({ commits: [], cursor: null }));
+  mockCommand('branches', () => []);
+}
+
+function clearRecord(record: Record<string, unknown>) {
+  for (const key of Object.keys(record)) {
+    delete record[key];
+  }
+}
+
 export function resetHarness() {
-  handlers.clear();
+  clearRecord(handlers);
   mockCommand('update_get', () => ({ ...update }));
   mockCommand('session_get', () => ({ tabs: [], active: '' }));
   mockCommand('session_set', () => null);
@@ -37,50 +88,54 @@ export function resetHarness() {
   mockCommand('line_stats', () => ({ staged: {}, unstaged: {} }));
   mockCommand('file_lines', () => null);
   mockCommand('worktrees', ({ repo }) => [
-    {
-      id: repo,
-      name: repo.split('/').at(-1) ?? repo,
-      main: true,
-      bare: false,
-      branch: 'main',
-      oid: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0',
-      detached: false,
-      locked: null,
-      prunable: false,
-      missing: false,
-    },
+    worktreeFixture(repo, { main: true, branch: 'main' }),
   ]);
   listeners.clear();
   calls.length = 0;
   host.platform = 'macos';
   host.version = '15.0.0';
+  host.title = '';
   dialog.path = null;
   dialog.approved = true;
   dialog.asked = 0;
   dialog.message = '';
   dialog.title = '';
-  host.title = '';
 }
+
 export function lastError(scope: string) {
   return useErrors.getState().scopes[scope]?.slice(-1)[0]?.error;
 }
+
 export function pendingActivity() {
   return Object.values(useActivity.getState().scopes).flat();
 }
+
 export function emit<K extends keyof Events>(name: K, payload: Events[K]) {
-  listeners.get(name)?.forEach((listener) => listener({ payload }));
+  listeners.get(name)?.forEach((listener) => listener({ payload: payload }));
 }
+
+async function runMockCommand<K extends keyof Commands>(payload: {
+  command: K;
+  args: Commands[K]['args'];
+}) {
+  calls.push(payload);
+  const handler = handlers[payload.command];
+  if (!handler) throw new Error(`Unmocked IPC command: ${payload.command}`);
+  return structuredClone(await handler(payload.args));
+}
+
 vi.mock('@tauri-apps/api/core', () => ({
-  invoke: async (name: string, payload: { command: string; args: never }) => {
+  invoke: async <K extends keyof Commands>(
+    name: string,
+    payload: { command: K; args: Commands[K]['args'] },
+  ) => {
     if (name !== 'execute') throw new Error(`Unexpected invoke: ${name}`);
-    calls.push(payload);
-    const handler = handlers.get(payload.command);
-    if (!handler) throw new Error(`Unmocked IPC command: ${payload.command}`);
-    return structuredClone(await handler(payload.args));
+    return runMockCommand(payload);
   },
   convertFileSrc: (path: string, protocol: string) =>
     `http://${protocol}.localhost/${path}`,
 }));
+
 vi.mock('@tauri-apps/api/event', () => ({
   listen: async (
     name: string,
@@ -92,6 +147,7 @@ vi.mock('@tauri-apps/api/event', () => ({
     return () => group.delete(handler);
   },
 }));
+
 vi.mock('@tauri-apps/plugin-dialog', () => ({
   open: async () => dialog.path,
   confirm: async (message: string, options?: { title?: string }) => {
@@ -110,6 +166,7 @@ vi.mock('@tauri-apps/api/window', () => ({
     },
   }),
 }));
+
 vi.mock('@tauri-apps/plugin-os', () => ({
   platform: () => host.platform,
   version: () => host.version,

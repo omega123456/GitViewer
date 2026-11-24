@@ -1,20 +1,43 @@
+import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures';
-for (const theme of ['light', 'dark'] as const) {
+import {
+  THEMES,
+  diffViewer,
+  mockImageBlobs,
+  openRepository,
+  openScenario,
+  selectChange,
+} from './helpers';
+
+const HISTORY_GRAPH_ROWS = 3;
+const IMAGE_MODES = ['side by side', 'swipe', 'onion skin'] as const;
+
+const prepareImageMode: Record<
+  (typeof IMAGE_MODES)[number],
+  (page: Page) => Promise<void>
+> = {
+  'side by side': async () => {},
+  swipe: async (page) => {
+    const divider = page.getByRole('slider', { name: 'Swipe divider' });
+    await divider.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(divider).toHaveAttribute('aria-valuenow', '51');
+  },
+  'onion skin': async (page) => {
+    await page.getByLabel('Onion skin blend').fill('70');
+  },
+};
+
+for (const theme of THEMES) {
   test(`working tree and text diff ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme });
     await page.goto('/');
     await expect(page.getByText('No repository open')).toBeVisible();
-    await page
-      .getByRole('button', { name: 'Open repository', exact: true })
-      .last()
-      .click();
+    await openRepository(page);
     await expect(
       page.getByLabel('Stage src/app.ts', { exact: true }),
     ).toBeVisible();
-    await page
-      .getByRole('tree', { name: 'Changes', exact: true })
-      .getByText('app.ts')
-      .click();
+    await selectChange(page, 'app.ts');
     await expect(page.getByText('index → working tree')).toBeVisible();
     await expect(
       page.locator('code span[style*="--syntax-color: #"]').first(),
@@ -23,14 +46,9 @@ for (const theme of ['light', 'dark'] as const) {
   });
 }
 
-for (const theme of ['light', 'dark'] as const) {
+for (const theme of THEMES) {
   test(`settings shell and generation surfaces ${theme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: theme });
-    await page.goto('/?scenario=ai');
-    await page
-      .getByRole('button', { name: 'Open repository', exact: true })
-      .last()
-      .click();
+    await openScenario(page, '/?scenario=ai', theme);
     await expect(
       page.getByRole('button', { name: 'Generate', exact: true }),
     ).toBeVisible();
@@ -55,241 +73,25 @@ for (const theme of ['light', 'dark'] as const) {
   });
 }
 
-test('large diffs keep a bounded DOM while scrolling', async ({ page }) => {
-  await page.goto('/?scenario=scale');
-  await page
-    .getByRole('button', { name: 'Open repository', exact: true })
-    .last()
-    .click();
-  await page
-    .getByRole('tree', { name: 'Changes', exact: true })
-    .getByText('app.ts')
-    .click();
-  await expect(
-    page.getByText('const row0 = 0;', { exact: true }).first(),
-  ).toBeVisible();
-  const viewer = page.getByLabel('Diff viewer');
-  expect(await viewer.locator('code').count()).toBeLessThan(200);
-  await expect
-    .poll(() =>
-      viewer
-        .locator('.text-syntax')
-        .evaluateAll((spans) =>
-          spans.some(
-            (span) =>
-              !['', 'inherit'].includes(
-                (span as HTMLElement).style.getPropertyValue('--syntax-color'),
-              ),
-          ),
-        ),
-    )
-    .toBe(true);
-  const after = page.getByLabel('Current version');
-  await after.evaluate((element) => {
-    element.scrollTop = element.scrollHeight / 2;
-  });
-  await expect(page.getByText('const row0 = 0;', { exact: true })).toHaveCount(
-    0,
-  );
-  expect(await viewer.locator('code').count()).toBeLessThan(200);
-  await expect
-    .poll(() =>
-      page.getByLabel('Previous version').evaluate((e) => e.scrollTop),
-    )
-    .toBe(await after.evaluate((element) => element.scrollTop));
-});
-
-for (const mode of ['unified', 'split']) {
-  for (const stacked of [false, true]) {
-    test(`${mode} diff keeps keyboard scrolling ${stacked ? 'stacked' : 'single file'}`, async ({
-      page,
-    }) => {
-      await page.goto(`/?scenario=${stacked ? 'stack-scroll' : 'scale'}`);
-      await page
-        .getByRole('button', { name: 'Open repository', exact: true })
-        .last()
-        .click();
-      await page
-        .getByRole('tree', { name: 'Changes', exact: true })
-        .getByText('app.ts', { exact: true })
-        .click();
-      await page.getByRole('tab', { name: mode, exact: true }).click();
-      if (stacked)
-        await page
-          .getByRole('button', { name: 'All changes', exact: true })
-          .click();
-      const pane = page.getByRole('region', {
-        name: stacked ? 'All changes' : 'Diff viewer',
-        exact: true,
-      });
-      const first = pane.getByText('const row0 = 0;', { exact: true }).first();
-      await first.click();
-      const clicked = await first.elementHandle();
-      const scroller = pane.locator(
-        stacked ? '.overflow-y-auto' : '.overflow-auto',
-      );
-      await expect(scroller).toBeFocused();
-      for (const key of ['PageDown', 'PageUp']) {
-        for (let index = 0; index < (key === 'PageDown' ? 60 : 30); index++) {
-          const before = await scroller.evaluate(
-            (element) => element.scrollTop,
-          );
-          await page.keyboard.down(key);
-          await expect
-            .poll(() => scroller.evaluate((element) => element.scrollTop))
-            .not.toBe(before);
-          await expect(scroller).toBeFocused();
-        }
-        await page.keyboard.up(key);
-        await expect
-          .poll(() => clicked!.evaluate((element) => element.isConnected))
-          .toBe(false);
-      }
-    });
-  }
-}
-
-test('split panes fit the width and scroll horizontally alone', async ({
-  page,
-}) => {
-  await page.goto('/?scenario=long');
-  await page
-    .getByRole('button', { name: 'Open repository', exact: true })
-    .last()
-    .click();
-  await page
-    .getByRole('tree', { name: 'Changes', exact: true })
-    .getByText('app.ts')
-    .click();
-  const before = page.getByLabel('Previous version');
-  const after = page.getByLabel('Current version');
-  const overflows = (element: HTMLElement) =>
-    element.scrollWidth > element.clientWidth;
-  await expect(page.getByLabel('Diff viewer')).toBeVisible();
-  expect(await page.getByLabel('Diff viewer').evaluate(overflows)).toBe(false);
-  expect(await before.evaluate(overflows)).toBe(true);
-  expect(await after.evaluate(overflows)).toBe(false);
-  await before.evaluate((element) => {
-    element.scrollLeft = 200;
-  });
-  expect(await after.evaluate((element) => element.scrollLeft)).toBe(0);
-});
-
-test('stacked split columns fit the width of the all-changes pane', async ({
-  page,
-}) => {
-  await page.goto('/?scenario=long');
-  await page
-    .getByRole('button', { name: 'Open repository', exact: true })
-    .last()
-    .click();
-  await page.getByRole('button', { name: 'All changes', exact: true }).click();
-  const pane = page.getByRole('region', { name: 'All changes' });
-  const before = pane.getByLabel('Previous version').first();
-  const after = pane.getByLabel('Current version').first();
-  const overflows = (element: HTMLElement) =>
-    element.scrollWidth > element.clientWidth;
-  await expect(before).toBeVisible();
-  expect(await pane.evaluate(overflows)).toBe(false);
-  expect(await before.evaluate(overflows)).toBe(true);
-  expect(await after.evaluate(overflows)).toBe(false);
-});
-
-for (const mode of ['side by side', 'swipe', 'onion skin']) {
-  for (const theme of ['light', 'dark'] as const) {
+for (const mode of IMAGE_MODES) {
+  for (const theme of THEMES) {
     test(`image comparison ${mode} ${theme}`, async ({ page }) => {
-      await page.emulateMedia({ colorScheme: theme });
-      await page.route('http://gitblob.localhost/**', async (route) => {
-        const old =
-          new URL(route.request().url()).searchParams.get('side') === 'old';
-        await route.fulfill({
-          contentType: 'image/svg+xml',
-          body: `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect x="30" y="30" width="260" height="120" rx="20" fill="${old ? '#0f7c86' : '#0072b2'}"/><circle cx="${old ? 120 : 200}" cy="90" r="40" fill="#e69f00"/></svg>`,
-        });
-      });
-      await page.goto('/?scenario=image');
-      await page
-        .getByRole('button', { name: 'Open repository', exact: true })
-        .last()
-        .click();
-      await page
-        .getByRole('tree', { name: 'Changes', exact: true })
-        .getByText('picture.png')
-        .click();
+      await mockImageBlobs(page);
+      await openScenario(page, '/?scenario=image', theme);
+      await selectChange(page, 'picture.png');
       await page.getByRole('tab', { name: mode, exact: true }).click();
       await expect(page.getByText(/320×180 → 320×180/)).toBeVisible();
-      if (mode === 'swipe') {
-        const divider = page.getByRole('slider', { name: 'Swipe divider' });
-        await divider.focus();
-        await page.keyboard.press('ArrowRight');
-        await expect(divider).toHaveAttribute('aria-valuenow', '51');
-      }
-      if (mode === 'onion skin')
-        await page.getByLabel('Onion skin blend').fill('70');
-      await expect(
-        page.getByRole('region', { name: 'Diff viewer', exact: true }),
-      ).toHaveScreenshot(`image-${mode.replaceAll(' ', '-')}-${theme}.png`);
+      await prepareImageMode[mode](page);
+      await expect(diffViewer(page)).toHaveScreenshot(
+        `image-${mode.replaceAll(' ', '-')}-${theme}.png`,
+      );
     });
   }
 }
 
-test('tree icons keep their size in a narrow sidebar', async ({ page }) => {
-  await page.goto('/');
-  await page
-    .getByRole('button', { name: 'Open repository', exact: true })
-    .last()
-    .click();
-  const tree = page.getByRole('tree', { name: 'Changes', exact: true });
-  await tree.getByText('app.ts').waitFor();
-  await page.addStyleTag({
-    content: '[aria-label="Changes"] { width: 120px !important; }',
-  });
-  expect(
-    await tree.evaluate((root) =>
-      [...root.querySelectorAll('[role="treeitem"] svg')].map((icon) =>
-        Math.round(icon.getBoundingClientRect().width),
-      ),
-    ),
-  ).toEqual([12, 15, 15, 15]);
-});
-
-test('diff header actions keep one left edge', async ({ page }) => {
-  await page.goto('/?scenario=history');
-  await page
-    .getByRole('button', { name: 'Open repository', exact: true })
-    .last()
-    .click();
-  const group = page
-    .getByRole('button', { name: 'Open', exact: true })
-    .locator('..');
-  const edge = async () => (await group.boundingBox())!.x;
-  await page
-    .getByRole('tree', { name: 'Changes', exact: true })
-    .getByText('app.ts')
-    .click();
-  await expect(page.getByText('index → working tree')).toBeVisible();
-  const worktree = await edge();
-  await page.getByRole('button', { name: 'Blame', exact: true }).click();
-  expect(await edge()).toBe(worktree);
-  await page.getByRole('button', { name: 'Diff', exact: true }).click();
-  await page.getByRole('tab', { name: 'history', exact: true }).click();
-  await page.getByText('Merge feature', { exact: true }).click();
-  await page
-    .getByRole('tree', { name: 'Commit files', exact: true })
-    .getByRole('treeitem', { name: 'app.ts', exact: true })
-    .click();
-  await expect(page.getByText(/parent → commit/)).toBeVisible();
-  expect(await edge()).toBe(worktree);
-});
-
-for (const theme of ['light', 'dark'] as const) {
+for (const theme of THEMES) {
   test(`history uses the same diff pane ${theme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: theme });
-    await page.goto('/?scenario=history');
-    await page
-      .getByRole('button', { name: 'Open repository', exact: true })
-      .last()
-      .click();
+    await openScenario(page, '/?scenario=history', theme);
     await page.getByRole('tab', { name: 'history', exact: true }).click();
     await page.getByText('Merge feature', { exact: true }).click();
     await page
@@ -300,21 +102,16 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.getByTitle('Stage hunk')).toHaveCount(0);
     await expect(
       page.getByLabel('Commit history').getByRole('img'),
-    ).toHaveCount(3);
+    ).toHaveCount(HISTORY_GRAPH_ROWS);
     await expect(page.getByRole('complementary')).toHaveScreenshot(
       `history-${theme}.png`,
     );
   });
 }
 
-for (const theme of ['light', 'dark'] as const) {
+for (const theme of THEMES) {
   test(`conflicted merge banner ${theme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: theme });
-    await page.goto('/?scenario=merge');
-    await page
-      .getByRole('button', { name: 'Open repository', exact: true })
-      .last()
-      .click();
+    await openScenario(page, '/?scenario=merge', theme);
     await expect(
       page.getByRole('button', { name: 'Abort merge', exact: true }),
     ).toBeVisible();
@@ -324,14 +121,9 @@ for (const theme of ['light', 'dark'] as const) {
   });
 }
 
-for (const theme of ['light', 'dark'] as const) {
+for (const theme of THEMES) {
   test(`success, info, error and decision cards ${theme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: theme });
-    await page.goto('/?scenario=stash');
-    await page
-      .getByRole('button', { name: 'Open repository', exact: true })
-      .last()
-      .click();
+    await openScenario(page, '/?scenario=stash', theme);
     await page.getByRole('button', { name: /Stashes/ }).click();
     await page.getByText('WIP on main: parser rewrite').click();
     await page.getByLabel('Drop stash@{0}', { exact: true }).click();
@@ -364,14 +156,9 @@ for (const theme of ['light', 'dark'] as const) {
   });
 }
 
-for (const theme of ['light', 'dark'] as const) {
+for (const theme of THEMES) {
   test(`stash section ${theme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: theme });
-    await page.goto('/?scenario=stash');
-    await page
-      .getByRole('button', { name: 'Open repository', exact: true })
-      .last()
-      .click();
+    await openScenario(page, '/?scenario=stash', theme);
     await page.getByRole('button', { name: /Stashes/ }).click();
     await page.getByText('WIP on main: parser rewrite').click();
     await expect(
@@ -386,18 +173,10 @@ for (const theme of ['light', 'dark'] as const) {
   });
 }
 
-for (const theme of ['light', 'dark'] as const) {
+for (const theme of THEMES) {
   test(`diff context gaps ${theme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: theme });
-    await page.goto('/?scenario=context');
-    await page
-      .getByRole('button', { name: 'Open repository', exact: true })
-      .last()
-      .click();
-    await page
-      .getByRole('tree', { name: 'Changes', exact: true })
-      .getByText('app.ts')
-      .click();
+    await openScenario(page, '/?scenario=context', theme);
+    await selectChange(page, 'app.ts');
     await expect(page.getByText('26 hidden lines above')).toBeVisible();
     await expect(
       page.getByLabel('Show 20 more lines above hunk 1'),
@@ -405,24 +184,16 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(
       page.getByText('13 hidden lines', { exact: true }),
     ).toBeVisible();
-    await expect(
-      page.getByRole('region', { name: 'Diff viewer', exact: true }),
-    ).toHaveScreenshot(`diff-context-gaps-${theme}.png`);
+    await expect(diffViewer(page)).toHaveScreenshot(
+      `diff-context-gaps-${theme}.png`,
+    );
   });
 }
 
-for (const theme of ['light', 'dark'] as const) {
+for (const theme of THEMES) {
   test(`find bar ${theme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: theme });
-    await page.goto('/');
-    await page
-      .getByRole('button', { name: 'Open repository', exact: true })
-      .last()
-      .click();
-    await page
-      .getByRole('tree', { name: 'Changes', exact: true })
-      .getByText('app.ts')
-      .click();
+    await openScenario(page, '/', theme);
+    await selectChange(page, 'app.ts');
     await expect(page.getByText('index → working tree')).toBeVisible();
     await expect(
       page.locator('code span[style*="--syntax-color: #"]').first(),
@@ -433,43 +204,28 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.getByRole('search').getByRole('status')).toHaveText(
       /^2 of \d+$/,
     );
-    await expect(
-      page.getByRole('region', { name: 'Diff viewer', exact: true }),
-    ).toHaveScreenshot(`find-bar-${theme}.png`);
+    await expect(diffViewer(page)).toHaveScreenshot(`find-bar-${theme}.png`);
   });
 }
 
-for (const theme of ['light', 'dark'] as const) {
+for (const theme of THEMES) {
   test(`rendered markdown ${theme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: theme });
-    await page.goto('/?scenario=markdown');
-    await page
-      .getByRole('button', { name: 'Open repository', exact: true })
-      .last()
-      .click();
-    await page
-      .getByRole('tree', { name: 'Changes', exact: true })
-      .getByText('README.md')
-      .click();
+    await openScenario(page, '/?scenario=markdown', theme);
+    await selectChange(page, 'README.md');
     await page.getByRole('button', { name: 'Rendered', exact: true }).click();
     await expect(
       page.getByRole('heading', { name: 'GitViewer', exact: true }),
     ).toBeVisible();
     await expect(page.getByText('pnpm install')).toBeVisible();
-    await expect(
-      page.getByRole('region', { name: 'Diff viewer', exact: true }),
-    ).toHaveScreenshot(`markdown-rendered-${theme}.png`);
+    await expect(diffViewer(page)).toHaveScreenshot(
+      `markdown-rendered-${theme}.png`,
+    );
   });
 }
 
-for (const theme of ['light', 'dark'] as const) {
+for (const theme of THEMES) {
   test(`branch comparison ${theme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: theme });
-    await page.goto('/?scenario=compare');
-    await page
-      .getByRole('button', { name: 'Open repository', exact: true })
-      .last()
-      .click();
+    await openScenario(page, '/?scenario=compare', theme);
     await page.getByRole('tab', { name: 'compare', exact: true }).click();
     await expect(page.getByLabel('Base', { exact: true })).toHaveValue('main');
     await expect(page.getByLabel('Compare', { exact: true })).toHaveValue(
@@ -483,21 +239,14 @@ for (const theme of ['light', 'dark'] as const) {
       .getByRole('tree', { name: 'Changed files', exact: true })
       .getByRole('treeitem', { name: /app\.ts/ })
       .click();
-    await expect(
-      page.getByRole('region', { name: 'Diff viewer', exact: true }),
-    ).toBeVisible();
+    await expect(diffViewer(page)).toBeVisible();
     await expect(page.getByTitle('Stage hunk')).toHaveCount(0);
   });
 }
 
-for (const theme of ['light', 'dark'] as const) {
+for (const theme of THEMES) {
   test(`new branch dialog ${theme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: theme });
-    await page.goto('/');
-    await page
-      .getByRole('button', { name: 'Open repository', exact: true })
-      .last()
-      .click();
+    await openScenario(page, '/', theme);
     await expect(
       page.getByLabel('Stage src/app.ts', { exact: true }),
     ).toBeVisible();
@@ -515,14 +264,9 @@ for (const theme of ['light', 'dark'] as const) {
   });
 }
 
-for (const theme of ['light', 'dark'] as const) {
+for (const theme of THEMES) {
   test(`command palette ${theme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: theme });
-    await page.goto('/?scenario=repositories');
-    await page
-      .getByRole('button', { name: 'Open repository', exact: true })
-      .last()
-      .click();
+    await openScenario(page, '/?scenario=repositories', theme);
     await page.mouse.move(0, 0);
     await expect(
       page.getByLabel('Stage src/app.ts', { exact: true }),
@@ -540,17 +284,11 @@ for (const theme of ['light', 'dark'] as const) {
   });
 }
 
-for (const theme of ['light', 'dark'] as const) {
+for (const theme of THEMES) {
   test(`working-tree editor ${theme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: theme });
-    await page.goto('/?scenario=editor');
-    await page
-      .getByRole('button', { name: 'Open repository', exact: true })
-      .last()
-      .click();
-    const changes = page.getByRole('tree', { name: 'Changes', exact: true });
-    await changes.getByText('new.txt').click();
-    await changes.getByText('app.ts').click();
+    await openScenario(page, '/?scenario=editor', theme);
+    await selectChange(page, 'new.txt');
+    await selectChange(page, 'app.ts');
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await expect(page.getByText('TypeScript', { exact: true })).toBeVisible();
     const content = page.locator('.cm-content');
@@ -563,9 +301,7 @@ for (const theme of ['light', 'dark'] as const) {
     await bar.getByRole('textbox', { name: 'Find in file' }).fill('aliases');
     await bar.getByRole('textbox', { name: 'Replace with' }).fill("'names'");
     await expect(bar.getByRole('status')).toHaveText(/^1 of \d+$/);
-    await expect(
-      page.getByRole('region', { name: 'Diff viewer', exact: true }),
-    ).toHaveScreenshot(`editor-${theme}.png`);
+    await expect(diffViewer(page)).toHaveScreenshot(`editor-${theme}.png`);
     await page.keyboard.press('Escape');
     await expect(bar).toBeHidden();
     const tabs = page.getByRole('tablist', { name: 'Open files' });
@@ -574,14 +310,10 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(tabs).toHaveScreenshot(`file-tabs-${theme}.png`);
   });
 }
-for (const theme of ['light', 'dark'] as const) {
+
+for (const theme of THEMES) {
   test(`branch popover with worktrees ${theme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: theme });
-    await page.goto('/?scenario=worktrees');
-    await page
-      .getByRole('button', { name: 'Open repository', exact: true })
-      .last()
-      .click();
+    await openScenario(page, '/?scenario=worktrees', theme);
     const trigger = page.getByRole('button', { name: /^fixture \/ main/ });
     await expect(trigger).toBeVisible();
     await trigger.click();

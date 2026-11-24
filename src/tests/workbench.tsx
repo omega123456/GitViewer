@@ -1,4 +1,12 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
+import { EditorView } from '@codemirror/view';
 import { expect } from 'vitest';
 import App from '../App';
 import { Providers } from '../providers';
@@ -8,15 +16,29 @@ import { useTabs } from '../stores/tabs';
 import { DiffPane } from '../components/diff/DiffPane';
 import { AllChangesPane } from '../components/diff/AllChangesPane';
 import { client } from '../lib/query';
-import { mockCommand, calls } from './harness';
-import { workers } from './setup';
-import { settings, status, repository, diff, stack } from './fixtures';
+import type { Diff } from '../lib/types';
 import type { Stack } from '../stores/selection';
+import { calls, clearCalls, count, mockCommand } from './harness';
+import { workers } from './setup';
+import {
+  COMMIT_TIMESTAMP,
+  HASH_LENGTH,
+  branchFixture,
+  diff,
+  envMock,
+  repository,
+  settings,
+  stack,
+  status,
+} from './fixtures';
+
+const FILE_PAD_WIDTH = 3;
+
 export const commit = {
-  hash: 'a'.repeat(40),
-  parents: ['b'.repeat(40)],
+  hash: 'a'.repeat(HASH_LENGTH),
+  parents: ['b'.repeat(HASH_LENGTH)],
   author: 'Author',
-  timestamp: 1700000000,
+  timestamp: COMMIT_TIMESTAMP,
   subject: 'Review commit',
   refs: 'main',
   lane: 0,
@@ -24,39 +46,19 @@ export const commit = {
   entered: false,
   segments: [{ from: 0, to: 0, color: 0 }],
 };
+
 export const branches = [
-  {
-    name: 'main',
+  branchFixture('main', {
     current: true,
     default: true,
-    remote: false,
     upstream: 'origin/main',
-    gone: false,
-  },
-  {
-    name: 'feature',
-    current: false,
-    remote: false,
-    default: false,
-    upstream: '',
-    gone: false,
-  },
-  {
-    name: 'origin/main',
-    current: false,
-    default: true,
-    remote: true,
-    upstream: '',
-    gone: false,
-  },
+  }),
+  branchFixture('feature'),
+  branchFixture('origin/main', { default: true, remote: true }),
 ];
+
 export function setup() {
-  mockCommand('env', () => ({
-    found: true,
-    supported: true,
-    version: '2.50.1',
-    minimum: '2.38',
-  }));
+  mockCommand('env', () => envMock);
   mockCommand('settings_get', () => settings);
   mockCommand('status', () => status);
   mockCommand('tree', () => [
@@ -91,43 +93,66 @@ export function setup() {
   mockCommand('repo_close', () => null);
   useTabs.getState().open(repository.id, repository.name);
 }
-export function mount() {
+
+export function mountApp() {
   return render(
     <Providers>
       <App />
     </Providers>,
   );
 }
-export const settled = () => new Promise((resolve) => setTimeout(resolve, 250));
-export const count = (command: string) =>
-  calls.filter((call) => call.command === command).length;
-export const picture = {
+
+export { count };
+
+export const picture: Diff = {
   ...diff,
   path: 'photo.png',
   image: true,
   hunks: [],
   patches: [],
 };
-export const height = (block: HTMLElement) =>
-  within(block)
+
+export function assertElement(
+  element: Element | null | undefined,
+): HTMLElement {
+  if (element instanceof HTMLElement) return element;
+  throw new Error('Expected an HTML element');
+}
+
+export function height(block: HTMLElement) {
+  return within(block)
     .getByText('Loading…')
     .style.getPropertyValue('--virtual-height');
-export const shown = (root: HTMLElement, text: string) =>
-  [...root.querySelectorAll('code')].filter((code) =>
+}
+
+export function shown(root: HTMLElement, text: string) {
+  return [...root.querySelectorAll('code')].filter((code) =>
     code.textContent?.includes(text),
   ).length;
-export const colored = (root: HTMLElement) =>
-  [...root.querySelectorAll<HTMLElement>('.text-syntax')].filter(
+}
+
+export function colored(root: HTMLElement) {
+  return [...root.querySelectorAll<HTMLElement>('.text-syntax')].filter(
     (span) => span.style.getPropertyValue('--syntax-color') !== 'inherit',
   ).length;
-export async function renderStack(stack: Stack = 'commit') {
+}
+
+export async function waitForWorkersIdle() {
+  await waitFor(() => expect(workers.active).toBe(0));
+}
+
+export async function waitForQueriesIdle() {
+  await waitFor(() => expect(client.isFetching()).toBe(0));
+}
+
+export async function renderStack(kind: Stack = 'commit') {
   const view = render(
     <QueryProvider>
       <AllChangesPane
         repo={repository.id}
-        stack={stack}
+        stack={kind}
         commit={
-          stack === 'commit'
+          kind === 'commit'
             ? { path: '', source: 'commit', revision: commit.hash }
             : undefined
         }
@@ -141,9 +166,10 @@ export async function renderStack(stack: Stack = 'commit') {
     commit: 'All changes in commit',
     unstaged: 'All changes',
   };
-  const pane = await screen.findByRole('region', { name: labels[stack] });
+  const pane = await screen.findByRole('region', { name: labels[kind] });
   return Object.assign(pane, { unmount: view.unmount });
 }
+
 export function renderFile(
   selection: Parameters<typeof DiffPane>[0]['selection'],
 ) {
@@ -158,32 +184,40 @@ export function renderFile(
     </QueryProvider>,
   );
 }
+
 export function restart() {
-  calls.length = 0;
+  clearCalls();
   client.clear();
 }
-export async function action(id: string) {
+
+export async function runAction(
+  id: string,
+  repo = repository.id,
+  options?: { allowDisabled?: boolean },
+) {
   await act(async () => {
-    const entry = registeredActions(repository.id).find(
-      (entry) => entry.id === id,
-    );
+    const entry = registeredActions(repo).find((item) => item.id === id);
     expect(entry, id).toBeDefined();
-    expect(entry?.disabled, id).not.toBe(true);
+    if (!options?.allowDisabled) expect(entry?.disabled, id).not.toBe(true);
     await entry?.run();
   });
 }
-export async function run(repo: string, id: string) {
-  await act(async () => {
-    const entry = registeredActions(repo).find((entry) => entry.id === id);
-    expect(entry, id).toBeDefined();
-    await entry?.run();
-  });
+
+function repoArgOf(args: unknown): string | undefined {
+  if (typeof args !== 'object' || args === null) return undefined;
+  if (!('repo' in args)) return undefined;
+  return typeof args.repo === 'string' ? args.repo : undefined;
 }
-export const repoCalls = (repo: string) =>
-  calls
-    .filter((call) => (call.args as { repo?: string }).repo === repo)
+
+export function repoCalls(repo: string) {
+  return calls
+    .filter((call) => repoArgOf(call.args) === repo)
     .map((call) => call.command);
-export function markdownDiff(lines: { kind: string; content: string }[]) {
+}
+
+export function markdownDiff(
+  lines: { kind: 'context' | 'add' | 'remove'; content: string }[],
+): Diff {
   return {
     ...diff,
     path: 'README.md',
@@ -207,56 +241,83 @@ export function markdownDiff(lines: { kind: string; content: string }[]) {
     ],
   };
 }
+
 export const blameLines = [
   {
-    hash: 'a'.repeat(40),
+    hash: 'a'.repeat(HASH_LENGTH),
     author: 'Author',
-    timestamp: 1700000000,
+    timestamp: COMMIT_TIMESTAMP,
     subject: 'Review commit',
     line: 1,
     content: 'first',
     block: true,
   },
 ];
-export const rows = (
-  count: number,
+
+export function rows(
+  lineCount: number,
   content = (index: number) => `const row${index} = ${index};`,
-) => ({
-  ...diff,
-  hunks: [
-    {
-      header: `@@ -1,${count} +1,${count} @@`,
-      oldStart: 1,
-      oldCount: count,
-      newStart: 1,
-      newCount: count,
-      lines: Array.from({ length: count }, (_, index) => ({
-        kind: 'context' as const,
-        content: content(index),
-        old: index + 1,
-        new: index + 1,
-        noNewline: false,
-        marks: [] as [number, number][],
-      })),
-    },
-  ],
-});
-export const named = (count: number) =>
-  Array.from(
-    { length: count },
-    (_, index) => `src/file${String(index).padStart(3, '0')}.ts`,
+): Diff {
+  return {
+    ...diff,
+    hunks: [
+      {
+        header: `@@ -1,${lineCount} +1,${lineCount} @@`,
+        oldStart: 1,
+        oldCount: lineCount,
+        newStart: 1,
+        newCount: lineCount,
+        lines: Array.from({ length: lineCount }, (_unused, index) => ({
+          kind: 'context',
+          content: content(index),
+          old: index + 1,
+          new: index + 1,
+          noNewline: false,
+          marks: [],
+        })),
+      },
+    ],
+  };
+}
+
+export function named(fileCount: number) {
+  return Array.from(
+    { length: fileCount },
+    (_unused, index) =>
+      `src/file${String(index).padStart(FILE_PAD_WIDTH, '0')}.ts`,
   );
-export const headers = (pane: HTMLElement) =>
-  within(pane).queryAllByRole('button', { name: /file\d{3}\.ts/ });
+}
+
+export function headers(pane: HTMLElement) {
+  return within(pane).queryAllByRole('button', { name: /file\d{3}\.ts/ });
+}
+
+export function scrollerOf(pane: HTMLElement): HTMLElement {
+  return assertElement(pane.lastElementChild);
+}
+
 export function scrollTo(pane: HTMLElement, top: number) {
-  const scroller = pane.lastElementChild as HTMLDivElement;
+  const scroller = scrollerOf(pane);
   act(() => {
     scroller.scrollTop = top;
     fireEvent.scroll(scroller);
   });
 }
-export const blockOf = (pane: HTMLElement, path: RegExp) =>
-  within(pane).getByRole('button', { name: path }).parentElement!
-    .parentElement!;
-export const jobsFor = (path: string) =>
-  workers.jobs.filter((job) => job.path === path).length;
+
+export function blockOf(pane: HTMLElement, path: RegExp): HTMLElement {
+  const button = within(pane).getByRole('button', { name: path });
+  return assertElement(button.parentElement?.parentElement);
+}
+
+export async function findEditorView(): Promise<EditorView> {
+  const host = await screen.findByLabelText('Editor');
+  await waitFor(() => expect(host.querySelector('.cm-editor')).not.toBeNull());
+  const element = host.querySelector<HTMLElement>('.cm-editor');
+  const view = element ? EditorView.findFromDOM(element) : null;
+  if (!view) throw new Error('Missing CodeMirror editor view');
+  return view;
+}
+
+export function jobsFor(path: string) {
+  return workers.jobs.filter((job) => job.path === path).length;
+}

@@ -30,6 +30,10 @@ import {
   type Reply,
   type Request,
 } from '../lib/highlight.worker';
+
+export const VIEWPORT_WIDTH = 800;
+export const VIEWPORT_HEIGHT = 600;
+
 vi.mock('shiki', async (importOriginal) => {
   const shiki = await importOriginal<typeof import('shiki')>();
   let shared: ReturnType<typeof shiki.createHighlighter> | undefined;
@@ -40,57 +44,68 @@ vi.mock('shiki', async (importOriginal) => {
     ) => (shared ??= shiki.createHighlighter(options)),
   };
 });
-const rect = {
-  width: 800,
-  height: 600,
-  top: 0,
-  left: 0,
-  right: 800,
-  bottom: 600,
-  x: 0,
-  y: 0,
-  toJSON: () => ({}),
-};
-const flat = (): DOMRect => rect as DOMRect;
+
+export function domRect(dimensions: {
+  x?: number;
+  y?: number;
+  width: number;
+  height: number;
+}): DOMRect {
+  return new DOMRect(
+    dimensions.x ?? 0,
+    dimensions.y ?? 0,
+    dimensions.width,
+    dimensions.height,
+  );
+}
+
+const defaultRect = domRect({ width: VIEWPORT_WIDTH, height: VIEWPORT_HEIGHT });
+const flat = (): DOMRect => defaultRect;
+
 export const geometry: { rect: (element: Element) => DOMRect } = {
   rect: flat,
 };
+
 Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', {
   value(this: HTMLElement) {
     return geometry.rect(this);
   },
 });
 Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
-  value: () => rect,
+  value: () => defaultRect,
 });
 Object.defineProperty(Range.prototype, 'getClientRects', {
   value: () => [],
 });
 Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
-  get: () => 600,
+  get: () => VIEWPORT_HEIGHT,
 });
-Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { get: () => 800 });
+Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+  get: () => VIEWPORT_WIDTH,
+});
 Object.defineProperty(HTMLElement.prototype, 'scrollTo', { value: vi.fn() });
 Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
   value: vi.fn(),
 });
+
 const capturedPointers = new WeakMap<HTMLElement, number>();
 vi.stubGlobal('PointerEvent', MouseEvent);
 Object.defineProperty(HTMLElement.prototype, 'hasPointerCapture', {
-  value: function (this: HTMLElement, id: number) {
+  value(this: HTMLElement, id: number) {
     return capturedPointers.has(this) && capturedPointers.get(this) === id;
   },
 });
 Object.defineProperty(HTMLElement.prototype, 'setPointerCapture', {
-  value: function (this: HTMLElement, id: number) {
+  value(this: HTMLElement, id: number) {
     capturedPointers.set(this, id);
   },
 });
 Object.defineProperty(HTMLElement.prototype, 'releasePointerCapture', {
-  value: function (this: HTMLElement) {
+  value(this: HTMLElement) {
     capturedPointers.delete(this);
   },
 });
+
 vi.stubGlobal(
   'ResizeObserver',
   class {
@@ -99,12 +114,15 @@ vi.stubGlobal(
     disconnect() {}
   },
 );
+
 type Report = (entries: { isIntersecting: boolean }[]) => void;
 const reports = new Map<Element, Map<string, Report>>();
 export const intersecting = { initially: true };
+
 export function intersect(target: Element, visible: boolean, margin = '400px') {
   reports.get(target)?.get(margin)?.([{ isIntersecting: visible }]);
 }
+
 vi.stubGlobal(
   'IntersectionObserver',
   class {
@@ -135,26 +153,62 @@ vi.stubGlobal(
     }
   },
 );
+
+interface WorkerTracker {
+  created: number;
+  jobs: Job[];
+  cancels: number[];
+  held: boolean;
+  queued: (() => void)[];
+  failing: boolean;
+  live: HighlightWorkerStub | undefined;
+  active: number;
+}
+
+export const workers: WorkerTracker = {
+  created: 0,
+  jobs: [],
+  cancels: [],
+  held: false,
+  queued: [],
+  failing: false,
+  live: undefined,
+  active: 0,
+};
+
+let workerGeneration = 0;
+
 function later(run: () => void) {
+  const generation = workerGeneration;
+  workers.active += 1;
   const channel = new MessageChannel();
   channel.port1.onmessage = () => {
     channel.port1.close();
-    run();
+    if (generation !== workerGeneration) return;
+    try {
+      run();
+    } finally {
+      if (generation === workerGeneration) workers.active -= 1;
+    }
   };
   channel.port2.postMessage(null);
 }
-export const workers = {
-  created: 0,
-  jobs: [] as Job[],
-  cancels: [] as number[],
-  held: false,
-  queued: [] as (() => void)[],
-  failing: false,
-  live: undefined as HighlightWorkerStub | undefined,
-};
-export function release(count = Infinity) {
-  workers.queued.splice(0, count).forEach(later);
+
+export function flushChannel(): Promise<void> {
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {
+      channel.port1.close();
+      resolve();
+    };
+    channel.port2.postMessage(null);
+  });
 }
+
+export function release(limit = Infinity) {
+  workers.queued.splice(0, limit).forEach(later);
+}
+
 class HighlightWorkerStub extends EventTarget {
   private handler = highlightWorker((reply) => this.reply(reply));
   private open = new Set<number>();
@@ -165,13 +219,7 @@ class HighlightWorkerStub extends EventTarget {
     workers.live = this;
   }
   postMessage(message: Request) {
-    if (message.type === 'cancel') {
-      workers.cancels.push(message.id);
-      this.open.delete(message.id);
-    } else {
-      workers.jobs.push(message);
-      this.open.add(message.id);
-    }
+    this.recordRequest(message);
     if (message.type === 'job' && workers.failing) {
       this.reply({ id: message.id, failed: true });
       return;
@@ -180,18 +228,30 @@ class HighlightWorkerStub extends EventTarget {
       if (!this.stopped) this.handler.receive(message);
     });
   }
+  private recordRequest(message: Request) {
+    if (message.type === 'cancel') {
+      workers.cancels.push(message.id);
+      this.open.delete(message.id);
+      return;
+    }
+    workers.jobs.push(message);
+    this.open.add(message.id);
+  }
   private reply(message: Reply) {
     if ('failed' in message || message.done) this.open.delete(message.id);
     const deliver = () => {
       if (!this.stopped)
         this.dispatchEvent(new MessageEvent('message', { data: message }));
     };
-    if (workers.held) workers.queued.push(deliver);
-    else later(deliver);
+    if (workers.held) {
+      workers.queued.push(deliver);
+      return;
+    }
+    later(deliver);
   }
   terminate() {
     this.stopped = true;
-    this.open.forEach((id) => this.handler.receive({ type: 'cancel', id }));
+    this.open.forEach((id) => this.handler.receive({ type: 'cancel', id: id }));
     this.open.clear();
     if (workers.live === this) workers.live = undefined;
   }
@@ -202,13 +262,16 @@ class HighlightWorkerStub extends EventTarget {
     return this.handler.languages();
   }
 }
+
 vi.stubGlobal('Worker', HighlightWorkerStub);
 vi.stubGlobal('matchMedia', () => ({
   matches: false,
   addEventListener: vi.fn(),
   removeEventListener: vi.fn(),
 }));
+
 beforeEach(() => {
+  workerGeneration += 1;
   resetHarness();
   renders.reset();
   Object.assign(workers, {
@@ -218,6 +281,7 @@ beforeEach(() => {
     held: false,
     queued: [],
     failing: false,
+    active: 0,
   });
   reports.clear();
   intersecting.initially = true;
@@ -246,7 +310,9 @@ beforeEach(() => {
   useCommit.setState({ repos: {} });
   useSystemTheme.setState({ dark: false });
 });
+
 afterEach(() => {
+  workerGeneration += 1;
   cleanup();
   geometry.rect = flat;
   terminate();

@@ -35,8 +35,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['src/**/*.{ts,tsx}'],
-    ignores: ['src/tests/**'],
+    files: ['src/**/*.{ts,tsx}', 'e2e/**/*.ts'],
     rules: {
       'id-length': ['error', { min: 2, properties: 'never' }],
       'no-magic-numbers': 'off',

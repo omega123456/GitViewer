@@ -1,4 +1,4 @@
-use super::workflows::{base, command, fixture, record, Recorded};
+use super::support::{base, command, fixture, record, Recorded};
 use gitviewer_lib::{diff::quote, error::Error, fs, git, media};
 use std::path::Path;
 
@@ -89,16 +89,15 @@ fn revision_and_reference_builders() {
 }
 
 #[tokio::test]
-async fn git_plumbing_helpers_report_outcomes() {
-    let (dir, repo) = fixture().await;
-    let root = dir.path();
-    base(&dir, &repo).await;
+async fn git_plumbing_checks_ancestors_refs_and_merge_conflicts() {
+    let (_dir, repo) = fixture().await;
+    let root = &repo.root;
+    base(&repo).await;
     let first = command(root, &["rev-parse", "HEAD"])
         .await
         .trim()
         .to_owned();
     record(
-        &dir,
         &repo,
         Recorded {
             path: "file.txt",
@@ -121,7 +120,6 @@ async fn git_plumbing_helpers_report_outcomes() {
     );
     command(root, &["checkout", "-b", "side", &first]).await;
     record(
-        &dir,
         &repo,
         Recorded {
             path: "file.txt",
@@ -135,6 +133,13 @@ async fn git_plumbing_helpers_report_outcomes() {
         .unwrap()
         .unwrap();
     assert!(conflicts.contains("file.txt"));
+}
+
+#[tokio::test]
+async fn git_plumbing_lists_files_runs_pathspecs_and_checks_patches() {
+    let (_dir, repo) = fixture().await;
+    let root = &repo.root;
+    base(&repo).await;
     assert_eq!(
         git::nul_list(root, &["ls-files", "-z"]).await.unwrap(),
         vec!["file.txt"]

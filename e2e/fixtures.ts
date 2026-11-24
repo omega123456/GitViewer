@@ -1,561 +1,90 @@
-import {
-  getUnixTime,
-  parseISO,
-  subDays,
-  subHours,
-  subMinutes,
-  subWeeks,
-} from 'date-fns';
 import { test as base, expect } from '@playwright/test';
-import {
-  diff,
-  gapped,
-  gappedText,
-  repository,
-  settings,
-  status,
-  update,
-} from '../src/tests/fixtures';
-const frozen = parseISO('2026-09-07T00:00:00Z');
-const stashes = [
-  {
-    hash: 'a'.repeat(40),
-    selector: 'stash@{0}',
-    message: 'WIP on main: parser rewrite',
-    timestamp: getUnixTime(subHours(frozen, 2)),
-  },
-  {
-    hash: 'b'.repeat(40),
-    selector: 'stash@{1}',
-    message: 'Spike: virtual list overscan',
-    timestamp: getUnixTime(subDays(frozen, 3)),
-  },
-  {
-    hash: 'c'.repeat(40),
-    selector: 'stash@{2}',
-    message: 'WIP on main: token cleanup',
-    timestamp: getUnixTime(subWeeks(frozen, 2)),
-  },
-];
+import { FROZEN_TIME } from './scenario-data';
+import { buildMockBundle, type MockBundle } from './scenarios';
+
+type CommandArgs = Record<string, string>;
+
+interface InvokePayload {
+  command: string;
+  args: CommandArgs;
+}
+
+const mockBundle = buildMockBundle();
+
+function installPluginInternals() {
+  Object.defineProperty(window, '__TAURI_EVENT_PLUGIN_INTERNALS__', {
+    value: { unregisterListener: () => {} },
+  });
+  Object.defineProperty(window, '__TAURI_OS_PLUGIN_INTERNALS__', {
+    value: { platform: 'macos' },
+  });
+}
+
+function installTauriInternals(bundle: MockBundle) {
+  const scenarioName =
+    new URLSearchParams(window.location.search).get('scenario') ?? 'default';
+  const active = bundle.scenarios[scenarioName] ?? bundle.scenarios.default;
+  const staticCommands = { ...bundle.staticCommands, ...active.staticCommands };
+  if (active.generatedLineCount > 0) {
+    active.diff.hunks[0].lines = Array.from(
+      Array(active.generatedLineCount).keys(),
+      (index) => ({
+        ...bundle.contextLineTemplate,
+        content: `const row${index} = ${index};`,
+        old: index + 1,
+        new: index + 1,
+      }),
+    );
+  }
+  let callbackId = 0;
+  const dynamicCommands: Record<string, (args: CommandArgs) => unknown> = {
+    repo_open: (args) => active.reposByPath[args.path] ?? active.fallbackRepo,
+    status: (args) => active.statusByRepo[args.repo] ?? active.fallbackStatus,
+    tree: (args) => (args.path ? bundle.treeChildren : bundle.treeRoot),
+    diff: () => active.diff,
+    diff_stack: () => ({
+      files: Object.fromEntries(
+        active.stackPaths.map((path) => [path, active.diff]),
+      ),
+      truncated: false,
+    }),
+    sync: (args) => {
+      if (args.action === 'fetch') return 0;
+      throw bundle.errors.pushRejected;
+    },
+    branch_switch: () => {
+      throw bundle.errors.branchSwitchBlocked;
+    },
+  };
+  Object.defineProperty(window, '__TAURI_INTERNALS__', {
+    value: {
+      metadata: bundle.metadata,
+      transformCallback: () => ++callbackId,
+      unregisterCallback: () => {},
+      convertFileSrc: (path: string, protocol: string) =>
+        `http://${protocol}.localhost/${path}`,
+      invoke: async (name: string, payload: InvokePayload) => {
+        if (name === 'plugin:event|listen') return ++callbackId;
+        if (name in bundle.staticPlugins) return bundle.staticPlugins[name];
+        if (name !== 'execute')
+          throw new Error(`Unmocked e2e invocation: ${name}`);
+        if (payload.command in dynamicCommands)
+          return dynamicCommands[payload.command](payload.args);
+        if (payload.command in staticCommands)
+          return staticCommands[payload.command];
+        throw new Error(`Unmocked e2e command: ${payload.command}`);
+      },
+    },
+  });
+}
+
 export const test = base.extend({
   page: async ({ page }, use) => {
-    await page.addInitScript(
-      ({
-        diff,
-        gapped,
-        gappedText,
-        repository,
-        settings,
-        status,
-        stashes,
-        update,
-      }) => {
-        Object.defineProperty(window, '__TAURI_EVENT_PLUGIN_INTERNALS__', {
-          value: { unregisterListener: () => {} },
-        });
-        Object.defineProperty(window, '__TAURI_OS_PLUGIN_INTERNALS__', {
-          value: { platform: 'macos' },
-        });
-        const scenario = new URLSearchParams(window.location.search).get(
-          'scenario',
-        );
-        const linked = scenario === 'worktrees';
-        const worktree = (
-          id: string,
-          branch: string,
-          extra: Record<string, unknown> = {},
-        ) => ({
-          id,
-          name: id.split('/').at(-1),
-          main: id === repository.id,
-          bare: false,
-          branch,
-          oid: '3f9c2a1b'.padEnd(40, '0'),
-          detached: false,
-          locked: null,
-          prunable: false,
-          missing: false,
-          ...extra,
-        });
-        const worktrees = linked
-          ? [
-              worktree(repository.id, 'main'),
-              worktree('/worktrees/gv-hotfix', 'fix/watcher-gitdir'),
-              worktree('/worktrees/gv-review', 'feature'),
-              worktree('/worktrees/gv-spike', '', { detached: true }),
-              worktree('/worktrees/gv-release', 'release/2.20', {
-                locked: 'on external drive',
-              }),
-              worktree('/worktrees/gv-legacy', 'feature/legacy-sync', {
-                missing: true,
-                prunable: true,
-              }),
-            ]
-          : [worktree(repository.id, 'main')];
-        const projects: Record<string, string> =
-          scenario === 'repositories'
-            ? {
-                '/Users/me/Projects/axopane': 'main',
-                '/Users/me/work/sykes-reservations': 'feature/pets-rules',
-              }
-            : {};
-        const statusOf = (repo: string) =>
-          repo === '/worktrees/gv-hotfix'
-            ? { ...status, branch: 'fix/watcher-gitdir' }
-            : repo === '/Users/me/work/sykes-reservations'
-              ? { ...status, branch: projects[repo] }
-              : repo === repository.id
-                ? status
-                : {
-                    ...status,
-                    branch:
-                      projects[repo] ||
-                      worktrees.find((entry) => entry.id === repo)?.branch ||
-                      '(detached)',
-                    oid: '3f9c2a1b',
-                    entries: [],
-                  };
-        const editorText = [
-          "import { createHighlighter, bundledLanguages } from 'shiki';",
-          'const aliases: Record<string, string> = {',
-          "  ts: 'typescript',",
-          "  rs: 'rust',",
-          '};',
-          'let highlighter: ReturnType<typeof createHighlighter> | undefined;',
-          'export async function highlight(content: string, path: string, dark: boolean) {',
-          "  const extension = path.split('.').pop()?.toLowerCase() ?? '';",
-          "  const theme = dark ? 'github-dark' : 'github-light';",
-          '  const language = aliases[extension] ?? extension;',
-          '  if (!(language in bundledLanguages))',
-          "    return content.split('\\n');",
-          '  highlighter ??= createHighlighter({ themes: [theme], langs: [] });',
-          '  return highlighter;',
-          '}',
-          '',
-        ].join('\n');
-        const editorIndex = editorText
-          .replace("  rs: 'rust',\n", "  rs: 'rust',\n  py: 'python',\n")
-          .replace(', dark: boolean) {', ') {')
-          .replace(
-            "  const theme = dark ? 'github-dark' : 'github-light';\n",
-            '',
-          );
-        if (scenario === 'ai') {
-          settings.keyStored = true;
-          settings.ai = {
-            ...settings.ai,
-            baseUrl: 'https://api.openai.com/v1',
-            model: 'gpt-4o-mini',
-          };
-        }
-        if (scenario === 'compare') status.branch = 'feature';
-        if (scenario === 'context') Object.assign(diff, gapped);
-        if (scenario === 'merge') {
-          status.conflicted = true;
-          status.merging = 'feature';
-          status.entries = [
-            {
-              kind: 'unmerged',
-              path: 'src/app.ts',
-              stage: 'UU',
-              modes: ['100644', '100644', '100644', '100644'],
-              hashes: ['a', 'b', 'c'],
-              index: 'C',
-              worktree: 'C',
-            },
-          ];
-        }
-        if (scenario === 'image') {
-          status.entries = [{ ...status.entries[0], path: 'picture.png' }];
-          diff.path = 'picture.png';
-          diff.image = true;
-          diff.oldDimensions = { width: 320, height: 180 };
-          diff.newDimensions = { width: 320, height: 180 };
-        }
-        if (scenario === 'markdown') {
-          status.entries = [{ ...status.entries[0], path: 'README.md' }];
-          diff.path = 'README.md';
-          diff.hunks[0].lines = [
-            '# GitViewer',
-            '',
-            'A Tauri 2 desktop git client.',
-            '',
-            '## Install',
-            '',
-            '```bash',
-            'pnpm install',
-            '```',
-            '',
-            '## Commands',
-            '',
-            '- `pnpm dev` runs the app',
-            '- `pnpm typecheck` checks the types',
-          ].map((content, index) => ({
-            kind: 'context',
-            content,
-            old: index + 1,
-            new: index + 1,
-            noNewline: false,
-            marks: [],
-          }));
-        }
-        if (scenario === 'long') {
-          diff.hunks[0].lines = diff.hunks[0].lines.map((line, index) => ({
-            ...line,
-            content:
-              index === 1
-                ? `const checksum = "d22053281f852e11534f5198498373cbb59295120a20771d90f7ed1897490a72d22053281f852e11534f5198";`
-                : line.content,
-          }));
-        }
-        if (scenario === 'scale' || scenario === 'stack-scroll') {
-          if (scenario === 'stack-scroll')
-            status.entries = Array.from({ length: 40 }, (_, index) => ({
-              ...status.entries[0],
-              path: index === 0 ? 'src/app.ts' : `src/file${index}.ts`,
-            }));
-          diff.hunks[0].lines = Array.from(
-            { length: scenario === 'stack-scroll' ? 60 : 20000 },
-            (_, index) => ({
-              kind: 'context',
-              content: `const row${index} = ${index};`,
-              old: index + 1,
-              new: index + 1,
-              noNewline: false,
-              marks: [],
-            }),
-          );
-        }
-        let callback = 0;
-        const listeners = new Map<number, (value: unknown) => void>();
-        Object.defineProperty(window, '__TAURI_INTERNALS__', {
-          value: {
-            metadata: {
-              currentWindow: { label: 'main' },
-              currentWebview: { windowLabel: 'main', label: 'main' },
-            },
-            transformCallback: (handler: (value: unknown) => void) => {
-              const id = ++callback;
-              listeners.set(id, handler);
-              return id;
-            },
-            unregisterCallback: (id: number) => listeners.delete(id),
-            convertFileSrc: (path: string, protocol: string) =>
-              `http://${protocol}.localhost/${path}`,
-            invoke: async (
-              name: string,
-              payload: { command: string; args: Record<string, string> },
-            ) => {
-              if (name === 'plugin:dialog|open') return '/fixture';
-              if (name === 'plugin:dialog|message') return 'Ok';
-              if (name === 'plugin:event|listen') return ++callback;
-              if (name === 'plugin:event|unlisten') return null;
-              if (name === 'plugin:window|set_title') return null;
-              if (name === 'execute') {
-                switch (payload.command) {
-                  case 'session_get':
-                    return {
-                      tabs: [
-                        ...Object.keys(projects),
-                        ...(scenario === 'repositories' ? [repository.id] : []),
-                      ].map((path) => ({ path, message: '' })),
-                      active: repository.id,
-                    };
-                  case 'frontend_log':
-                  case 'session_set':
-                  case 'session_close':
-                    return null;
-                  case 'update_get':
-                    return scenario === 'update'
-                      ? {
-                          ...update,
-                          availability: 'enabled',
-                          phase: 'ready',
-                          available: {
-                            version: '0.2.0',
-                            notes:
-                              'Automatic updates and improved repository browsing.',
-                            date: '2026-09-06T00:00:00Z',
-                          },
-                        }
-                      : update;
-                  case 'env':
-                    return {
-                      found: true,
-                      supported: true,
-                      version: '2.50.1',
-                      minimum: '2.38',
-                    };
-                  case 'settings_get':
-                    return settings;
-                  case 'ai_models':
-                    return ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'o4-mini'];
-                  case 'ai_key_set':
-                    return null;
-                  case 'ai_generate':
-                    return {
-                      message: 'Move stash bulk actions onto the group header',
-                      source: 'index',
-                      detail: 'patch',
-                    };
-                  case 'repo_open':
-                    return {
-                      ...repository,
-                      id: payload.args.path,
-                      root: payload.args.path,
-                      ...(payload.args.path in projects && {
-                        project: payload.args.path,
-                      }),
-                      status: statusOf(payload.args.path),
-                    };
-                  case 'status':
-                    return statusOf(payload.args.repo);
-                  case 'worktrees':
-                    return worktrees;
-                  case 'worktree_target':
-                    return {
-                      path: '/Users/me/Projects/fixture-3f9c2a1',
-                      free: true,
-                      label: '3f9c2a1',
-                    };
-                  case 'worktree_summary':
-                    return { ahead: 2, orphans: 0, submodules: false };
-                  case 'worktree_apply':
-                    return {
-                      base: 'b'.repeat(40),
-                      tree: 'c'.repeat(40),
-                      files: 6,
-                      conflicts: 2,
-                    };
-                  case 'files':
-                    return [
-                      'README.md',
-                      'package.json',
-                      'public/logo.png',
-                      'src/app.ts',
-                      'src/index.css',
-                      'src/components/shell/CommandPalette.tsx',
-                      'src-tauri/Cargo.toml',
-                    ];
-                  case 'stashes':
-                    return scenario === 'stash' ? stashes : [];
-                  case 'commit_detail':
-                    return {
-                      hash: 'a'.repeat(40),
-                      author: 'Fixture Author',
-                      timestamp: 1700000000,
-                      subject: 'Merge feature',
-                      body: 'Bring the review work into main.\n\n- Keep the lane colours\n- Show the full message',
-                    };
-                  case 'history':
-                    return {
-                      commits:
-                        scenario === 'history'
-                          ? [
-                              {
-                                hash: 'a'.repeat(40),
-                                parents: ['b'.repeat(40), 'c'.repeat(40)],
-                                author: 'Fixture Author',
-                                timestamp: 1700000000,
-                                subject: 'Merge feature',
-                                refs: 'main',
-                                lane: 0,
-                                color: 0,
-                                entered: false,
-                                segments: [
-                                  { from: 0, to: 0, color: 0 },
-                                  { from: 0, to: 1, color: 1 },
-                                ],
-                              },
-                              {
-                                hash: 'b'.repeat(40),
-                                parents: ['c'.repeat(40)],
-                                author: 'Fixture Author',
-                                timestamp: 1700000000,
-                                subject: 'Review implementation',
-                                refs: 'feature',
-                                lane: 0,
-                                color: 0,
-                                entered: true,
-                                segments: [
-                                  { from: 1, to: 0, color: 1 },
-                                  { from: 0, to: 0, color: 0 },
-                                ],
-                              },
-                              {
-                                hash: 'c'.repeat(40),
-                                parents: [],
-                                author: 'Fixture Author',
-                                timestamp: 1700000000,
-                                subject: 'Initial commit',
-                                refs: '',
-                                lane: 0,
-                                color: 0,
-                                entered: true,
-                                segments: [],
-                              },
-                            ]
-                          : [],
-                      cursor: null,
-                    };
-                  case 'commit_files':
-                    return {
-                      statuses: { 'src/app.ts': 'M' },
-                      lines: { 'src/app.ts': [12, 3] },
-                    };
-                  case 'line_stats':
-                    return {
-                      staged: Object.fromEntries(
-                        status.entries.map((entry) => [
-                          entry.path,
-                          entry.path.endsWith('.png') ? null : [3, 1],
-                        ]),
-                      ),
-                      unstaged: Object.fromEntries(
-                        status.entries.map((entry, index) => [
-                          entry.path,
-                          entry.path.endsWith('.png')
-                            ? null
-                            : index === 0
-                              ? [12, 3]
-                              : [27, 0],
-                        ]),
-                      ),
-                    };
-                  case 'branches':
-                    return [
-                      {
-                        name: 'main',
-                        remote: false,
-                        current: true,
-                        default: true,
-                        upstream: 'origin/main',
-                        gone: false,
-                      },
-                      {
-                        name: 'old-login',
-                        remote: false,
-                        current: false,
-                        default: false,
-                        upstream: 'origin/old-login',
-                        gone: true,
-                      },
-                      {
-                        name: 'feature',
-                        remote: false,
-                        current: false,
-                        default: false,
-                        upstream: '',
-                        gone: false,
-                        ...(linked ? { worktree: '/worktrees/gv-review' } : {}),
-                      },
-                    ];
-                  case 'default_branch':
-                    return 'main';
-                  case 'compare_files':
-                    return {
-                      base: 'b'.repeat(40),
-                      target: 't'.repeat(40),
-                      files: [
-                        {
-                          path: 'src/app.ts',
-                          status: 'M',
-                          additions: 1,
-                          deletions: 1,
-                        },
-                      ],
-                    };
-                  case 'tree':
-                    return payload.args.path
-                      ? [
-                          {
-                            name: 'app.ts',
-                            path: 'src/app.ts',
-                            directory: false,
-                            ignored: false,
-                            status: 'M',
-                          },
-                        ]
-                      : [
-                          {
-                            name: 'src',
-                            path: 'src',
-                            directory: true,
-                            ignored: false,
-                            status: 'M',
-                          },
-                          {
-                            name: '.env.local',
-                            path: '.env.local',
-                            directory: false,
-                            ignored: true,
-                            status: '',
-                          },
-                        ];
-                  case 'diff':
-                    return diff;
-                  case 'file_lines':
-                    return scenario === 'editor' ? editorIndex : gappedText;
-                  case 'file_read':
-                    return {
-                      text: editorText,
-                      version: 'v1',
-                      bom: false,
-                      crlf: false,
-                    };
-                  case 'file_write':
-                    return { saved: 'v2' };
-                  case 'unsaved_set':
-                  case 'quit':
-                    return null;
-                  case 'diff_stack':
-                    return {
-                      files: Object.fromEntries(
-                        [
-                          'src/app.ts',
-                          ...status.entries.map((entry) => entry.path),
-                        ].map((path) => [path, diff]),
-                      ),
-                      truncated: false,
-                    };
-                  case 'refresh':
-                  case 'stash_drop':
-                    return null;
-                  case 'sync':
-                    if (payload.args.action === 'fetch') return 0;
-                    throw {
-                      category: 'refused',
-                      message:
-                        "To github.com:acme/fixture.git\n ! [rejected]        main -> main (fetch first)\nerror: failed to push some refs to 'github.com:acme/fixture.git'\nhint: Updates were rejected because the remote contains work that you do\nhint: not have locally.",
-                    };
-                  case 'branch_switch':
-                    throw {
-                      category: 'refused',
-                      message:
-                        'error: Your local changes to the following files would be overwritten by checkout:\n\tsrc/app.ts\n\tREADME.md\nPlease commit your changes or stash them before you switch branches.\nAborting',
-                    };
-                  default:
-                    throw new Error(`Unmocked e2e command: ${payload.command}`);
-                }
-              }
-              throw new Error(`Unmocked e2e invocation: ${name}`);
-            },
-          },
-        });
-      },
-      {
-        diff,
-        gapped,
-        gappedText,
-        repository,
-        settings: { ...settings, theme: 'system' },
-        status: { ...status, fetched: subMinutes(frozen, 2).toISOString() },
-        stashes,
-        update,
-      },
-    );
-    await page.clock.setFixedTime(frozen);
+    await page.addInitScript(installPluginInternals);
+    await page.addInitScript(installTauriInternals, mockBundle);
+    await page.clock.setFixedTime(FROZEN_TIME);
     await use(page);
   },
 });
+
 export { expect };

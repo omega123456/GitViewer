@@ -70,16 +70,16 @@ async fn missing_git_is_a_value() {
 }
 #[test]
 fn porcelain_handles_all_records_and_odd_paths() {
-    let bytes=b"# branch.oid abc\0# branch.head main\0# branch.upstream origin/main\0# branch.ab +2 -3\x001 MM N... 100644 100644 100644 a b folder/file name.txt\x002 RM N... 100644 100644 100644 a b R100 new\0old\0? new\nfile\0u UU N... 100644 100644 100644 100644 a b c conflict\0";
-    let s = status::parse(bytes).unwrap();
-    assert_eq!(s.branch, "main");
-    assert_eq!(s.divergence.ahead, Some(2));
-    assert_eq!(s.divergence.behind, Some(3));
-    assert_eq!(s.entries[0].path(), "folder/file name.txt");
-    assert_eq!(s.entries[0].index(), "M");
-    assert_eq!(s.entries[1].original_path(), Some("old"));
+    let bytes = b"# branch.oid abc\0# branch.head main\0# branch.upstream origin/main\0# branch.ab +2 -3\x001 MM N... 100644 100644 100644 a b folder/file name.txt\x002 RM N... 100644 100644 100644 a b R100 new\0old\0? new\nfile\0u UU N... 100644 100644 100644 100644 a b c conflict\0";
+    let parsed = status::parse(bytes).unwrap();
+    assert_eq!(parsed.branch, "main");
+    assert_eq!(parsed.divergence.ahead, Some(2));
+    assert_eq!(parsed.divergence.behind, Some(3));
+    assert_eq!(parsed.entries[0].path(), "folder/file name.txt");
+    assert_eq!(parsed.entries[0].index(), "M");
+    assert_eq!(parsed.entries[1].original_path(), Some("old"));
     assert_eq!(
-        s.entries[1],
+        parsed.entries[1],
         status::Entry::Renamed {
             path: "new".into(),
             original_path: "old".into(),
@@ -90,13 +90,13 @@ fn porcelain_handles_all_records_and_odd_paths() {
             index_mode: "100644".into(),
         }
     );
-    assert_eq!(s.entries[2].path(), "new\nfile");
-    assert_eq!(s.entries[2].worktree(), "?");
-    assert!(s.conflicted);
-    assert_eq!(s.entries[3].worktree(), "C");
-    assert_eq!(s.entries[3].original_path(), None);
+    assert_eq!(parsed.entries[2].path(), "new\nfile");
+    assert_eq!(parsed.entries[2].worktree(), "?");
+    assert!(parsed.conflicted);
+    assert_eq!(parsed.entries[3].worktree(), "C");
+    assert_eq!(parsed.entries[3].original_path(), None);
     assert_eq!(
-        s.entries[3],
+        parsed.entries[3],
         status::Entry::Unmerged {
             path: "conflict".into(),
             stage: "UU".into(),
@@ -112,7 +112,7 @@ fn porcelain_handles_all_records_and_odd_paths() {
         }
     );
     assert_eq!(
-        s.entries[0],
+        parsed.entries[0],
         status::Entry::Ordinary {
             path: "folder/file name.txt".into(),
             index: "M".into(),
@@ -121,6 +121,9 @@ fn porcelain_handles_all_records_and_odd_paths() {
             index_mode: "100644".into(),
         }
     );
+}
+#[test]
+fn porcelain_tracks_index_identity_and_rejects_malformed_records() {
     let restaged = status::parse(b"# branch.oid abc\0# branch.head main\x001 MM N... 100644 100644 100644 a feedface folder/file name.txt\x002 RM N... 100644 100644 100644 a b R100 new\0old\0? new\nfile\0u UU N... 100644 100644 100644 100644 a b c conflict\0").unwrap();
     let rechmodded = status::parse(b"# branch.oid abc\0# branch.head main\x001 MM N... 100644 100755 100644 a b folder/file name.txt\x002 RM N... 100644 100644 100644 a b R100 new\0old\0? new\nfile\0u UU N... 100644 100644 100644 100644 a b c conflict\0").unwrap();
     let same = status::parse(b"# branch.oid abc\0# branch.head main\x001 MM N... 100644 100644 100644 a b folder/file name.txt\x002 RM N... 100644 100644 100644 a b R100 new\0old\0? new\nfile\0u UU N... 100644 100644 100644 100644 a b c conflict\0").unwrap();
@@ -143,7 +146,7 @@ fn porcelain_handles_all_records_and_odd_paths() {
 }
 #[test]
 fn diffs_preserve_ranges_words_modes_and_newlines() {
-    let text="diff --git a/a b/a\nold mode 100644\nnew mode 100755\n--- a/a\n+++ b/a\n@@ -1,2 +1,2 @@\n context\n-old text\n\\ No newline at end of file\n+new text\n\\ No newline at end of file\n";
+    let text = "diff --git a/a b/a\nold mode 100644\nnew mode 100755\n--- a/a\n+++ b/a\n@@ -1,2 +1,2 @@\n context\n-old text\n\\ No newline at end of file\n+new text\n\\ No newline at end of file\n";
     let parsed = diff::parse(text, "a", DiffSource::Unstaged).unwrap();
     assert_eq!(parsed.old_mode.as_deref(), Some("100644"));
     assert_eq!(parsed.new_mode.as_deref(), Some("100755"));
@@ -155,6 +158,9 @@ fn diffs_preserve_ranges_words_modes_and_newlines() {
         .unwrap()
         .contains("\\ No newline at end of file"));
     assert!(diff::patch("a\n", &parsed.hunks[0]).is_err());
+}
+#[test]
+fn diffs_reject_malformed_headers_and_detect_binary_and_images() {
     assert!(diff::parse("@@ -x +1 @@\n", "a", DiffSource::Staged).is_err());
     assert!(diff::parse("@@ -1,x +1 @@\n", "a", DiffSource::Staged).is_err());
     assert!(diff::parse("@@ malformed\n", "a", DiffSource::Staged).is_err());
@@ -165,8 +171,8 @@ fn diffs_preserve_ranges_words_modes_and_newlines() {
     );
     assert!(media::is_image("example.PNG"));
     assert!(!media::is_image("example.rs"));
-    let h = diff::parse("@@ -0,0 +1 @@\n+hello\n", "x", DiffSource::Staged).unwrap();
-    assert_eq!(h.hunks[0].new_count, 1);
+    let added = diff::parse("@@ -0,0 +1 @@\n+hello\n", "x", DiffSource::Staged).unwrap();
+    assert_eq!(added.hunks[0].new_count, 1);
 }
 fn pairs(old: &[String], new: &[String]) -> String {
     let removed: String = old.iter().map(|line| format!("-{line}\n")).collect();
@@ -218,13 +224,14 @@ fn word_marks_skip_long_lines_and_stop_at_the_file_budget() {
     assert!(lines[0].marks.is_empty() && lines[3].marks.is_empty());
     assert_eq!(lines[1].marks, vec![[6, 9]]);
     assert_eq!(lines[4].marks, vec![[6, 9]]);
-    let last = vec![[(limit - 1) as u32, limit as u32]];
+    let limit_u32 = u32::try_from(limit).unwrap();
+    let last = vec![[limit_u32 - 1, limit_u32]];
     assert_eq!(lines[2].marks, last);
     assert_eq!(lines[5].marks, last);
-    let side = |fill: &str, n: usize| format!("{n:04} {} {fill}", "w".repeat(limit - 7));
+    let side = |fill: &str, index: usize| format!("{index:04} {} {fill}", "w".repeat(limit - 7));
     let fits = diff::MARK_BUDGET / (2 * limit);
-    let old: Vec<String> = (0..=fits).map(|n| side("a", n)).collect();
-    let new: Vec<String> = (0..=fits).map(|n| side("b", n)).collect();
+    let old: Vec<String> = (0..=fits).map(|index| side("a", index)).collect();
+    let new: Vec<String> = (0..=fits).map(|index| side("b", index)).collect();
     let split = fits / 2;
     let text = format!(
         "{}{}",
@@ -287,7 +294,9 @@ fn word_marks_skip_unrelated_and_mostly_rewritten_lines() {
 #[test]
 fn word_marks_fall_back_to_position_for_large_or_costly_gaps() {
     let numbered = |count: usize, word: &str| -> Vec<String> {
-        (0..count).map(|n| format!("value {n} = {word}")).collect()
+        (0..count)
+            .map(|index| format!("value {index} = {word}"))
+            .collect()
     };
     let marked = |text: &str| -> Vec<bool> {
         diff::parse(text, "a", DiffSource::Commit).unwrap().hunks[0]
@@ -302,7 +311,9 @@ fn word_marks_fall_back_to_position_for_large_or_costly_gaps() {
     assert!(unequal.iter().all(|marked| !marked));
     let body = "z".repeat(diff::MARK_LINE_LIMIT - 40);
     let wide = |order: &str| -> Vec<String> {
-        (0..100).map(|n| format!("{body} {n:03} {order}")).collect()
+        (0..100)
+            .map(|index| format!("{body} {index:03} {order}"))
+            .collect()
     };
     let costly = marked(&pairs(&wide("1 2 3 4 5 6 7 8"), &wide("9 8 7 6 5 4 3 2")));
     assert!(costly.iter().all(|marked| *marked));
@@ -310,10 +321,10 @@ fn word_marks_fall_back_to_position_for_large_or_costly_gaps() {
 #[test]
 fn a_large_modify_heavy_diff_serializes_compactly() {
     let old: Vec<String> = (0..10_000)
-        .map(|n| format!("    let value_{n} = compute(alpha, beta, {n});"))
+        .map(|index| format!("    let value_{index} = compute(alpha, beta, {index});"))
         .collect();
     let new: Vec<String> = (0..10_000)
-        .map(|n| format!("    let value_{n} = compute(alpha, gamma, {n});"))
+        .map(|index| format!("    let value_{index} = compute(alpha, gamma, {index});"))
         .collect();
     let parsed = diff::parse(&pairs(&old, &new), "large.rs", DiffSource::Commit).unwrap();
     let lines = &parsed.hunks[0].lines;
@@ -371,8 +382,8 @@ async fn a_supported_git_is_probed_once_per_run() {
     let dir = tempfile::tempdir().unwrap();
     let trace = dir.path().join("detect-trace.json");
     std::env::set_var("GIT_TRACE2_EVENT", &trace);
-    let first = super::workflows::counted(&trace, detect::environment()).await;
-    let repeated = super::workflows::counted(&trace, async {
+    let first = super::support::counted(&trace, detect::environment()).await;
+    let repeated = super::support::counted(&trace, async {
         detect::environment().await;
         detect::environment().await;
     })
@@ -552,8 +563,8 @@ fn settings_response_reports_key_presence_without_the_key() {
 }
 #[tokio::test]
 async fn ai_material_chooses_its_source_and_budget() {
-    let (dir, handle) = super::workflows::fixture().await;
-    super::workflows::base(&dir, &handle).await;
+    let (dir, handle) = super::support::fixture().await;
+    super::support::base(&handle).await;
     let root = dir.path().to_path_buf();
     assert_eq!(
         ai::material(&root).await.unwrap_err().message,
@@ -564,31 +575,31 @@ async fn ai_material_chooses_its_source_and_budget() {
     assert_eq!(unstaged.source, ai::Source::WorkingTree);
     assert_eq!(unstaged.detail, ai::Detail::Patch);
     assert!(unstaged.text.contains("+four"));
-    super::workflows::command(&root, &["add", "file.txt"]).await;
+    super::support::command(&root, &["add", "file.txt"]).await;
     let staged = ai::material(&root).await.unwrap();
     assert_eq!(staged.source, ai::Source::Index);
     assert_eq!(staged.detail, ai::Detail::Patch);
     let large: String = std::iter::repeat_n("a line of change\n", 12_000).collect();
     assert!(large.chars().count() > ai::DIFF_BUDGET);
     std::fs::write(root.join("file.txt"), &large).unwrap();
-    super::workflows::command(&root, &["add", "file.txt"]).await;
+    super::support::command(&root, &["add", "file.txt"]).await;
     let compacted = ai::material(&root).await.unwrap();
     assert_eq!(compacted.source, ai::Source::Index);
     assert_eq!(compacted.detail, ai::Detail::Compacted);
     assert!(compacted.text.contains("file.txt"));
     assert!(compacted.text.chars().count() <= ai::DIFF_BUDGET);
-    super::workflows::command(&root, &["reset"]).await;
+    super::support::command(&root, &["reset"]).await;
     let unstaged_compacted = ai::material(&root).await.unwrap();
     assert_eq!(unstaged_compacted.source, ai::Source::WorkingTree);
     assert_eq!(unstaged_compacted.detail, ai::Detail::Compacted);
 }
 #[tokio::test]
 async fn ai_material_ignores_repository_diff_configuration() {
-    let (dir, handle) = super::workflows::fixture().await;
-    super::workflows::base(&dir, &handle).await;
+    let (dir, handle) = super::support::fixture().await;
+    super::support::base(&handle).await;
     let root = dir.path().to_path_buf();
-    super::workflows::command(&root, &["config", "diff.noprefix", "true"]).await;
-    super::workflows::command(
+    super::support::command(&root, &["config", "diff.noprefix", "true"]).await;
+    super::support::command(
         &root,
         &["config", "diff.external", "gitviewer-missing-external-diff"],
     )
@@ -694,23 +705,11 @@ fn ai_prompt_states_the_source_and_the_detail() {
 }
 #[test]
 fn lane_assignment_handles_merges_and_termination() {
-    let make = |hash: &str, parents: Vec<&str>| Commit {
-        hash: hash.into(),
-        parents: parents.into_iter().map(String::from).collect(),
-        author: "A".into(),
-        timestamp: 0,
-        subject: hash.into(),
-        refs: String::new(),
-        lane: 0,
-        color: 0,
-        entered: false,
-        segments: Vec::new(),
-    };
     let mut commits = vec![
-        make("merge", vec!["left", "right"]),
-        make("left", vec!["base"]),
-        make("right", vec!["base"]),
-        make("base", vec![]),
+        graph_commit("merge", &["left", "right"]),
+        graph_commit("left", &["base"]),
+        graph_commit("right", &["base"]),
+        graph_commit("base", &[]),
     ];
     let mut active = Vec::new();
     lanes(&mut commits, &mut active);
@@ -722,14 +721,14 @@ fn lane_assignment_handles_merges_and_termination() {
     assert!(commits[2]
         .segments
         .iter()
-        .any(|s| s.from == 1 && s.to == 0 && s.color == 1));
+        .any(|segment| segment.from == 1 && segment.to == 0 && segment.color == 1));
     assert!(active.is_empty());
 }
 
 fn graph_commit(hash: &str, parents: &[&str]) -> Commit {
     Commit {
         hash: hash.into(),
-        parents: parents.iter().map(|p| p.to_string()).collect(),
+        parents: parents.iter().map(|parent| parent.to_string()).collect(),
         author: "A".into(),
         timestamp: 0,
         subject: hash.into(),
@@ -753,7 +752,7 @@ fn lane_assignment_keeps_the_first_parent_in_the_child_column() {
     ];
     let mut active = Vec::new();
     lanes(&mut commits, &mut active);
-    let lane = |hash: &str| commits.iter().find(|c| c.hash == hash).unwrap();
+    let lane = |hash: &str| commits.iter().find(|commit| commit.hash == hash).unwrap();
     for main in ["pr", "m2", "m1", "base"] {
         assert_eq!(lane(main).lane, 0, "{main}");
         assert_eq!(lane(main).color, 0, "{main}");
@@ -763,7 +762,7 @@ fn lane_assignment_keeps_the_first_parent_in_the_child_column() {
     assert!(lane("m2")
         .segments
         .iter()
-        .any(|s| s.from == 2 && s.to == 0 && s.color == 2));
+        .any(|segment| segment.from == 2 && segment.to == 0 && segment.color == 2));
     assert!(!lane("pr").entered);
     assert!(lane("base").entered);
     assert!(active.is_empty());
@@ -771,7 +770,7 @@ fn lane_assignment_keeps_the_first_parent_in_the_child_column() {
 
 #[test]
 fn lane_colours_fall_back_to_the_lane_count_past_eight_lines() {
-    let parents: Vec<String> = (0..9).map(|n| format!("p{n}")).collect();
+    let parents: Vec<String> = (0..9).map(|index| format!("p{index}")).collect();
     let parents: Vec<&str> = parents.iter().map(String::as_str).collect();
     let mut commits = vec![graph_commit("octopus", &parents)];
     let mut active = Vec::new();

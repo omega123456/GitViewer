@@ -1,12 +1,78 @@
 import type {
+  AiSettings,
+  Branch,
   Diff,
   DiffStack,
-  Status,
-  SettingsResponse,
-  AiSettings,
+  Environment,
   GeneratedMessage,
   Repository,
+  SettingsResponse,
+  Status,
+  UpdateSnapshot,
+  Worktree,
 } from '../lib/types';
+
+export const HASH_LENGTH = 40;
+export const COMMIT_HASH = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0';
+export const COMMIT_TIMESTAMP = 1700000000;
+const DEFAULT_ZOOM = 100;
+const DEFAULT_FILE_TAB_LIMIT = 8;
+const DIFF_OLD_SIZE = 10;
+const DIFF_NEW_SIZE = 15;
+const DIFF_HUNK_LINES = 2;
+const DIFF_SECOND_LINE = 2;
+const MARK_WORD_END = 3;
+const FIRST_GAP_LINE = 30;
+const SECOND_GAP_LINE = 50;
+const CONTEXT_LINE_COUNT = 3;
+const GAPPED_HUNK_SPAN = 7;
+const GAPPED_TOTAL_LINES = 100;
+
+export const envMock: Environment = {
+  found: true,
+  supported: true,
+  version: '2.50.1',
+  minimum: '2.38',
+};
+
+export function identity<T>(value: T): T {
+  return value;
+}
+
+export function worktreeFixture(
+  id: string,
+  extra: Partial<Worktree> = {},
+): Worktree {
+  return {
+    id: id,
+    name: id.split('/').at(-1) ?? id,
+    main: false,
+    bare: false,
+    branch: '',
+    oid: COMMIT_HASH,
+    detached: false,
+    locked: null,
+    prunable: false,
+    missing: false,
+    ...extra,
+  };
+}
+
+export function branchFixture(
+  name: string,
+  extra: Partial<Branch> = {},
+): Branch {
+  return {
+    name: name,
+    remote: false,
+    current: false,
+    default: false,
+    upstream: '',
+    gone: false,
+    ...extra,
+  };
+}
+
 export const ai: AiSettings = {
   baseUrl: '',
   model: '',
@@ -16,6 +82,7 @@ export const ai: AiSettings = {
     '- Body (when needed): 1–2 short sentences explaining *why* the change was made or how behavior changed.\n' +
     '- Rules: Describe functional impact and intent, not code mechanics. Do not name specific classes/functions or mention routine test updates.',
 };
+
 export const settings: SettingsResponse = {
   theme: 'light',
   density: 'comfortable',
@@ -24,18 +91,20 @@ export const settings: SettingsResponse = {
   installUpdateOnQuit: true,
   searchIgnoredFiles: false,
   smartCommit: 'ask',
-  zoom: 100,
-  maxFileTabs: 8,
+  zoom: DEFAULT_ZOOM,
+  maxFileTabs: DEFAULT_FILE_TAB_LIMIT,
   pullOnCheckout: false,
   autoFetchInterval: 'off',
-  ai,
+  ai: ai,
   keyStored: false,
 };
+
 export const generated: GeneratedMessage = {
   message: 'Add a generated commit message',
   source: 'index',
   detail: 'patch',
 };
+
 export const status: Status = {
   branch: 'main',
   oid: 'abc123456',
@@ -50,13 +119,15 @@ export const status: Status = {
     { kind: 'untracked', path: 'new.txt', index: '?', worktree: '?' },
   ],
 };
+
 export const repository: Repository = {
   id: '/fixture',
   name: 'fixture',
   root: '/fixture',
   project: '/fixture',
-  status,
+  status: status,
 };
+
 export const diff: Diff = {
   path: 'src/app.ts',
   source: 'unstaged',
@@ -65,8 +136,8 @@ export const diff: Diff = {
   binary: false,
   tooLarge: false,
   image: false,
-  oldSize: 10,
-  newSize: 15,
+  oldSize: DIFF_OLD_SIZE,
+  newSize: DIFF_NEW_SIZE,
   oldDimensions: null,
   newDimensions: null,
   content: null,
@@ -76,9 +147,9 @@ export const diff: Diff = {
     {
       header: '@@ -1,2 +1,2 @@',
       oldStart: 1,
-      oldCount: 2,
+      oldCount: DIFF_HUNK_LINES,
       newStart: 1,
-      newCount: 2,
+      newCount: DIFF_HUNK_LINES,
       lines: [
         {
           kind: 'context',
@@ -91,29 +162,30 @@ export const diff: Diff = {
         {
           kind: 'remove',
           content: 'old value',
-          old: 2,
+          old: DIFF_SECOND_LINE,
           new: null,
           noNewline: false,
-          marks: [[0, 3]],
+          marks: [[0, MARK_WORD_END]],
         },
         {
           kind: 'add',
           content: 'new value',
           old: null,
-          new: 2,
+          new: DIFF_SECOND_LINE,
           noNewline: true,
-          marks: [[0, 3]],
+          marks: [[0, MARK_WORD_END]],
         },
       ],
     },
   ],
 };
+
 export const stack: DiffStack = {
   files: { 'src/app.ts': diff, 'new.txt': diff },
   truncated: false,
 };
 
-export const update: import('../lib/types').UpdateSnapshot = {
+export const update: UpdateSnapshot = {
   currentVersion: '0.1.0',
   availability: 'development',
   available: null,
@@ -124,10 +196,18 @@ export const update: import('../lib/types').UpdateSnapshot = {
   error: null,
   canQuitWithoutUpdating: false,
 };
-const numbered = (number: number) =>
-  number === 30 || number === 50 ? `changed ${number}` : `line ${number}`;
-const context = (from: number, count: number) =>
-  Array.from({ length: count }, (_, index) => ({
+
+function numbered(lineNumber: number) {
+  const isChanged =
+    lineNumber === FIRST_GAP_LINE || lineNumber === SECOND_GAP_LINE;
+  return isChanged ? `changed ${lineNumber}` : `line ${lineNumber}`;
+}
+
+function contextLines(
+  from: number,
+  lineCount: number,
+): Diff['hunks'][number]['lines'] {
+  return Array.from({ length: lineCount }, (_unused, index) => ({
     kind: 'context',
     content: numbered(from + index),
     old: from + index,
@@ -135,17 +215,19 @@ const context = (from: number, count: number) =>
     noNewline: false,
     marks: [],
   }));
+}
+
 export const gapped: Diff = {
   ...diff,
   patches: ['patch', 'patch'],
-  hunks: [30, 50].map((changed) => ({
-    header: `@@ -${changed - 3},7 +${changed - 3},7 @@`,
-    oldStart: changed - 3,
-    oldCount: 7,
-    newStart: changed - 3,
-    newCount: 7,
+  hunks: [FIRST_GAP_LINE, SECOND_GAP_LINE].map((changed) => ({
+    header: `@@ -${changed - CONTEXT_LINE_COUNT},${GAPPED_HUNK_SPAN} +${changed - CONTEXT_LINE_COUNT},${GAPPED_HUNK_SPAN} @@`,
+    oldStart: changed - CONTEXT_LINE_COUNT,
+    oldCount: GAPPED_HUNK_SPAN,
+    newStart: changed - CONTEXT_LINE_COUNT,
+    newCount: GAPPED_HUNK_SPAN,
     lines: [
-      ...context(changed - 3, 3),
+      ...contextLines(changed - CONTEXT_LINE_COUNT, CONTEXT_LINE_COUNT),
       {
         kind: 'remove',
         content: `line ${changed}`,
@@ -162,10 +244,12 @@ export const gapped: Diff = {
         noNewline: false,
         marks: [],
       },
-      ...context(changed + 1, 3),
+      ...contextLines(changed + 1, CONTEXT_LINE_COUNT),
     ],
   })),
 };
+
 export const gappedText =
-  Array.from({ length: 100 }, (_, index) => numbered(index + 1)).join('\n') +
-  '\n';
+  Array.from({ length: GAPPED_TOTAL_LINES }, (_unused, index) =>
+    numbered(index + 1),
+  ).join('\n') + '\n';

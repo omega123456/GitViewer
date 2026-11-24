@@ -28,10 +28,22 @@ import { createNoticeStore, nextNotice } from '../stores/notices';
 import { repoStateUpdater, type RepoStates } from '../stores/repo-state';
 import { countChanges } from '../components/diff/useDiffFile';
 import { rowLines } from '../components/sidebar/TreeRow';
-import type { Branch, Diff, Lines } from '../lib/types';
+import type { Diff, Lines } from '../lib/types';
 import type { Node } from '../components/sidebar/nodes';
 import { calls, dialog, mockCommand } from './harness';
-import { diff, settings } from './fixtures';
+import { branchFixture, diff, settings } from './fixtures';
+
+const TWO_ITEMS = 2;
+const THREE_ITEMS = 3;
+const FOUR_ITEMS = 4;
+const FIVE_MINUTES = 5;
+const TWO_DAYS = 2;
+const LAST_INDEX = 2;
+const TAB_COUNT = 3;
+const ZOOMED_PERCENT = 125;
+const FILE_ADDED_LINES = 3;
+const FOLDER_ADDED_LINES = 5;
+const FOLDER_REMOVED_LINES = 2;
 
 afterEach(() => {
   vi.useRealTimers();
@@ -40,11 +52,15 @@ afterEach(() => {
 describe('text helpers', () => {
   it('pluralises counts and truncates long lists', () => {
     expect(plural(1, 'file')).toBe('1 file');
-    expect(plural(2, 'file')).toBe('2 files');
-    expect(plural(2, 'branch', 'branches')).toBe('2 branches');
+    expect(plural(TWO_ITEMS, 'file')).toBe('2 files');
+    expect(plural(TWO_ITEMS, 'branch', 'branches')).toBe('2 branches');
     expect(pluralWord(1, 'is', 'are')).toBe('is');
-    expect(pluralWord(3, 'is', 'are')).toBe('are');
-    const layout = { limit: 2, separator: ', ', overflowSeparator: ' ' };
+    expect(pluralWord(THREE_ITEMS, 'is', 'are')).toBe('are');
+    const layout = {
+      limit: TWO_ITEMS,
+      separator: ', ',
+      overflowSeparator: ' ',
+    };
     expect(truncateList(['a', 'b'], layout)).toBe('a, b');
     expect(truncateList(['a', 'b', 'c', 'd'], layout)).toBe('a, b and 2 more');
   });
@@ -52,20 +68,26 @@ describe('text helpers', () => {
 
 describe('index and record helpers', () => {
   it('wraps indexes in both directions', () => {
-    expect(wrapIndex(-1, 3)).toBe(2);
-    expect(wrapIndex(3, 3)).toBe(0);
-    expect(stepIndex(2, 1, 3)).toBe(0);
-    expect(stepIndex(0, -1, 3)).toBe(2);
+    expect(wrapIndex(-1, THREE_ITEMS)).toBe(LAST_INDEX);
+    expect(wrapIndex(THREE_ITEMS, THREE_ITEMS)).toBe(0);
+    expect(stepIndex(LAST_INDEX, 1, THREE_ITEMS)).toBe(0);
+    expect(stepIndex(0, -1, THREE_ITEMS)).toBe(LAST_INDEX);
   });
   it('adds and removes record entries without mutating', () => {
-    const record = { one: 1, two: 2, three: 3 };
-    expect(withEntry(record, 'four', 4)).toEqual({ ...record, four: 4 });
-    expect(without(record, 'one')).toEqual({ two: 2, three: 3 });
-    expect(withoutAll(record, ['one', 'two'])).toEqual({ three: 3 });
+    const record = { one: 1, two: TWO_ITEMS, three: THREE_ITEMS };
+    expect(withEntry(record, 'four', FOUR_ITEMS)).toEqual({
+      ...record,
+      four: FOUR_ITEMS,
+    });
+    expect(without(record, 'one')).toEqual({
+      two: TWO_ITEMS,
+      three: THREE_ITEMS,
+    });
+    expect(withoutAll(record, ['one', 'two'])).toEqual({ three: THREE_ITEMS });
     expect(withoutWhere(record, (key) => key.startsWith('t'))).toEqual({
       one: 1,
     });
-    expect(record).toEqual({ one: 1, two: 2, three: 3 });
+    expect(record).toEqual({ one: 1, two: TWO_ITEMS, three: THREE_ITEMS });
   });
 });
 
@@ -74,8 +96,10 @@ describe('time and interval helpers', () => {
     vi.useFakeTimers();
     const now = new Date('2026-11-23T12:00:00Z');
     vi.setSystemTime(now);
-    expect(relativeTime(getUnixTime(subMinutes(now, 5)))).toBe('5 minutes ago');
-    expect(elapsedTime(getUnixTime(subDays(now, 2)))).toBe('2 days');
+    expect(relativeTime(getUnixTime(subMinutes(now, FIVE_MINUTES)))).toBe(
+      '5 minutes ago',
+    );
+    expect(elapsedTime(getUnixTime(subDays(now, TWO_DAYS)))).toBe('2 days');
   });
   it('labels every interval choice', () => {
     expect(intervalLabels(fetchIntervals)).toMatchObject({
@@ -115,25 +139,16 @@ describe('create flow', () => {
       finish: finish,
       switchTo: switchTo,
     });
-    expect(finish).toHaveBeenCalledTimes(2);
+    expect(finish).toHaveBeenCalledTimes(TWO_ITEMS);
   });
 });
 
 describe('branch form helpers', () => {
-  const branch = (name: string, extra: Partial<Branch> = {}): Branch => ({
-    name: name,
-    remote: false,
-    current: false,
-    default: false,
-    upstream: '',
-    gone: false,
-    ...extra,
-  });
   it('derives refs, groups and badges for attached and detached heads', () => {
     const refs = branchRefs([
-      branch('main', { current: true }),
-      branch('feature'),
-      branch('origin/main', { remote: true }),
+      branchFixture('main', { current: true }),
+      branchFixture('feature'),
+      branchFixture('origin/main', { remote: true }),
     ]);
     expect(refs).toEqual({
       head: 'main',
@@ -145,7 +160,7 @@ describe('branch form helpers', () => {
       { label: 'Remote', options: ['origin/main'] },
     ]);
     expect(baseBadges(refs.head)).toEqual({ main: 'current' });
-    const detached = branchRefs([branch('feature')]);
+    const detached = branchRefs([branchFixture('feature')]);
     expect(baseGroups(detached)).toEqual([
       { label: 'Local', options: ['HEAD', 'feature'] },
     ]);
@@ -194,10 +209,12 @@ describe('key tables', () => {
   });
   it('steps tab selection with wrap-around and jumps to either end', () => {
     const selected: number[] = [];
-    const handlers = tabKeyHandlers(2, 3, (index) => selected.push(index));
+    const handlers = tabKeyHandlers(LAST_INDEX, TAB_COUNT, (index) =>
+      selected.push(index),
+    );
     for (const key of ['ArrowRight', 'ArrowLeft', 'Home', 'End'])
       handleKeyByTable(press(key), handlers);
-    expect(selected).toEqual([0, 1, 0, 2]);
+    expect(selected).toEqual([0, 1, 0, LAST_INDEX]);
   });
   it('hints at another palette mode only when its shortcut exists', () => {
     const none = { ignored: true, openKey: undefined, fileKey: undefined };
@@ -221,10 +238,10 @@ describe('shared IPC and dialog wrappers', () => {
   });
   it('saves settings with a patch applied', async () => {
     mockCommand('settings_set', (next) => next);
-    await saveSettings(settings, { zoom: 125 });
+    await saveSettings(settings, { zoom: ZOOMED_PERCENT });
     expect(calls.at(-1)).toEqual({
       command: 'settings_set',
-      args: { ...settings, zoom: 125 },
+      args: { ...settings, zoom: ZOOMED_PERCENT },
     });
   });
 });
@@ -248,7 +265,7 @@ describe('store factories', () => {
     }));
     store.getState().add('repo', 'first');
     store.getState().add('repo', 'second');
-    expect(store.getState().count('repo')).toBe(2);
+    expect(store.getState().count('repo')).toBe(TWO_ITEMS);
     expect(store.getState().count('other')).toBe(0);
     const first = store.getState().scopes.repo[0];
     store.getState().dismiss('repo', first.id);
@@ -281,8 +298,10 @@ describe('diff and tree helpers', () => {
     });
   });
   it('picks the line count shown on a tree row', () => {
-    const lines: Record<string, Lines> = { 'src/a.ts': [3, 1] };
-    const folders: Record<string, Lines> = { src: [5, 2] };
+    const lines: Record<string, Lines> = { 'src/a.ts': [FILE_ADDED_LINES, 1] };
+    const folders: Record<string, Lines> = {
+      src: [FOLDER_ADDED_LINES, FOLDER_REMOVED_LINES],
+    };
     const file: Node = {
       path: 'src/a.ts',
       name: 'a.ts',
@@ -302,10 +321,10 @@ describe('diff and tree helpers', () => {
         folders: folders,
         lines: lines,
       }),
-    ).toEqual([3, 1]);
+    ).toEqual([FILE_ADDED_LINES, 1]);
     expect(
       rowLines({ id: 'src', node: folder, expanded: false, folders: folders }),
-    ).toEqual([5, 2]);
+    ).toEqual([FOLDER_ADDED_LINES, FOLDER_REMOVED_LINES]);
     expect(
       rowLines({ id: 'src', node: folder, expanded: true, folders: folders }),
     ).toBeUndefined();

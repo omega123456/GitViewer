@@ -11,21 +11,28 @@ import { QueryProvider } from '../providers/QueryProvider';
 import { UpdatesSection } from '../components/settings/UpdatesSection';
 import { updateStatus } from '../lib/updates';
 import { UpdateBanner } from '../components/states/UpdateBanner';
-import { update, settings } from './fixtures';
-import { calls, emit, mockCommand } from './harness';
 import type { UpdateSnapshot } from '../lib/types';
+import { settings, update } from './fixtures';
+import { calls, count, emit, mockCommand } from './harness';
+
+const BOTH_SURFACES = 2;
+const DOWNLOADED_BYTES = 2;
+const TOTAL_BYTES = 4;
+
+const release = {
+  version: '0.2.0',
+  notes: 'Better updates',
+  date: '2026-09-08T00:00:00Z',
+};
 
 const available: UpdateSnapshot = {
   ...update,
   availability: 'enabled',
   phase: 'ready',
   lastChecked: '2026-09-09T00:00:00Z',
-  available: {
-    version: '0.2.0',
-    notes: 'Better updates',
-    date: '2026-09-08T00:00:00Z',
-  },
+  available: release,
 };
+
 function show(state: UpdateSnapshot = available) {
   mockCommand('update_get', () => state);
   return render(
@@ -35,6 +42,7 @@ function show(state: UpdateSnapshot = available) {
     </QueryProvider>,
   );
 }
+
 it('shows build availability and every operation status honestly', () => {
   expect(updateStatus(update)).toContain('development');
   expect(updateStatus({ ...update, availability: 'unconfigured' })).toBe(
@@ -57,6 +65,7 @@ it('shows build availability and every operation status honestly', () => {
     'Offline',
   );
 });
+
 it('checks manually and saves both update preferences through IPC', async () => {
   mockCommand('update_check', () => available);
   mockCommand('settings_set', (args) => args);
@@ -79,6 +88,7 @@ it('checks manually and saves both update preferences through IPC', async () => 
   });
   expect(calls).toContainEqual({ command: 'update_check', args: {} });
 });
+
 it('dismisses a version only in the banner and shows a newer version via events', async () => {
   show();
   await screen.findByRole('complementary');
@@ -87,12 +97,15 @@ it('dismisses a version only in the banner and shows a newer version via events'
   expect(screen.getByText('GitViewer 0.2.0 is available')).toBeVisible();
   mockCommand('update_get', () => ({
     ...available,
-    available: { ...available.available!, version: '0.3.0' },
+    available: { ...release, version: '0.3.0' },
   }));
   await act(async () => emit('update://changed', null));
   await screen.findByRole('complementary');
-  expect(screen.getAllByText('GitViewer 0.3.0 is available')).toHaveLength(2);
+  expect(screen.getAllByText('GitViewer 0.3.0 is available')).toHaveLength(
+    BOTH_SURFACES,
+  );
 });
+
 it('installs from either surface and offers recovery after installation failure', async () => {
   mockCommand('update_install', () => available);
   mockCommand('update_quit', () => available);
@@ -111,21 +124,21 @@ it('installs from either surface and offers recovery after installation failure'
     name: 'Quit without updating',
   }))
     fireEvent.click(button);
-  await waitFor(() =>
-    expect(
-      calls.filter((call) => call.command === 'update_install'),
-    ).toHaveLength(2),
-  );
-  expect(calls.filter((call) => call.command === 'update_quit')).toHaveLength(
-    2,
-  );
+  await waitFor(() => expect(count('update_install')).toBe(BOTH_SURFACES));
+  expect(count('update_quit')).toBe(BOTH_SURFACES);
   fireEvent.click(screen.getByLabelText('Dismiss update'));
   expect(screen.getByRole('complementary')).toBeVisible();
 });
+
 it('disables conflicting operations while downloading and supports unknown totals', async () => {
-  show({ ...available, phase: 'downloading', downloaded: 2, total: 4 });
+  show({
+    ...available,
+    phase: 'downloading',
+    downloaded: DOWNLOADED_BYTES,
+    total: TOTAL_BYTES,
+  });
   const progress = await screen.findByRole('progressbar');
-  expect(progress).toHaveAttribute('value', '2');
+  expect(progress).toHaveAttribute('value', String(DOWNLOADED_BYTES));
   expect(screen.getByRole('button', { name: 'Check now' })).toBeDisabled();
   expect(
     screen
@@ -140,6 +153,7 @@ it('disables conflicting operations while downloading and supports unknown total
   await act(async () => emit('update://changed', null));
   await waitFor(() => expect(progress).not.toHaveAttribute('value'));
 });
+
 it('handles loading, missing configuration, and IPC errors', async () => {
   mockCommand('update_get', () => {
     throw new Error('Unavailable');
