@@ -23,7 +23,6 @@ import { revealInSidebar } from '../sidebar/reveal';
 import { handleKeyByTable, tabKeyHandlers } from '../../lib/keyboard';
 import { shortHash } from '../../lib/git';
 import { useOpenFile } from '../../lib/open-file';
-import { useFileTabLimit } from '../../lib/settings';
 function tabSuffix(tab: FileTab, names: string[], index: number) {
   const duplicate = names.filter((name) => name === names[index]).length > 1;
   if (!duplicate) return '';
@@ -163,7 +162,6 @@ function FileTabCell({
   const { path, editing } = tab.selection;
   const name = fileName(path);
   const unsaved = useDirty({ repo: repo, path: path }) && Boolean(editing);
-  const tabLimit = useFileTabLimit();
   const close = () =>
     void useSelection.getState().closeTab(repo, mode, tabKey(tab.selection));
   const middle = middleClickHandlers(close);
@@ -171,7 +169,7 @@ function FileTabCell({
     <FileMenu
       repo={repo}
       path={path}
-      reveal={() => revealInSidebar(repo, tab.selection, tabLimit)}
+      reveal={() => revealInSidebar(repo, tab.selection)}
     >
       <div
         className={`group relative flex min-w-30 max-w-52 shrink-0 items-center rounded-t pr-1 text-sm first:rounded-tl-none first:border-l-transparent ${active ? activeTabClass : inactiveTabClass}`}
@@ -184,9 +182,7 @@ function FileTabCell({
           title={path}
           {...middle}
           className="min-w-0 flex-1 justify-start gap-1.5 self-stretch rounded-tl pl-2.75"
-          onClick={() =>
-            useSelection.getState().select(repo, tab.selection, tabLimit)
-          }
+          onClick={() => useSelection.getState().select(repo, tab.selection)}
         >
           <span className="truncate">{name}</span>
           {suffix && (

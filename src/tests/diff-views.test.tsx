@@ -9,7 +9,6 @@ import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
 import { useSelection, selectionOf } from '../stores/selection';
 import { useDiffView } from '../stores/diff-view';
-import { DEFAULT_MAX_FILE_TABS } from '../lib/settings';
 import { mockCommand } from './harness';
 import { workers } from './setup';
 import { repository } from './fixtures';
@@ -62,11 +61,7 @@ it('shows the new Markdown version as prose, drops the toolbar, and strips scrip
   );
   useSelection
     .getState()
-    .select(
-      repository.id,
-      { path: 'README.md', source: 'unstaged' },
-      DEFAULT_MAX_FILE_TABS,
-    );
+    .select(repository.id, { path: 'README.md', source: 'unstaged' });
   mountApp();
   expect(await screen.findByRole('tab', { name: 'split' })).toBeVisible();
   await runAction('rendered');
@@ -94,11 +89,7 @@ it('renders the last version of a deleted Markdown file behind a notice', async 
   );
   useSelection
     .getState()
-    .select(
-      repository.id,
-      { path: 'README.md', source: 'unstaged' },
-      DEFAULT_MAX_FILE_TABS,
-    );
+    .select(repository.id, { path: 'README.md', source: 'unstaged' });
   mountApp();
   expect(await screen.findByRole('button', { name: /Rendered/ })).toBeVisible();
   await runAction('rendered');
@@ -111,11 +102,7 @@ it('offers Rendered only for Markdown and keeps it exclusive with blame', async 
   mockCommand('blame', () => blameLines);
   useSelection
     .getState()
-    .select(
-      repository.id,
-      { path: 'src/app.ts', source: 'unstaged' },
-      DEFAULT_MAX_FILE_TABS,
-    );
+    .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
   mountApp();
   expect(await screen.findByRole('button', { name: /Blame/ })).toBeVisible();
   expect(screen.queryByRole('button', { name: /Rendered/ })).toBeNull();
@@ -123,11 +110,11 @@ it('offers Rendered only for Markdown and keeps it exclusive with blame', async 
   await act(async () => {
     useSelection
       .getState()
-      .select(
-        repository.id,
-        { path: 'README.md', source: 'unstaged', blame: true },
-        DEFAULT_MAX_FILE_TABS,
-      );
+      .select(repository.id, {
+        path: 'README.md',
+        source: 'unstaged',
+        blame: true,
+      });
   });
   await runAction('rendered');
   const selected = selectionOf(repository.id, 'working');
@@ -144,11 +131,7 @@ it('opens find with the shortcut, cycles matches with wrap-around, and closes wi
   mockCommand('diff', needleDiff);
   useSelection
     .getState()
-    .select(
-      repository.id,
-      { path: 'src/app.ts', source: 'unstaged' },
-      DEFAULT_MAX_FILE_TABS,
-    );
+    .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
   const user = userEvent.setup();
   mountApp();
   const surface = await screen.findByRole('region', { name: 'Diff content' });

@@ -1,8 +1,9 @@
-import { attempt, client, freshStatus, perform, queryKey } from './query';
+import { attempt, freshStatus, perform } from './query';
+import { cachedSettings } from './settings';
 import { pull } from './pull';
 import { normalizeError } from './ipc';
 import { overwrittenPaths } from './failure';
-import type { GitError, SettingsResponse } from './types';
+import type { GitError } from './types';
 import { ask } from '../stores/decision';
 import { useErrors } from '../stores/errors';
 
@@ -56,10 +57,7 @@ async function switchBranch(target: CheckoutTarget) {
   }
 }
 async function pullOnCheckout(repo: string) {
-  const settings = client.getQueryData<SettingsResponse>(
-    queryKey('settings_get', {}),
-  );
-  if (!settings?.pullOnCheckout) return;
+  if (!cachedSettings()?.pullOnCheckout) return;
   const status = await freshStatus(repo);
   if (status.upstream) await pull(repo);
 }

@@ -18,12 +18,8 @@ export function revisionTree({
 }: Pick<Selection, 'source' | 'base' | 'revision'>) {
   return `${source}:${base ?? ''}:${revision ?? ''}`;
 }
-export function revealInSidebar(
-  repo: string,
-  selection: Selection,
-  limit: number,
-) {
-  useSelection.getState().select(repo, selection, limit);
+export function revealInSidebar(repo: string, selection: Selection) {
+  useSelection.getState().select(repo, selection);
   const working = ['staged', 'unstaged', 'file'].includes(selection.source);
   const tree = working ? 'files' : revisionTree(selection);
   if (working) {

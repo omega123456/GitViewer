@@ -5,7 +5,6 @@ import { expect, it } from 'vitest';
 import { useLayout } from '../stores/layout';
 import { useSelection, selectionOf, allChangesOf } from '../stores/selection';
 import { initials } from '../components/shared/Avatar';
-import { DEFAULT_MAX_FILE_TABS } from '../lib/settings';
 import { shortHash } from '../lib/git';
 import { mockCommand } from './harness';
 import { HASH_LENGTH, repository } from './fixtures';
@@ -22,11 +21,7 @@ async function openSelectedFileHistory() {
   setup();
   useSelection
     .getState()
-    .select(
-      repository.id,
-      { path: 'src/app.ts', source: 'unstaged' },
-      DEFAULT_MAX_FILE_TABS,
-    );
+    .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
   const user = userEvent.setup();
   mountApp();
   await screen.findByTitle('Stage hunk');

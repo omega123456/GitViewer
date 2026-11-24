@@ -32,7 +32,6 @@ import type {
   SettingsResponse,
   Status,
 } from '../../lib/types';
-import { useFileTabLimit } from '../../lib/settings';
 import {
   changedFiles,
   hasWorktreeChange,
@@ -93,7 +92,6 @@ function toggledHistory(mode: SidebarMode): SidebarMode {
 function useRepositoryOperations(context: RepositoryActionContext) {
   const { repo, status, mode, selection, disabled, plan } = context;
   const openFile = useOpenFile(repo);
-  const limit = useFileTabLimit();
   const generating = isGenerating(useGeneration(repo));
   const fileTabs = useFileTabs(repo, mode);
   const entries = status?.entries ?? [];
@@ -135,7 +133,6 @@ function useRepositoryOperations(context: RepositoryActionContext) {
       useSelection.getState().cycleTab(repo, {
         mode: mode,
         direction: direction,
-        limit: limit,
       }),
     commit: (commitMode: CommitMode) =>
       routeCommit({ repo: repo, mode: commitMode, plan: plan }),

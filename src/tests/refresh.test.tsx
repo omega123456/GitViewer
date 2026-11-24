@@ -13,7 +13,6 @@ import { useTabs } from '../stores/tabs';
 import { useLayout } from '../stores/layout';
 import { useSelection } from '../stores/selection';
 import { client } from '../lib/query';
-import { DEFAULT_MAX_FILE_TABS } from '../lib/settings';
 import type { Status } from '../lib/types';
 import {
   callsFor,
@@ -162,11 +161,7 @@ it('keeps a hidden tab to its badge status and catches up when shown', async () 
   useTabs.getState().open('/second', 'Second');
   useSelection
     .getState()
-    .select(
-      '/second',
-      { path: 'src/app.ts', source: 'unstaged' },
-      DEFAULT_MAX_FILE_TABS,
-    );
+    .select('/second', { path: 'src/app.ts', source: 'unstaged' });
   mountApp();
   await waitFor(() => expect(repoCalls('/second')).toContain('diff'));
   await runAction('previous-tab', '/second');
@@ -269,11 +264,7 @@ it('returns to a hidden editor with its text, history, scroll and focus', async 
   useTabs.getState().activate(repository.id);
   useSelection
     .getState()
-    .select(
-      repository.id,
-      { path: 'src/app.ts', source: 'unstaged' },
-      DEFAULT_MAX_FILE_TABS,
-    );
+    .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
   const user = userEvent.setup();
   mountApp();
   await user.click(await screen.findByRole('button', { name: 'Edit' }));

@@ -13,7 +13,6 @@ import { AllChangesPane } from '../components/diff/AllChangesPane';
 import { closeRepository } from '../lib/repository';
 import { allChangesOf, selectionOf, useSelection } from '../stores/selection';
 import { useTabs } from '../stores/tabs';
-import { DEFAULT_MAX_FILE_TABS } from '../lib/settings';
 import { calls, count, dialog, emit, mockCommand } from './harness';
 import { repository, settings, status } from './fixtures';
 import { findEditorView } from './workbench';
@@ -42,19 +41,13 @@ it('keeps unsaved edits across tabs and asks only when leaving edit mode', async
   await act(async () => {
     useSelection
       .getState()
-      .select(
-        repository.id,
-        { path: 'new.txt', source: 'file' },
-        DEFAULT_MAX_FILE_TABS,
-      );
+      .select(repository.id, { path: 'new.txt', source: 'file' });
     useSelection.getState().viewAll(repository.id, 'unstaged');
   });
   expect(dialog.asked).toBe(0);
   expect(editorBuffer()?.dirty).toBe(true);
   await act(async () => {
-    useSelection
-      .getState()
-      .select(repository.id, { ...EDITOR_SELECTION }, DEFAULT_MAX_FILE_TABS);
+    useSelection.getState().select(repository.id, { ...EDITOR_SELECTION });
   });
   expect(selectionOf(repository.id, 'working')?.editing).toBe(true);
   expect((await findEditorView()).state.doc.toString()).toBe(
@@ -64,11 +57,7 @@ it('keeps unsaved edits across tabs and asks only when leaving edit mode', async
   await act(async () => {
     useSelection
       .getState()
-      .select(
-        repository.id,
-        { ...EDITOR_SELECTION, editing: false },
-        DEFAULT_MAX_FILE_TABS,
-      );
+      .select(repository.id, { ...EDITOR_SELECTION, editing: false });
   });
   expect(dialog.asked).toBe(1);
   expect(selectionOf(repository.id, 'working')?.editing).toBe(true);
@@ -76,11 +65,7 @@ it('keeps unsaved edits across tabs and asks only when leaving edit mode', async
   await act(async () => {
     useSelection
       .getState()
-      .select(
-        repository.id,
-        { ...EDITOR_SELECTION, editing: false },
-        DEFAULT_MAX_FILE_TABS,
-      );
+      .select(repository.id, { ...EDITOR_SELECTION, editing: false });
   });
   await waitFor(() =>
     expect(selectionOf(repository.id, 'working')?.editing).toBe(false),
@@ -177,11 +162,11 @@ it('keeps a buffer while another tab still edits the same file', async () => {
   await act(async () => {
     useSelection
       .getState()
-      .select(
-        repository.id,
-        { path: 'src/app.ts', source: 'staged', editing: true },
-        DEFAULT_MAX_FILE_TABS,
-      );
+      .select(repository.id, {
+        path: 'src/app.ts',
+        source: 'staged',
+        editing: true,
+      });
   });
   expect(
     within(fileTabStrip())
@@ -230,11 +215,11 @@ it('falls back to the commit overview after closing the last commit tab', async 
   setupEditor();
   useSelection
     .getState()
-    .select(
-      repository.id,
-      { path: 'src/app.ts', source: 'commit', revision: 'abc' },
-      DEFAULT_MAX_FILE_TABS,
-    );
+    .select(repository.id, {
+      path: 'src/app.ts',
+      source: 'commit',
+      revision: 'abc',
+    });
   await act(() =>
     useSelection
       .getState()
@@ -279,9 +264,7 @@ it('hides Edit for read-only sources and explains files it cannot open', async (
     screen.queryByRole('button', { name: 'Edit' }),
   ).not.toBeInTheDocument();
   await act(async () => {
-    useSelection
-      .getState()
-      .select(repository.id, EDITOR_SELECTION, DEFAULT_MAX_FILE_TABS);
+    useSelection.getState().select(repository.id, EDITOR_SELECTION);
   });
   await userEvent
     .setup()

@@ -14,7 +14,7 @@ import { ErrorState } from '../states/Errors';
 import { State } from '../states/State';
 import { revisionTree } from './reveal';
 import { RevisionTree } from './RevisionTree';
-import { isDetached, shortHash, scopeKey } from '../../lib/git';
+import { headName, scopeKey, statusHead } from '../../lib/git';
 import { useOpenFile } from '../../lib/open-file';
 export function openCompare(repo: string, patch: Partial<TabLayout> = {}) {
   useLayout.getState().update(repo, { ...patch, mode: 'compare' });
@@ -27,9 +27,6 @@ export function swapCompare(repo: string, base: string, target: string) {
 }
 export function baseFieldId(repo: string) {
   return scopeKey(repo, 'compare-base');
-}
-function headName(status: Status) {
-  return isDetached(status.branch) ? shortHash(status.oid) : status.branch;
 }
 interface Endpoints {
   base: string;
@@ -49,7 +46,7 @@ function useEndpoints(repo: string, status: Status, enabled: boolean) {
   const fallback = useBackend('default_branch', { repo }, enabled);
   return {
     base: layout.compareBase || fallback.data || '',
-    target: layout.compareTarget || headName(status),
+    target: layout.compareTarget || headName(statusHead(status)),
     mergeBase: layout.mergeBase,
   };
 }

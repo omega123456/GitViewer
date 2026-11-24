@@ -30,7 +30,6 @@ import {
   searched,
   type PaletteCursor,
 } from './palette-cursor';
-import { useFileTabLimit } from '../../lib/settings';
 import {
   emptyHints,
   groupBuilders,
@@ -99,7 +98,6 @@ function usePaletteGroups(repo: string, filter: string) {
   const query = useDeferredValue(filter);
   const { ignored, matches, entries } = useFileMatches(repo, query);
   const repositories = useRepositoryRows();
-  const tabLimit = useFileTabLimit();
   const groups = groupBuilders[mode]({
     ...repositories,
     repo: repo,
@@ -107,7 +105,6 @@ function usePaletteGroups(repo: string, filter: string) {
     scopes: scopes,
     matches: matches,
     entries: entries,
-    tabLimit: tabLimit,
   });
   const appKey = (id: string) =>
     scopes.app?.find((action) => action.id === id)?.key;

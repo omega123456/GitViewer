@@ -3,6 +3,7 @@ import type { Selection } from '../lib/types';
 import { approveDiscard, current, drop, dropRepo, isProtected } from './editor';
 import { tabLayout, type SidebarMode } from './layout';
 import { stepIndex } from '../lib/list';
+import { fileTabLimit } from '../lib/settings';
 import {
   closedTab,
   editingElsewhere,
@@ -24,10 +25,9 @@ export { tabKey } from './selection/transitions';
 export interface TabStep {
   mode: SidebarMode;
   direction: number;
-  limit: number;
 }
 interface Selections extends SelectionState {
-  select: (id: string, selection: Selection, limit: number) => void;
+  select: (id: string, selection: Selection) => void;
   viewAll: (id: string, stack: Stack) => void;
   setPath: (id: string, path: string) => void;
   closeTab: (id: string, mode: SidebarMode, key: string) => Promise<void>;
@@ -38,7 +38,6 @@ interface TabRequest {
   id: string;
   mode: SidebarMode;
   selection: Selection;
-  limit: number;
 }
 const noTabs: FileTab[] = [];
 let clock = 0;
@@ -52,11 +51,11 @@ function isClosable(id: string, tab: FileTab) {
   const editing = Boolean(tab.selection.editing);
   return !(editing && isProtected({ repo: id, path: tab.selection.path }));
 }
-function oldestClean(request: TabRequest, tabs: FileTab[], kept: FileTab) {
+function oldestClean(id: string, tabs: FileTab[], kept: FileTab) {
   return tabs
-    .filter((tab) => tab !== kept && isClosable(request.id, tab))
+    .filter((tab) => tab !== kept && isClosable(id, tab))
     .sort((left, right) => left.used - right.used)
-    .slice(0, Math.max(0, tabs.length - request.limit));
+    .slice(0, Math.max(0, tabs.length - fileTabLimit()));
 }
 const pendingLeave = new Map<string, () => void>();
 function guarded(id: string, leaving: string | undefined, apply: () => void) {
@@ -88,7 +87,7 @@ function openTab(request: TabRequest) {
     existing: existing,
   });
   const isNewFile = Boolean(selection.path) && !existing;
-  const closing = isNewFile ? oldestClean(request, tabs, fresh) : [];
+  const closing = isNewFile ? oldestClean(id, tabs, fresh) : [];
   const kept = tabs.filter((tab) => !closing.includes(tab));
   useSelection.setState((state) =>
     opened(state, { id: id, mode: mode, selection: selection, tabs: kept }),
@@ -101,22 +100,28 @@ function leavingPath(id: string, selection: Selection, current?: FileTab) {
   const editedElsewhere = editingElsewhere(repoOf(id), selection.path, current);
   return stopsEditing && !editedElsewhere ? selection.path : undefined;
 }
-function selectFile(id: string, requested: Selection, limit: number) {
+function selectFile(id: string, requested: Selection) {
   const mode = tabLayout(id).mode;
   const current = findTab(repoOf(id), mode, tabKey(requested));
   const selection = keptEditing(requested, current);
   const leaving = leavingPath(id, selection, current);
   guarded(id, leaving, () =>
-    openTab({ id: id, mode: mode, selection: selection, limit: limit }),
+    openTab({ id: id, mode: mode, selection: selection }),
   );
+}
+async function approvedToClose(id: string, tab: FileTab) {
+  const { path, editing } = tab.selection;
+  const asksFirst =
+    Boolean(editing) && !editingElsewhere(repoOf(id), path, tab);
+  if (!asksFirst) return true;
+  return approveDiscard({ repo: id, path: path });
 }
 async function closeFileTab(id: string, mode: SidebarMode, key: string) {
   const tab = findTab(repoOf(id), mode, key);
   if (!tab) return;
-  const { path, editing } = tab.selection;
-  const asksFirst =
-    Boolean(editing) && !editingElsewhere(repoOf(id), path, tab);
-  if (asksFirst && !(await approveDiscard({ repo: id, path: path }))) return;
+  const approved = await approvedToClose(id, tab);
+  if (!approved) return;
+  const { path } = tab.selection;
   useSelection.setState((state) =>
     closedTab(state, { id: id, mode: mode, tab: tab }),
   );
@@ -128,7 +133,7 @@ function cycleFileTab(id: string, step: TabStep) {
   const activeKey = active?.path ? tabKey(active) : undefined;
   const index = tabs.findIndex((tab) => tabKey(tab.selection) === activeKey);
   const next = tabs[stepIndex(index, step.direction, tabs.length)];
-  if (next) selectFile(id, next.selection, step.limit);
+  if (next) selectFile(id, next.selection);
 }
 export const useSelection = create<Selections>((set) => ({
   repos: {},
@@ -178,8 +183,7 @@ export function useActiveTabKey(id: string, mode: SidebarMode) {
     return active?.path ? tabKey(active) : '';
   });
 }
-export function stopEditing(id: string, limit: number) {
+export function stopEditing(id: string) {
   const selection = selectionOf(id, tabLayout(id).mode);
-  if (selection?.editing)
-    selectFile(id, { ...selection, editing: false }, limit);
+  if (selection?.editing) selectFile(id, { ...selection, editing: false });
 }

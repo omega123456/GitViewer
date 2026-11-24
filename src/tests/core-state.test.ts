@@ -18,7 +18,6 @@ import {
   treeOrder,
   treeRoot,
 } from '../components/sidebar/nodes';
-import { DEFAULT_MAX_FILE_TABS } from '../lib/settings';
 import { diff, gapped, gappedText, identity, status } from './fixtures';
 
 const CUSTOM_SIDEBAR_WIDTH = 320;
@@ -47,13 +46,9 @@ it('preserves independent repository selections and messages', () => {
   tabs.open('two', 'Two');
   tabs.open('one', 'One');
   tabs.setMessage('one', 'draft');
-  useSelection
-    .getState()
-    .select('one', { path: 'a', source: 'staged' }, DEFAULT_MAX_FILE_TABS);
+  useSelection.getState().select('one', { path: 'a', source: 'staged' });
   useLayout.getState().update('one', { mode: 'history' });
-  useSelection
-    .getState()
-    .select('one', { path: 'b', source: 'commit' }, DEFAULT_MAX_FILE_TABS);
+  useSelection.getState().select('one', { path: 'b', source: 'commit' });
   expect(selectionOf('one', 'working')?.path).toBe('a');
   expect(selectionOf('one', 'history')?.path).toBe('b');
   expect(useTabs.getState().messages.two).toBeUndefined();
@@ -75,9 +70,7 @@ it('keeps every presentation slice separately addressable per repository', () =>
   useLayout.getState().forget('one');
   expect(useLayout.getState().tabs.one).toBeUndefined();
   useSelection.getState().setPath('one', 'src/app.ts');
-  useSelection
-    .getState()
-    .select('one', { path: 'a', source: 'staged' }, DEFAULT_MAX_FILE_TABS);
+  useSelection.getState().select('one', { path: 'a', source: 'staged' });
   useSelection.getState().forget('one');
   expect(historyPathOf('one')).toBe('');
   expect(selectionOf('one', 'working')).toBeUndefined();

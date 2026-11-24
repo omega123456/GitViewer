@@ -143,10 +143,13 @@ pub struct Piped {
 fn pipe<Stream>(stream: Option<Stream>, name: &str) -> Result<Stream> {
     stream.ok_or_else(|| Error::unexpected(format!("Git {name} unavailable")))
 }
-pub fn spawn_piped(command: &mut Command) -> Result<Piped> {
-    let mut child = command
+fn spawn(command: &mut Command) -> Result<Child> {
+    command
         .spawn()
-        .map_err(|error| Error::new("missing_git", error.to_string()))?;
+        .map_err(|error| Error::new("missing_git", error.to_string()))
+}
+pub fn spawn_piped(command: &mut Command) -> Result<Piped> {
+    let mut child = spawn(command)?;
     Ok(Piped {
         stdin: pipe(child.stdin.take(), "stdin")?,
         stdout: pipe(child.stdout.take(), "stdout")?,
@@ -169,14 +172,12 @@ pub async fn finish<Value>(task: JoinHandle<std::io::Result<Value>>) -> Result<V
     Ok(task.await.map_err(Error::from)??)
 }
 async fn execute(mut command: Command, input: Option<&[u8]>) -> Result<Output> {
-    let piped = spawn_piped(&mut command)?;
+    let mut child = spawn(&mut command)?;
+    let stdin = pipe(child.stdin.take(), "stdin")?;
     let data = input.map(Vec::from).unwrap_or_default();
-    let writer = feed(piped.stdin, data);
-    let stdout = collect(piped.stdout);
-    let stderr = collect(piped.stderr);
-    let mut child = piped.child;
-    let status = child.wait().await?;
-    let output = Output::new(status, finish(stdout).await?, &finish(stderr).await?);
+    let writer = feed(stdin, data);
+    let finished = child.wait_with_output().await?;
+    let output = Output::new(finished.status, finished.stdout, &finished.stderr);
     let write_result = writer.await.map_err(Error::from)?;
     if output.succeeded() {
         write_result?;
@@ -284,15 +285,14 @@ pub async fn apply_checked(root: &Path, arguments: &[&str], patch: &[u8]) -> Res
         .accept(&[EXIT_SUCCESS])
 }
 pub async fn untracked_in_stash(root: &Path, stash: &str, listing: &[&str]) -> Result<Vec<String>> {
-    let tree = stash_untracked(stash);
-    let mut arguments = vec!["ls-tree", "-r", "-z"];
-    arguments.extend_from_slice(listing);
-    arguments.push(&tree);
-    let output = run(root, &arguments, None).await?;
-    if !output.succeeded() {
+    let untracked_commit = stash_untracked(stash);
+    if !ref_exists(root, &untracked_commit).await? {
         return Ok(Vec::new());
     }
-    Ok(nul_fields(&output.text()).map(String::from).collect())
+    let mut arguments = vec!["ls-tree", "-r", "-z"];
+    arguments.extend_from_slice(listing);
+    arguments.push(&untracked_commit);
+    nul_list(root, &arguments).await
 }
 pub async fn ignored<'a>(
     root: &Path,

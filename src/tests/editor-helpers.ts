@@ -3,12 +3,10 @@ import userEvent from '@testing-library/user-event';
 import type { EditorView } from '@codemirror/view';
 import { expect } from 'vitest';
 import { changes } from '../components/editor/setup';
-import type { Opened, Selection, SettingsResponse } from '../lib/types';
-import { client, queryKey } from '../lib/query';
+import type { Opened, Selection } from '../lib/types';
 import { useEditor } from '../stores/editor';
 import { fileTabsOf, useSelection } from '../stores/selection';
 import { useTabs } from '../stores/tabs';
-import { DEFAULT_MAX_FILE_TABS } from '../lib/settings';
 import { emit, emptyRepoMocks, mockCommand } from './harness';
 import { diff, repository, settings, stack, status } from './fixtures';
 import { findEditorView, mountApp } from './workbench';
@@ -54,7 +52,7 @@ export function setupEditor(
 }
 
 export function mountEditor(start: Selection = EDITOR_SELECTION) {
-  useSelection.getState().select(repository.id, start, DEFAULT_MAX_FILE_TABS);
+  useSelection.getState().select(repository.id, start);
   return mountApp();
 }
 
@@ -92,22 +90,13 @@ export function editorBuffer(path = 'src/app.ts') {
   return useEditor.getState().buffers[repository.id]?.[path];
 }
 
-function tabLimit() {
-  const current = client.getQueryData<SettingsResponse>(
-    queryKey('settings_get', {}),
-  );
-  return current?.maxFileTabs ?? DEFAULT_MAX_FILE_TABS;
-}
-
 export function openEditorTab(path: string, editing?: boolean) {
   return act(async () => {
-    useSelection
-      .getState()
-      .select(
-        repository.id,
-        { path: path, source: 'unstaged', editing: editing },
-        tabLimit(),
-      );
+    useSelection.getState().select(repository.id, {
+      path: path,
+      source: 'unstaged',
+      editing: editing,
+    });
   });
 }
 

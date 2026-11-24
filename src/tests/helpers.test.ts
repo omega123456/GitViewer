@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getUnixTime, subDays, subMinutes } from 'date-fns';
+import { getUnixTime, parseISO, subDays, subMinutes } from 'date-fns';
 import { create } from 'zustand';
 import { plural, pluralWord, truncateList } from '../lib/text';
 import { stepIndex, wrapIndex } from '../lib/list';
@@ -94,7 +94,7 @@ describe('index and record helpers', () => {
 describe('time and interval helpers', () => {
   it('renders relative and elapsed time', () => {
     vi.useFakeTimers();
-    const now = new Date('2026-11-23T12:00:00Z');
+    const now = parseISO('2026-11-23T12:00:00Z');
     vi.setSystemTime(now);
     expect(relativeTime(getUnixTime(subMinutes(now, FIVE_MINUTES)))).toBe(
       '5 minutes ago',

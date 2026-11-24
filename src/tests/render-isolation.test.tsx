@@ -11,7 +11,6 @@ import { Profiler } from 'react';
 import App from '../App';
 import { Providers } from '../providers';
 import { useSelection, selectionOf } from '../stores/selection';
-import { DEFAULT_MAX_FILE_TABS } from '../lib/settings';
 import { calls, mockCommand } from './harness';
 import { renders } from './renders';
 import { HASH_LENGTH, repository, status } from './fixtures';
@@ -66,11 +65,7 @@ async function mountIsolatedShell() {
   act(() =>
     useSelection
       .getState()
-      .select(
-        repository.id,
-        { path: 'src/app.ts', source: 'unstaged' },
-        DEFAULT_MAX_FILE_TABS,
-      ),
+      .select(repository.id, { path: 'src/app.ts', source: 'unstaged' }),
   );
   const pane = await screen.findByRole('region', { name: 'Diff viewer' });
   await waitFor(() => expect(colored(pane)).toBeGreaterThan(0));

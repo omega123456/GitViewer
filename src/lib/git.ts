@@ -1,3 +1,4 @@
+import type { Status } from './types';
 export const UNTRACKED = '?';
 export const UNMODIFIED = '.';
 export const DETACHED_LABEL = '(detached)';
@@ -9,6 +10,24 @@ export function shortHash(hash: string) {
 }
 export function isDetached(branch: string | undefined) {
   return branch === DETACHED_LABEL;
+}
+export interface Head {
+  detached: boolean;
+  oid: string;
+  branch: string;
+}
+export function statusHead(status: Status): Head {
+  return {
+    detached: isDetached(status.branch),
+    oid: status.oid,
+    branch: status.branch,
+  };
+}
+export function headName(head: Head) {
+  return head.detached ? shortHash(head.oid) : head.branch;
+}
+export function headLabel(head: Head) {
+  return head.detached ? `${headName(head)} detached` : head.branch;
 }
 export function scopeKey(repo: string, name: string) {
   return `${repo}${SCOPE_SEPARATOR}${name}`;

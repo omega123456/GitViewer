@@ -52,6 +52,23 @@ export function useBackend<K extends keyof Commands>(
 ) {
   return useSeededBackend(command, args, { enabled: enabled });
 }
+export function useBackendField<K extends keyof Commands, Field>(
+  command: K,
+  args: Commands[K]['args'],
+  pick: (data: Commands[K]['result']) => Field,
+) {
+  return useQuery({
+    queryKey: queryKey(command, args),
+    queryFn: () => invoke(command, args),
+    select: pick,
+  }).data;
+}
+export function cachedBackend<K extends keyof Commands>(
+  command: K,
+  args: Commands[K]['args'],
+) {
+  return client.getQueryData<Commands[K]['result']>(queryKey(command, args));
+}
 export function freshStatus(repo: string) {
   return client.fetchQuery({
     queryKey: queryKey('status', { repo }),

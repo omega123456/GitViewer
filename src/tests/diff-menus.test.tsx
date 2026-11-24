@@ -6,7 +6,6 @@ import { useSelection } from '../stores/selection';
 import { useFilterStore } from '../stores/filter';
 import { useReveal } from '../stores/reveal';
 import { absolutePath } from '../lib/paths';
-import { DEFAULT_MAX_FILE_TABS } from '../lib/settings';
 import type { TreeEntry } from '../lib/types';
 import { calls, emit, mockCommand } from './harness';
 import { repository } from './fixtures';
@@ -150,11 +149,7 @@ it('copies the name and path and reveals a change in the files tree, not the cha
   useFilterStore.getState().set(repository.id, 'app');
   useSelection
     .getState()
-    .select(
-      repository.id,
-      { path: 'src/app.ts', source: 'unstaged' },
-      DEFAULT_MAX_FILE_TABS,
-    );
+    .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
   mountApp();
   await user.click(await screen.findByRole('button', { name: /^Files/ }));
   const files = await screen.findByRole('tree', { name: 'All files' });
@@ -193,11 +188,7 @@ it('opens the files section, clears a hiding filter, and loads folders to reveal
   useFilterStore.getState().set(repository.id, 'app');
   useSelection
     .getState()
-    .select(
-      repository.id,
-      { path: 'docs/guide.md', source: 'file' },
-      DEFAULT_MAX_FILE_TABS,
-    );
+    .select(repository.id, { path: 'docs/guide.md', source: 'file' });
   mountApp();
   await revealTab(user, 'guide.md');
   expect(useLayout.getState().tabs[repository.id].filesOpen).toBe(true);
@@ -219,11 +210,7 @@ it('gives up on a file the tree no longer lists', async () => {
   useFilterStore.getState().set(repository.id, 'gone');
   useSelection
     .getState()
-    .select(
-      repository.id,
-      { path: 'docs/gone.txt', source: 'file' },
-      DEFAULT_MAX_FILE_TABS,
-    );
+    .select(repository.id, { path: 'docs/gone.txt', source: 'file' });
   mountApp();
   await revealTab(user, 'gone.txt');
   expect(useFilterStore.getState().text[repository.id]).toBe('gone');
@@ -238,11 +225,11 @@ it('reveals a commit file in the commit tree', async () => {
   useLayout.getState().update(repository.id, { mode: 'history' });
   useSelection
     .getState()
-    .select(
-      repository.id,
-      { path: 'src/app.ts', source: 'commit', revision: commit.hash },
-      DEFAULT_MAX_FILE_TABS,
-    );
+    .select(repository.id, {
+      path: 'src/app.ts',
+      source: 'commit',
+      revision: commit.hash,
+    });
   mountApp();
   const tree = await screen.findByRole('tree', { name: 'Commit files' });
   await user.click(await within(tree).findByRole('treeitem', { name: 'src' }));
@@ -267,11 +254,11 @@ it('opens the stash section on the tab stash to reveal a stash file', async () =
   const user = userEvent.setup();
   useSelection
     .getState()
-    .select(
-      repository.id,
-      { path: 'src/app.ts', source: 'stash', revision: 'stash-hash' },
-      DEFAULT_MAX_FILE_TABS,
-    );
+    .select(repository.id, {
+      path: 'src/app.ts',
+      source: 'stash',
+      revision: 'stash-hash',
+    });
   mountApp();
   await screen.findByRole('button', { name: /Stashes/ });
   await revealTab(user, 'app.ts');

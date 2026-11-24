@@ -27,7 +27,6 @@ export interface StackFileHeaderState {
   data: Diff | undefined;
   counts: ChangeCounts;
   expansion: Expansion;
-  maxFileTabs: number;
   onToggleOpen: () => void;
 }
 export function StackFileHeader({
@@ -75,7 +74,7 @@ export function StackFileHeader({
           onClick={() =>
             useSelection
               .getState()
-              .select(repo, { ...selection, editing: true }, state.maxFileTabs)
+              .select(repo, { ...selection, editing: true })
           }
         />
       )}

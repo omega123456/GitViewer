@@ -122,7 +122,8 @@ function mergeDisplay({
   part: Tokens;
 }): Tokens {
   if (all) return all;
-  return { ...(current ?? fallback), ...part };
+  const accumulated = current ?? { ...fallback };
+  return Object.assign(accumulated, part);
 }
 interface TokenizeRequest {
   data: Diff;

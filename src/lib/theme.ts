@@ -1,5 +1,5 @@
-import type { Settings } from './types';
-import { useSettings } from './settings';
+import type { Settings, SettingsResponse } from './types';
+import { useSetting } from './settings';
 import { useSystemTheme } from '../stores/theme';
 const DEFAULT_THEME: Settings['theme'] = 'system';
 const DEFAULT_DENSITY: Settings['density'] = 'comfortable';
@@ -9,13 +9,19 @@ export function isDark(preference: Settings['theme'], systemDark: boolean) {
   if (preference === 'system') return systemDark;
   return preference === 'dark';
 }
+function themeOf(settings: SettingsResponse) {
+  return settings.theme;
+}
+function densityOf(settings: SettingsResponse) {
+  return settings.density;
+}
 export function useDark() {
-  const preference = useSettings()?.theme ?? DEFAULT_THEME;
+  const preference = useSetting(themeOf) ?? DEFAULT_THEME;
   const systemDark = useSystemTheme((state) => state.dark);
   return isDark(preference, systemDark);
 }
 export function useCompact() {
-  const density = useSettings()?.density ?? DEFAULT_DENSITY;
+  const density = useSetting(densityOf) ?? DEFAULT_DENSITY;
   return density === 'compact';
 }
 export function followSystemTheme() {

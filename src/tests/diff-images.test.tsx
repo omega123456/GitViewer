@@ -5,7 +5,6 @@ import { QueryProvider } from '../providers/QueryProvider';
 import { useSelection } from '../stores/selection';
 import { DiffPane } from '../components/diff/DiffPane';
 import { ImageDiff } from '../components/image/ImageDiff';
-import { DEFAULT_MAX_FILE_TABS } from '../lib/settings';
 import { calls, mockCommand } from './harness';
 import { diff, repository, settings } from './fixtures';
 import { mountApp, runAction, setup } from './workbench';
@@ -105,11 +104,7 @@ it('opens oversized images externally without offering an in-app override', asyn
   setup();
   useSelection
     .getState()
-    .select(
-      repository.id,
-      { path: 'large.png', source: 'file' },
-      DEFAULT_MAX_FILE_TABS,
-    );
+    .select(repository.id, { path: 'large.png', source: 'file' });
   mockCommand('diff', () => ({
     ...diff,
     image: true,

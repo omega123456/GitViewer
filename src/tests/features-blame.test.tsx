@@ -5,7 +5,6 @@ import { expect, it, vi } from 'vitest';
 import { useLayout } from '../stores/layout';
 import { useSelection, selectionOf } from '../stores/selection';
 import { initials } from '../components/shared/Avatar';
-import { DEFAULT_MAX_FILE_TABS } from '../lib/settings';
 import { calls, mockCommand } from './harness';
 import { domRect, VIEWPORT_HEIGHT } from './setup';
 import { HASH_LENGTH, repository } from './fixtures';
@@ -53,11 +52,7 @@ async function openBlameView() {
   mockTwoLineBlame();
   useSelection
     .getState()
-    .select(
-      repository.id,
-      { path: 'src/app.ts', source: 'unstaged' },
-      DEFAULT_MAX_FILE_TABS,
-    );
+    .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
   mountApp();
   await screen.findByTitle('Stage hunk');
   await runAction('blame');
@@ -175,11 +170,11 @@ it('pages the history until a blamed commit is loaded, then selects and reveals 
   const lastHash = setupPagedBlameHistory();
   useSelection
     .getState()
-    .select(
-      repository.id,
-      { path: 'src/app.ts', source: 'unstaged', blame: true },
-      DEFAULT_MAX_FILE_TABS,
-    );
+    .select(repository.id, {
+      path: 'src/app.ts',
+      source: 'unstaged',
+      blame: true,
+    });
   const user = userEvent.setup();
   mountApp();
   const scroll = vi.mocked(HTMLElement.prototype.scrollTo);

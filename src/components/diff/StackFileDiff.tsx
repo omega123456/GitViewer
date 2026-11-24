@@ -270,7 +270,6 @@ function buildStackFileStates({
       data: model.data,
       counts: model.diffFile.counts,
       expansion: model.expansion,
-      maxFileTabs: pane.settings.maxFileTabs,
       onToggleOpen: () =>
         pane.setClosed((all) => ({ ...all, [path]: !all[path] })),
     },

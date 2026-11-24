@@ -3,7 +3,6 @@ import userEvent from '@testing-library/user-event';
 import { expect, it } from 'vitest';
 import { useSelection } from '../stores/selection';
 import { useDiffView } from '../stores/diff-view';
-import { DEFAULT_MAX_FILE_TABS } from '../lib/settings';
 import { calls, callsFor, dialog, mockCommand } from './harness';
 import { diff, gapped, gappedText, repository } from './fixtures';
 import {
@@ -200,11 +199,7 @@ it('copies the file path from the diff header', async () => {
   setup();
   useSelection
     .getState()
-    .select(
-      repository.id,
-      { path: 'src/app.ts', source: 'unstaged' },
-      DEFAULT_MAX_FILE_TABS,
-    );
+    .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
   const user = userEvent.setup();
   mountApp();
   await user.click(await screen.findByLabelText('Copy file path'));
@@ -222,11 +217,7 @@ it('keeps the copy label when the clipboard write fails', async () => {
   });
   useSelection
     .getState()
-    .select(
-      repository.id,
-      { path: 'src/app.ts', source: 'unstaged' },
-      DEFAULT_MAX_FILE_TABS,
-    );
+    .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
   const user = userEvent.setup();
   mountApp();
   await user.click(await screen.findByLabelText('Copy file path'));
@@ -244,11 +235,7 @@ it('uses the registry for hunk actions, view controls, and system opening', asyn
   setup();
   useSelection
     .getState()
-    .select(
-      repository.id,
-      { path: 'src/app.ts', source: 'unstaged' },
-      DEFAULT_MAX_FILE_TABS,
-    );
+    .select(repository.id, { path: 'src/app.ts', source: 'unstaged' });
   mockCommand('hunk_action', () => null);
   mockCommand('system_open', () => null);
   mountApp();

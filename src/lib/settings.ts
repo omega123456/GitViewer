@@ -1,5 +1,5 @@
-import { perform, useBackend } from './query';
-import type { Settings } from './types';
+import { cachedBackend, perform, useBackendField } from './query';
+import type { Settings, SettingsResponse } from './types';
 export const DEFAULT_MAX_FILE_TABS = 8;
 export function saveSettings<Current extends Settings>(
   settings: Current,
@@ -7,9 +7,12 @@ export function saveSettings<Current extends Settings>(
 ) {
   return perform('settings_set', { ...settings, ...patch });
 }
-export function useSettings() {
-  return useBackend('settings_get', {}).data;
+export function useSetting<Field>(pick: (settings: SettingsResponse) => Field) {
+  return useBackendField('settings_get', {}, pick);
 }
-export function useFileTabLimit() {
-  return useSettings()?.maxFileTabs ?? DEFAULT_MAX_FILE_TABS;
+export function cachedSettings() {
+  return cachedBackend('settings_get', {});
+}
+export function fileTabLimit() {
+  return cachedSettings()?.maxFileTabs ?? DEFAULT_MAX_FILE_TABS;
 }

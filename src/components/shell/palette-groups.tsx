@@ -46,7 +46,6 @@ export interface PaletteSources {
   statuses: Record<string, Status | undefined>;
   matches: FuzzyMatch<string>[];
   entries: Map<string, Entry>;
-  tabLimit: number;
 }
 export interface HintSources {
   ignored: boolean;
@@ -146,11 +145,11 @@ function openFile(
   path: string,
   entry: Entry | undefined,
 ) {
-  const { repo, tabLimit } = sources;
+  const { repo } = sources;
   useLayout.getState().update(repo, { mode: 'working' });
   useSelection
     .getState()
-    .select(repo, { path: path, source: sourceFor(entry) }, tabLimit);
+    .select(repo, { path: path, source: sourceFor(entry) });
 }
 function fileRow(
   { item: path, positions }: FuzzyMatch<string>,

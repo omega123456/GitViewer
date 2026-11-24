@@ -12,7 +12,6 @@ import { useSelection } from '../stores/selection';
 import { useDiffView } from '../stores/diff-view';
 import { DiffPane } from '../components/diff/DiffPane';
 import { useTokens } from '../components/diff/tokens';
-import { DEFAULT_MAX_FILE_TABS } from '../lib/settings';
 import type { Diff } from '../lib/types';
 import { emit, mockCommand } from './harness';
 import { flushChannel, release, workers } from './setup';
@@ -257,11 +256,7 @@ it('reuses finished tokens across a file tab switch, with the full file shown, a
   act(() =>
     useSelection
       .getState()
-      .select(
-        repository.id,
-        { path: 'src/app.ts', source: 'unstaged' },
-        DEFAULT_MAX_FILE_TABS,
-      ),
+      .select(repository.id, { path: 'src/app.ts', source: 'unstaged' }),
   );
   const pane = await screen.findByRole('region', { name: 'Diff viewer' });
   await user.click(await screen.findByTitle('Show full file'));
@@ -272,11 +267,7 @@ it('reuses finished tokens across a file tab switch, with the full file shown, a
   act(() =>
     useSelection
       .getState()
-      .select(
-        repository.id,
-        { path: 'new.txt', source: 'file' },
-        DEFAULT_MAX_FILE_TABS,
-      ),
+      .select(repository.id, { path: 'new.txt', source: 'file' }),
   );
   await waitFor(() => expect(jobsFor('new.txt')).toBeGreaterThan(0));
   const strip = screen.getByRole('tablist', { name: 'Open files' });

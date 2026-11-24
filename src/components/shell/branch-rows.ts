@@ -1,5 +1,5 @@
 import type { Branch, Status, Worktree } from '../../lib/types';
-import { isDetached, shortHash } from '../../lib/git';
+import { headLabel, statusHead } from '../../lib/git';
 import { runs, type Activity } from '../../stores/activity';
 import type { Tab } from '../../stores/tabs';
 
@@ -93,14 +93,10 @@ export function holderOf(branch: Branch, worktrees: Worktree[], repo: string) {
   if (!elsewhere) return undefined;
   return worktrees.find((worktree) => worktree.id === branch.worktree);
 }
-function headLabel(detached: boolean, oid: string, branch: string) {
-  return detached ? `${shortHash(oid)} detached` : branch;
-}
 export function worktreeHead(worktree: Worktree, status?: Status) {
   if (worktree.bare) return 'bare';
-  if (status)
-    return headLabel(isDetached(status.branch), status.oid, status.branch);
-  return headLabel(worktree.detached, worktree.oid, worktree.branch);
+  if (status) return headLabel(statusHead(status));
+  return headLabel(worktree);
 }
 export function worktreeBusyLabel(
   activity: Activity | undefined,

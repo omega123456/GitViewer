@@ -88,7 +88,9 @@ function useBufferSync({
   useEffect(() => {
     const canReconcile =
       opened.isSuccess && ready && !ready.saving && !ready.conflict;
-    if (!canReconcile || opened.data === seen.current) return;
+    const alreadySeen = opened.data === seen.current;
+    const skipsReconcile = !canReconcile || alreadySeen;
+    if (skipsReconcile) return;
     seen.current = opened.data;
     applyReconciliation(file, reconcile(ready, opened.data ?? null));
   }, [opened.isSuccess, opened.data, ready, file]);

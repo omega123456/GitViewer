@@ -7,7 +7,7 @@ import { describeActivity } from '../../lib/activity';
 import type { Status } from '../../lib/types';
 import { useCurrentActivity } from '../../stores/activity';
 import { Spinner } from '../shared/Spinner';
-import { isDetached, shortHash } from '../../lib/git';
+import { headLabel, statusHead } from '../../lib/git';
 const RELATIVE_TIME_REFRESH = milliseconds({ seconds: 30 });
 function useRerenderPeriodically() {
   const [, setRenders] = useState(0);
@@ -72,10 +72,6 @@ function WorktreeFolder({ repo }: { repo: string }) {
     </span>
   );
 }
-function headName(status: Status) {
-  if (isDetached(status.branch)) return `${shortHash(status.oid)} detached`;
-  return status.branch;
-}
 export function StatusBar({
   repo,
   status,
@@ -91,7 +87,7 @@ export function StatusBar({
       <WorktreeFolder repo={repo} />
       <span className="flex items-center gap-1.5">
         <GitBranch className="size-3" />
-        {headName(status)}
+        {headLabel(statusHead(status))}
       </span>
       {status.upstream && (
         <span className="tabular-nums">
